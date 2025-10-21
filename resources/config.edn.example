@@ -1,0 +1,40 @@
+{;; SimpleFin Bridge configuration
+ :simplefin {:access-url "sfin://token:secret@bridge.simplefin.org/simplefin"}
+
+ ;; Data directories
+ :data-dir "data"
+ :csv-dir "data/csv"
+ :pdf-dir "data/pdf"
+
+ ;; Institution-specific configurations
+ :institutions {:scotiabank {:type :csv
+                             :date-format "yyyy-MM-dd"
+                             :columns {:date 0 :description 1 :amount 2}}
+                :canadian-tire {:type :csv
+                                :date-format "MM/dd/yyyy"
+                                :columns {:date 0 :description 1 :debit 2 :credit 3}}
+                :amazon-mbna {:type :csv
+                              :date-format "yyyy-MM-dd"
+                              :columns {:date 0 :description 1 :amount 2}}
+                :wealthsimple {:type :simplefin}
+                :manulife {:type :pdf}
+                :canada-life {:type :pdf}
+                :merix {:type :pdf}
+                :house {:type :manual
+                        :value 500000}}
+
+ ;; Transaction categorization rules
+ :category-rules [{:pattern #"(?i)grocery|superstore|loblaws|sobeys"
+                   :category :groceries}
+                  {:pattern #"(?i)restaurant|cafe|coffee|tim hortons"
+                   :category :dining}
+                  {:pattern #"(?i)gas|petro|shell|esso"
+                   :category :transportation}
+                  {:pattern #"(?i)insurance"
+                   :category :insurance}
+                  {:pattern #"(?i)mortgage|rent"
+                   :category :housing}
+                  {:pattern #"(?i)utilities|hydro|electricity|water"
+                   :category :utilities}
+                  {:pattern #"(?i)transfer|payment"
+                   :category :transfer}]}

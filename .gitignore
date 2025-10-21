@@ -1,0 +1,21 @@
+# Data files
+/data/
+*.csv
+*.pdf
+
+# Credentials
+/resources/config.edn
+
+# Clojure
+.cpcache/
+.nrepl-port
+.lsp/
+.clj-kondo/
+
+# IDE
+.idea/
+*.iml
+.vscode/
+
+# OS
+.DS_Store
