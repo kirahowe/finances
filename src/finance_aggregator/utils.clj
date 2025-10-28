@@ -2,8 +2,10 @@
   (:require
    [tick.core :as t]))
 
-(defn unix->iso [timestamp]
-  )
+(defn epoch->date
+  "Converts Unix epoch timestamp to a date in UTC."
+  [timestamp]
+  (-> timestamp (* 1000) t/instant (t/in "UTC") t/date))
 
 (defn- ->epoch
   "Convert an Instant to epoch."

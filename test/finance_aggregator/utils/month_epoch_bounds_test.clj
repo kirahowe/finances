@@ -1,4 +1,4 @@
-(ns finance-aggregator.utils-test
+(ns finance-aggregator.utils.month-epoch-bounds-test
   (:require
    [clojure.test.check.clojure-test :refer [defspec]]
    [clojure.test.check.generators :as gen]
@@ -7,7 +7,6 @@
    [finance-aggregator.test-utils.setup :as setup]
    [tick.core :as t]))
 
-;; Generators
 (def year-gen
   "Generate reasonable years from 1970 to 2100"
   (gen/choose 1970 2100))
@@ -19,6 +18,7 @@
 (def year-month-gen
   "Generate [year month] pairs"
   (gen/tuple year-gen month-gen))
+
 
 (defspec start-date-is-before-end-date setup/test-times
   (prop/for-all [[year month] year-month-gen]
