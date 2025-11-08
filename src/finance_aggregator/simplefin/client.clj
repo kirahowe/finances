@@ -110,15 +110,6 @@
   ;; 2. Fetch all accounts
   (def accounts-response (fetch-transactions access-url 2025 8))
 
-  ;; 3. Process response
-  ;; - gather transactions for relevant accounts
-  ;; - check data makes sense
-  ;; - normalize it
-  (->> accounts-response
-       :accounts
-       (remove zero-balance?)
-       to-tidy-data)
-
   ;; accounts look like this, but with many transactions:
   ;; {:balance-date 1761439397,
   ;;  :name "Instalments",

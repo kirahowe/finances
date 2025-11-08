@@ -12,10 +12,5 @@
 .lsp/
 .clj-kondo/
 
-# IDE
-.idea/
-*.iml
-.vscode/
-
 # OS
 .DS_Store

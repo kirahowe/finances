@@ -1,11 +1,12 @@
 (ns finance-aggregator.utils
   (:require
-   [tick.core :as t]))
+   [tick.core :as t])
+  (:import [java.util Date]))
 
 (defn epoch->date
   "Converts Unix epoch timestamp to a date in UTC."
   [timestamp]
-  (-> timestamp (* 1000) t/instant (t/in "UTC") t/date))
+  (-> timestamp (* 1000) t/instant Date/from))
 
 (defn- ->epoch
   "Convert an Instant to epoch."
