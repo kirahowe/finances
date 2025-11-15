@@ -1,12 +1,19 @@
 {;; SimpleFin Bridge configuration
- :simplefin {:access-url "sfin://token:secret@bridge.simplefin.org/simplefin"}
+ ;; DO NOT put the access URL directly here!
+ ;; Instead, set the environment variable SIMPLEFIN_ACCESS_URL
+ ;; The access URL will be read from the environment at runtime
+ :simplefin {:access-url :env  ; Will read from SIMPLEFIN_ACCESS_URL env var
+             :institution-mapping {#"(?i)wealthsimple" :wealthsimple
+                                   #"(?i)scotiabank" :scotiabank
+                                   #"(?i)canadian.?tire" :canadian-tire
+                                   #"(?i)amazon" :amazon-mbna}}
 
  ;; Data directories
  :data-dir "data"
  :csv-dir "data/csv"
  :pdf-dir "data/pdf"
 
- ;; Institution-specific configurations
+ ;; Institution-specific CSV configurations
  :institutions {:scotiabank {:type :csv
                              :date-format "yyyy-MM-dd"
                              :columns {:date 0 :description 1 :amount 2}}
