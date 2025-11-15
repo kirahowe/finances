@@ -4,7 +4,8 @@
    [charred.api :as json]
    [datalevin.core :as d]
    [finance-aggregator.db :as db]
-   [finance-aggregator.db.categories :as categories]))
+   [finance-aggregator.db.categories :as categories]
+   [finance-aggregator.db.transactions :as transactions]))
 
 (defn json-response [data]
   "Create a JSON response"
@@ -37,7 +38,7 @@
                                    :where [?e :institution/id _]]
                   "accounts" '[:find [(pull ?e [*]) ...]
                                :where [?e :account/external-id _]]
-                  "transactions" '[:find [(pull ?e [*]) ...]
+                  "transactions" '[:find [(pull ?e [* {:transaction/category [*]}]) ...]
                                    :where [?e :transaction/external-id _]]
                   (throw (Exception. "Unknown entity type")))
           results (d/q query @db/conn)]
@@ -123,7 +124,7 @@
 
       (and (= method :put) (re-matches #"/api/categories/(\d+)" uri))
       (try
-        (let [db-id (Long/parseLong (last (re-matches #"/api/categories/(\d+)" uri)))
+        (let [db-id (parse-long (last (re-matches #"/api/categories/(\d+)" uri)))
               body (slurp (:body req))
               data (read-json body)
               updated (categories/update! db/conn db-id data)]
@@ -136,7 +137,7 @@
 
       (and (= method :delete) (re-matches #"/api/categories/(\d+)" uri))
       (try
-        (let [db-id (Long/parseLong (last (re-matches #"/api/categories/(\d+)" uri)))]
+        (let [db-id (parse-long (last (re-matches #"/api/categories/(\d+)" uri)))]
           ;; Check if category has transactions before deleting
           (if (categories/has-transactions? db/conn db-id)
             {:status 400
@@ -146,6 +147,21 @@
             (do
               (categories/delete! db/conn db-id)
               (json-response {:success true :data {:deleted true}}))))
+        (catch Exception e
+          {:status 400
+           :headers {"Content-Type" "application/json"
+                     "Access-Control-Allow-Origin" "*"}
+           :body (json/write-json-str {:success false :error (.getMessage e)})}))
+
+      ;; Transaction category assignment endpoint
+      (and (= method :put) (re-matches #"/api/transactions/(\d+)/category" uri))
+      (try
+        (let [tx-id (parse-long (second (re-matches #"/api/transactions/(\d+)/category" uri)))
+              body (slurp (:body req))
+              data (read-json body)
+              category-id (:categoryId data)
+              updated (transactions/update-category! db/conn tx-id category-id)]
+          (json-response {:success true :data updated}))
         (catch Exception e
           {:status 400
            :headers {"Content-Type" "application/json"
