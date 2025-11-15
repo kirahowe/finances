@@ -17,19 +17,19 @@
           category-id (:db/id category)
 
           ;; Create a transaction
-          _ (d/transact! @setup/*test-conn* [{:institution/id "inst-1"
+          _ (d/transact! setup/*test-conn* [{:institution/id "inst-1"
                                                :institution/name "Test Bank"}])
-          _ (d/transact! @setup/*test-conn* [{:account/external-id "acct-1"
+          _ (d/transact! setup/*test-conn* [{:account/external-id "acct-1"
                                                :account/external-name "Test Account"
                                                :account/institution [:institution/id "inst-1"]}])
-          _ (d/transact! @setup/*test-conn* [{:transaction/external-id "tx-1"
+          _ (d/transact! setup/*test-conn* [{:transaction/external-id "tx-1"
                                                :transaction/account [:account/external-id "acct-1"]
                                                :transaction/amount -50.00M
                                                :transaction/payee "Whole Foods"
                                                :transaction/posted-date (java.util.Date.)}])
 
           ;; Get the transaction
-          db (d/db @setup/*test-conn*)
+          db (d/db setup/*test-conn*)
           tx-before (d/pull db '[*] [:transaction/external-id "tx-1"])
           tx-id (:db/id tx-before)]
 
@@ -43,7 +43,7 @@
         (is (= category-id (get-in updated [:transaction/category :db/id]))))
 
       ;; Verify persistence
-      (let [db (d/db @setup/*test-conn*)
+      (let [db (d/db setup/*test-conn*)
             tx-after (d/pull db '[* {:transaction/category [*]}] tx-id)]
         (is (= category-id (get-in tx-after [:transaction/category :db/id])))
         (is (= "Groceries" (get-in tx-after [:transaction/category :category/name]))))))
@@ -55,19 +55,19 @@
                                                            :category/ident :category/dining})
           category-id (:db/id category)
 
-          _ (d/transact! @setup/*test-conn* [{:institution/id "inst-2"
+          _ (d/transact! setup/*test-conn* [{:institution/id "inst-2"
                                                :institution/name "Test Bank 2"}])
-          _ (d/transact! @setup/*test-conn* [{:account/external-id "acct-2"
+          _ (d/transact! setup/*test-conn* [{:account/external-id "acct-2"
                                                :account/external-name "Test Account 2"
                                                :account/institution [:institution/id "inst-2"]}])
-          _ (d/transact! @setup/*test-conn* [{:transaction/external-id "tx-2"
+          _ (d/transact! setup/*test-conn* [{:transaction/external-id "tx-2"
                                                :transaction/account [:account/external-id "acct-2"]
                                                :transaction/amount -25.00M
                                                :transaction/payee "Restaurant"
                                                :transaction/posted-date (java.util.Date.)
                                                :transaction/category category-id}])
 
-          db (d/db @setup/*test-conn*)
+          db (d/db setup/*test-conn*)
           tx (d/pull db '[* {:transaction/category [*]}] [:transaction/external-id "tx-2"])
           tx-id (:db/id tx)]
 
@@ -80,6 +80,6 @@
         (is (nil? (:transaction/category updated))))
 
       ;; Verify persistence
-      (let [db (d/db @setup/*test-conn*)
+      (let [db (d/db setup/*test-conn*)
             tx-after (d/pull db '[* {:transaction/category [*]}] tx-id)]
         (is (nil? (:transaction/category tx-after)))))))

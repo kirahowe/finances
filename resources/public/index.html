@@ -9,6 +9,7 @@
     <script src="https://cdn.jsdelivr.net/npm/scittle@0.6.15/dist/scittle.js" type="application/javascript"></script>
     <script src="https://cdn.jsdelivr.net/npm/scittle@0.6.15/dist/scittle.reagent.js" type="application/javascript"></script>
     <script src="https://cdn.jsdelivr.net/npm/scittle@0.6.15/dist/scittle.re-frame.js" type="application/javascript"></script>
+    <script src="js/categories.cljs" type="application/x-scittle"></script>
     <style>
         body {
             font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
@@ -102,7 +103,8 @@
     (ns finance-aggregator.ui
       (:require [reagent.core :as r]
                 [reagent.dom :as rdom]
-                [re-frame.core :as rf]))
+                [re-frame.core :as rf]
+                [finance-aggregator.ui.categories :as categories]))
 
     ;; Event handlers
     (rf/reg-event-db
@@ -112,6 +114,8 @@
          :accounts []
          :transactions []
          :institutions []
+         :categories []
+         :category-form {:show? false :editing-id nil :name "" :type :expense}
          :loading #{}}))
 
     (rf/reg-event-db
@@ -146,6 +150,19 @@
       (fn [db [_ error]]
         (assoc db :error error)))
 
+    ;; Make set-loading and set-error available globally
+    (rf/reg-event-db
+      :finance-aggregator.ui/set-loading
+      (fn [db [_ key loading?]]
+        (if loading?
+          (update db :loading conj key)
+          (update db :loading disj key))))
+
+    (rf/reg-event-db
+      :finance-aggregator.ui/set-error
+      (fn [db [_ error]]
+        (assoc db :error error)))
+
     ;; Subscriptions
     (rf/reg-sub
       ::stats
@@ -169,6 +186,11 @@
 
     (rf/reg-sub
       ::loading?
+      (fn [db [_ key]]
+        (contains? (:loading db) key)))
+
+    (rf/reg-sub
+      :finance-aggregator.ui/loading?
       (fn [db [_ key]]
         (contains? (:loading db) key)))
 
@@ -358,6 +380,7 @@
       [:div
        [error-display]
        [stats-section]
+       [categories/category-list]
        [accounts-section]
        [transactions-section]])
 

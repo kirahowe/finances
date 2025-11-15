@@ -21,7 +21,7 @@
       (is (= :category/groceries (:category/ident result)))
 
       ;; Verify it was persisted
-      (let [db (d/db @setup/*test-conn*)
+      (let [db (d/db setup/*test-conn*)
             fetched (d/pull db '[*] db-id)]
         (is (= "Groceries" (:category/name fetched))))))
 
@@ -98,7 +98,7 @@
       (is (= "Food & Groceries" (:category/name updated)))
 
       ;; Verify persistence
-      (let [db (d/db @setup/*test-conn*)
+      (let [db (d/db setup/*test-conn*)
             fetched (d/pull db '[*] db-id)]
         (is (= "Food & Groceries" (:category/name fetched))))))
 

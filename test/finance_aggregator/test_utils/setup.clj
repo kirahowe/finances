@@ -8,7 +8,7 @@
 (def test-times (or (some-> (System/getenv "TEST_CHECK_TIMES") parse-long)
                     100))
 
-;; Atoms to hold test connection (consistent with db_test.clj pattern)
+;; Dynamic vars to hold test connection (bare connection, not atom)
 (def ^:dynamic *test-conn* nil)
 (def ^:dynamic *test-db-path* nil)
 
@@ -30,13 +30,12 @@
 
 (defn with-empty-db
   "Test fixture that creates an empty test database for each test.
-   Uses atoms for connections to match existing test patterns."
+   Sets *test-conn* to a bare datalevin connection (not an atom)."
   [f]
   (let [db-path (create-temp-db-dir)
-        conn (d/get-conn db-path schema/schema)
-        conn-atom (atom conn)]
+        conn (d/get-conn db-path schema/schema)]
     (try
-      (binding [*test-conn* conn-atom
+      (binding [*test-conn* conn
                 *test-db-path* db-path]
         (f))
       (finally

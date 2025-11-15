@@ -16,13 +16,13 @@
 
 (defn read-json [body-str]
   "Read JSON data from request body"
-  (json/read-json body-str))
+  (json/read-json body-str :key-fn keyword))
 
 (defn- query-handler [query-str]
   "Execute a Datalog query and return results"
   (try
     (let [query (read-string query-str)
-          results (d/q query @db/conn)]
+          results (d/q query (d/db db/conn))]
       (json-response {:success true :data results}))
     (catch Exception e
       {:status 400
@@ -41,7 +41,7 @@
                   "transactions" '[:find [(pull ?e [* {:transaction/category [*]}]) ...]
                                    :where [?e :transaction/external-id _]]
                   (throw (Exception. "Unknown entity type")))
-          results (d/q query @db/conn)]
+          results (d/q query (d/db db/conn))]
       (json-response {:success true :data results}))
     (catch Exception e
       {:status 400
@@ -99,6 +99,22 @@
        :headers {"Content-Type" "text/html"}
        :body (slurp "resources/public/index.html")}
 
+      ;; Serve static files from public directory
+      (re-matches #"/js/.*\.cljs" uri)
+      (let [file-path (str "resources/public" uri)]
+        (try
+          {:status 200
+           :headers {"Content-Type" "text/plain; charset=utf-8"}
+           :body (slurp file-path)}
+          (catch Exception e
+            {:status 404
+             :headers {"Content-Type" "application/json"}
+             :body (json/write-json-str {:error "File not found"})})))
+
+      ;; Serve favicon (or return 204 No Content to suppress error)
+      (= uri "/favicon.ico")
+      {:status 204}
+
       ;; Category endpoints
       (and (= method :get) (= uri "/api/categories"))
       (try
@@ -114,9 +130,17 @@
       (try
         (let [body (slurp (:body req))
               data (read-json body)
-              category (categories/create! db/conn data)]
+              _ (println "Received category data:" data)
+              ;; Add category namespace to keys and convert values to keywords
+              normalized-data {:category/name (:name data)
+                               :category/type (keyword (:type data))
+                               :category/ident (keyword (:ident data))}
+              _ (println "Normalized category data:" normalized-data)
+              category (categories/create! db/conn normalized-data)]
+          (println "Created category:" category)
           (json-response {:success true :data category}))
         (catch Exception e
+          (println "Error creating category:" (.getMessage e))
           {:status 400
            :headers {"Content-Type" "application/json"
                      "Access-Control-Allow-Origin" "*"}
@@ -127,7 +151,12 @@
         (let [db-id (parse-long (last (re-matches #"/api/categories/(\d+)" uri)))
               body (slurp (:body req))
               data (read-json body)
-              updated (categories/update! db/conn db-id data)]
+              ;; Add category namespace to keys and convert values to keywords
+              normalized-data (cond-> {}
+                                (:name data) (assoc :category/name (:name data))
+                                (:type data) (assoc :category/type (keyword (:type data)))
+                                (:ident data) (assoc :category/ident (keyword (:ident data))))
+              updated (categories/update! db/conn db-id normalized-data)]
           (json-response {:success true :data updated}))
         (catch Exception e
           {:status 400
