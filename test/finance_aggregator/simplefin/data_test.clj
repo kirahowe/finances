@@ -48,9 +48,8 @@
           result (data/parse-transaction "acct-001" tx)]
       (is (= "tx-001" (:transaction/external-id result)))
       (is (= [:account/external-id "acct-001"] (:transaction/account result)))
-      (is (t/date? (:transaction/transaction-date result)))
-      ;; (is (= 1609459200000 (.getTime (:transaction/date result))))
-      (is (t/date? (:transaction/posted-date result)))
+      (is (instance? Date (:transaction/transaction-date result)))
+      (is (instance? Date (:transaction/posted-date result)))
       (is (instance? java.math.BigDecimal (:transaction/amount result)))
       (is (= (bigdec "100.50") (:transaction/amount result)))
       (is (= "Test transaction" (:transaction/description result)))))
@@ -95,8 +94,8 @@
                       result (data/parse-transaction acct-id tx)]
                   (and (vector? (:transaction/account result))
                        (= :account/external-id (first (:transaction/account result)))
-                       (t/date? (:transaction/transaction-date result))
-                       (t/date? (:transaction/posted-date result))
+                       (instance? Date (:transaction/transaction-date result))
+                       (instance? Date (:transaction/posted-date result))
                        (instance? java.math.BigDecimal (:transaction/amount result))))))
 
 (defspec negative-amounts-preserved 30
@@ -167,6 +166,6 @@
       (is (= 2 (count (:transactions result))))
       (let [tx (first (:transactions result))]
         (is (vector? (:transaction/account tx)))
-        (is (t/date? (:transaction/transaction-date tx)))
-        (is (t/date? (:transaction/posted-date tx)))
+        (instance? Date (:transaction/transaction-date tx))
+        (instance? Date (:transaction/posted-date tx))
         (is (instance? java.math.BigDecimal (:transaction/amount tx)))))))

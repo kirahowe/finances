@@ -3,7 +3,8 @@
    [org.httpkit.server :as http]
    [charred.api :as json]
    [datalevin.core :as d]
-   [finance-aggregator.db :as db]))
+   [finance-aggregator.db :as db]
+   [finance-aggregator.db.categories :as categories]))
 
 (defn json-response [data]
   "Create a JSON response"
@@ -96,6 +97,60 @@
       {:status 200
        :headers {"Content-Type" "text/html"}
        :body (slurp "resources/public/index.html")}
+
+      ;; Category endpoints
+      (and (= method :get) (= uri "/api/categories"))
+      (try
+        (let [cats (categories/list-all db/conn)]
+          (json-response {:success true :data cats}))
+        (catch Exception e
+          {:status 500
+           :headers {"Content-Type" "application/json"
+                     "Access-Control-Allow-Origin" "*"}
+           :body (json/write-json-str {:success false :error (.getMessage e)})}))
+
+      (and (= method :post) (= uri "/api/categories"))
+      (try
+        (let [body (slurp (:body req))
+              data (read-json body)
+              category (categories/create! db/conn data)]
+          (json-response {:success true :data category}))
+        (catch Exception e
+          {:status 400
+           :headers {"Content-Type" "application/json"
+                     "Access-Control-Allow-Origin" "*"}
+           :body (json/write-json-str {:success false :error (.getMessage e)})}))
+
+      (and (= method :put) (re-matches #"/api/categories/(\d+)" uri))
+      (try
+        (let [db-id (Long/parseLong (last (re-matches #"/api/categories/(\d+)" uri)))
+              body (slurp (:body req))
+              data (read-json body)
+              updated (categories/update! db/conn db-id data)]
+          (json-response {:success true :data updated}))
+        (catch Exception e
+          {:status 400
+           :headers {"Content-Type" "application/json"
+                     "Access-Control-Allow-Origin" "*"}
+           :body (json/write-json-str {:success false :error (.getMessage e)})}))
+
+      (and (= method :delete) (re-matches #"/api/categories/(\d+)" uri))
+      (try
+        (let [db-id (Long/parseLong (last (re-matches #"/api/categories/(\d+)" uri)))]
+          ;; Check if category has transactions before deleting
+          (if (categories/has-transactions? db/conn db-id)
+            {:status 400
+             :headers {"Content-Type" "application/json"
+                       "Access-Control-Allow-Origin" "*"}
+             :body (json/write-json-str {:success false :error "Cannot delete category with assigned transactions"})}
+            (do
+              (categories/delete! db/conn db-id)
+              (json-response {:success true :data {:deleted true}}))))
+        (catch Exception e
+          {:status 400
+           :headers {"Content-Type" "application/json"
+                     "Access-Control-Allow-Origin" "*"}
+           :body (json/write-json-str {:success false :error (.getMessage e)})}))
 
       ;; Default 404
       :else
