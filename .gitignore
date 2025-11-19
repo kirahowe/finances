@@ -1,16 +1,16 @@
 # Data files
-/data/
+backend/data/
 *.csv
 *.pdf
 
 # Credentials
-/resources/config.edn
+backend/resources/config.edn
 
 # Clojure
-.cpcache/
-.nrepl-port
-.lsp/
-.clj-kondo/
+backend/.cpcache/
+backend/.nrepl-port
+backend/.lsp/
+backend/.clj-kondo/
 
 # OS
 .DS_Store
