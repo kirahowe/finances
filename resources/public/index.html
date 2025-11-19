@@ -6,10 +6,12 @@
     <title>Finance Aggregator</title>
     <script crossorigin src="https://unpkg.com/react@18/umd/react.production.min.js"></script>
     <script crossorigin src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js"></script>
+    <script crossorigin src="https://unpkg.com/@tanstack/react-table@8.11.3/build/umd/index.production.js"></script>
     <script src="https://cdn.jsdelivr.net/npm/scittle@0.6.15/dist/scittle.js" type="application/javascript"></script>
     <script src="https://cdn.jsdelivr.net/npm/scittle@0.6.15/dist/scittle.reagent.js" type="application/javascript"></script>
     <script src="https://cdn.jsdelivr.net/npm/scittle@0.6.15/dist/scittle.re-frame.js" type="application/javascript"></script>
     <script src="js/categories.cljs" type="application/x-scittle"></script>
+    <script src="js/transactions.cljs" type="application/x-scittle"></script>
     <style>
         body {
             font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
@@ -104,7 +106,8 @@
       (:require [reagent.core :as r]
                 [reagent.dom :as rdom]
                 [re-frame.core :as rf]
-                [finance-aggregator.ui.categories :as categories]))
+                [finance-aggregator.ui.categories :as categories]
+                [finance-aggregator.ui.transactions :as transactions]))
 
     ;; Event handlers
     (rf/reg-event-db
@@ -135,10 +138,6 @@
       (fn [db [_ accounts]]
         (assoc db :accounts accounts)))
 
-    (rf/reg-event-db
-      ::set-transactions
-      (fn [db [_ transactions]]
-        (assoc db :transactions transactions)))
 
     (rf/reg-event-db
       ::set-institutions
@@ -174,10 +173,6 @@
       (fn [db _]
         (:accounts db)))
 
-    (rf/reg-sub
-      ::transactions
-      (fn [db _]
-        (:transactions db)))
 
     (rf/reg-sub
       ::institutions
@@ -244,21 +239,6 @@
             (rf/dispatch [::set-error (str error)])))
         {}))
 
-    (rf/reg-event-fx
-      ::fetch-transactions
-      (fn [_ _]
-        {:dispatch [::set-loading :transactions true]}
-        (fetch-json
-          "/api/transactions"
-          (fn [data]
-            (rf/dispatch [::set-loading :transactions false])
-            (if (:success data)
-              (rf/dispatch [::set-transactions (:data data)])
-              (rf/dispatch [::set-error (:error data)])))
-          (fn [error]
-            (rf/dispatch [::set-loading :transactions false])
-            (rf/dispatch [::set-error (str error)])))
-        {}))
 
     (rf/reg-event-fx
       ::fetch-institutions
@@ -328,46 +308,6 @@
                 [:td (:account/currency account "N/A")]
                 [:td [:code (:account/external-id account "N/A")]]])]])]))
 
-    (defn format-amount [amount]
-      (when amount
-        (.toFixed (js/Number. amount) 2)))
-
-    (defn transactions-section []
-      (let [transactions @(rf/subscribe [::transactions])
-            loading? @(rf/subscribe [::loading? :transactions])]
-        [:div.section
-         [:h2 "Recent Transactions"]
-         [:button {:on-click #(rf/dispatch [::fetch-transactions])}
-          "Load Transactions"]
-         (cond
-           loading?
-           [:div.loading "Loading transactions..."]
-
-           (empty? transactions)
-           [:p "No transactions loaded. Click 'Load Transactions' to fetch data."]
-
-           :else
-           [:table
-            [:thead
-             [:tr
-              [:th "Date"]
-              [:th "Payee"]
-              [:th "Description"]
-              [:th "Amount"]]]
-            [:tbody
-             (for [tx (take 20 transactions)]
-               ^{:key (:db/id tx)}
-               [:tr
-                [:td (when-let [date (:transaction/posted-date tx)]
-                       (.toLocaleDateString (js/Date. date)))]
-                [:td (:transaction/payee tx "N/A")]
-                [:td (:transaction/description tx "")]
-                [:td.transaction-amount
-                 {:class (if (pos? (or (:transaction/amount tx) 0))
-                          "positive"
-                          "negative")}
-                 (str "$" (format-amount (:transaction/amount tx)))]])]])]))
-
     (defn error-display []
       (when-let [error @(rf/subscribe [::error])]
         [:div.error
@@ -382,7 +322,7 @@
        [stats-section]
        [categories/category-list]
        [accounts-section]
-       [transactions-section]])
+       [transactions/transaction-table]])
 
     ;; Initialize
     (defn ^:export init []

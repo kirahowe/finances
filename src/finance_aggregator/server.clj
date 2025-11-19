@@ -130,17 +130,13 @@
       (try
         (let [body (slurp (:body req))
               data (read-json body)
-              _ (println "Received category data:" data)
               ;; Add category namespace to keys and convert values to keywords
               normalized-data {:category/name (:name data)
                                :category/type (keyword (:type data))
                                :category/ident (keyword (:ident data))}
-              _ (println "Normalized category data:" normalized-data)
               category (categories/create! db/conn normalized-data)]
-          (println "Created category:" category)
           (json-response {:success true :data category}))
         (catch Exception e
-          (println "Error creating category:" (.getMessage e))
           {:status 400
            :headers {"Content-Type" "application/json"
                      "Access-Control-Allow-Origin" "*"}
