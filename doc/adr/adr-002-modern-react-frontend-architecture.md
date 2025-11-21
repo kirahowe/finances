@@ -1,26 +1,48 @@
 # ADR-002: Modern React Frontend Architecture
 
 **Date:** 2025-11-18
+**Updated:** 2025-11-18
 **Status:** Proposed
 **Supersedes:** ADR-001 (Scittle/Reagent Prototype)
+
+> **Architectural Paradigm**: This is a **server-first architecture** with offline capabilities, not strictly an offline-first architecture. The Datalevin db is the source of truth. The application works online by default, with the ability to queue mutations when offline and sync when reconnected.
 
 ## Context
 
 After validating the backend API and data model with a Scittle prototype, we're building a production-grade React frontend. The requirements are:
 
 ### Core Requirements
-1. **Offline-first editing** - Work without network, sync when available
+1. **Offline-capable editing** - Works online by default, queues mutations when offline, syncs when network is available
 2. **Multi-user support** - Eventually support concurrent editing (e.g., household finances)
 3. **Server-side rendering** - Fast initial paint, graceful degradation
-4. **Minimal client state** - Server as source of truth (Phoenix LiveView philosophy)
+4. **Server as source of truth** - Datalevin owns all persistent state (Phoenix LiveView philosophy)
 5. **Test-driven** - Pure functions, minimal state, comprehensive tests
 6. **Semantic markup + CSS** - Complete separation of structure and presentation
 
 ### Use Cases
-- **Primary**: Single user online
-- **Future:** Single user, multiple devices, offline editing
+- **Primary**: Single user online (optimize for this)
+- **Future**: Single user, multiple devices, with offline editing
 - **Future**: Multiple users (e.g. households) editing concurrently
 - **Future**: Real-time collaboration (not MVP)
+
+### Clarification: Server-First vs Offline-First
+
+**This architecture is server-first with offline capability:**
+
+| Aspect | Server-First (This Architecture) | True Offline-First |
+|--------|----------------------------------|-------------------|
+| Source of Truth | Server (Datalevin) | Local (IndexedDB, Y.js) |
+| Default Mode | Online, server round-trips | Always local, background sync |
+| Offline Behavior | Queue mutations, sync later | Works identically offline |
+| Complexity | Lower (proven patterns) | Higher (distributed systems) |
+| Primary Use Case | Online with occasional offline | Offline-dominant usage |
+
+**Why server-first?**
+- Primary use case is "single user online"
+- Simpler architecture, fewer edge cases
+- Server rendering and progressive enhancement require server as source of truth
+- Can add offline queue later without rewriting core architecture
+- Avoids premature optimization for hypothetical offline-first requirements
 
 ### Constraints
 - **Backend**: Clojure + Datalevin (source of truth)
@@ -32,47 +54,82 @@ After validating the backend API and data model with a Scittle prototype, we're 
 
 ### Technology Stack
 
-#### Core Framework: **Remix**
+#### Core Framework: **Remix (React Router v7)**
 
-**Why Remix?**
-- SSR by default, progressive enhancement built-in
-- File-based routing with data loading (loaders/actions)
-- Forms work without JavaScript
-- Excellent TypeScript support
-- Built on React Router 6.4+ (stable, proven)
+**Why Remix over TanStack Router?**
 
-#### CRDT: **Y.js (Yjs)**
+1. **SSR + Progressive Enhancement (Required)**
+   - SSR built-in (explicit requirement #3)
+   - Forms work without JavaScript (requirement #4)
+   - Graceful degradation out-of-the-box
+   - TanStack Router would require DIY SSR or giving this up entirely
 
-**Why Y.js over Automerge?**
+2. **Server-First Architecture (Core Design)**
+   - Loaders/actions align perfectly with server as source of truth
+   - Automatic revalidation after mutations
+   - No impedance mismatch with Clojure backend
+   - TanStack Router is client-first, would fight this design
+
+3. **Simplicity for Primary Use Case**
+   - Single user online = standard Remix patterns
+   - Well-documented, proven approach
+   - Lower complexity than client-first routing
+
+4. **Works with Existing Backend**
+   - Clean REST API integration
+   - No backend changes needed
+   - Clear separation of concerns
+
+**When TanStack Router would be better:**
+- Pure SPA with no SSR requirements
+- Client-first architecture with local state as source of truth
+- Need extreme TypeScript inference (marginal benefit here)
+- Existing backend API you don't control (but we do control ours)
+
+**Trade-offs accepted:**
+- Less TypeScript inference than TanStack Router (acceptable - backend is typed with malli specs)
+- Opinionated patterns vs flexibility (acceptable - opinions improve consistency)
+- Larger bundle size than React Router v6 (acceptable - SSR mitigates this)
+
+#### CRDT: **Y.js (Yjs)** - Future Enhancement
+
+Y.js will be added later if/when offline editing or real-time collaboration becomes necessary.
+
+**Why Y.js over Automerge (when we add it)?**
 - More mature, battle-tested (Figma, Notion use it)
 - Excellent performance with large documents
 - Rich ecosystem (y-websocket, y-indexeddb, y-protocols)
 - Better TypeScript support
 - Network-agnostic (WebSocket, WebRTC, HTTP)
 
-**Y.js Architecture**:
+**MVP Approach**: No Y.js. Pure Remix with server as source of truth.
+
+**Future Y.js Architecture** (when/if needed):
 ```typescript
 import * as Y from 'yjs'
 import { IndexeddbPersistence } from 'y-indexeddb'
-import { WebsocketProvider } from 'y-websocket'
 
-// Shared Y.Doc across all clients
-const ydoc = new Y.Doc()
+// Use Y.js as offline mutation queue only
+const offlineQueue = new Y.Doc()
+const persistence = new IndexeddbPersistence('offline-mutations', offlineQueue)
 
-// Sync to IndexedDB (offline persistence)
-const indexeddbProvider = new IndexeddbPersistence('finance-db', ydoc)
+// Queue mutations when offline
+if (!navigator.onLine) {
+  offlineQueue.getArray('pending-mutations').push([{
+    type: 'update-category',
+    transactionId: 123,
+    categoryId: 456,
+    timestamp: Date.now()
+  }])
+}
 
-// Sync to server (when online)
-const websocketProvider = new WebsocketProvider(
-  'ws://localhost:1234',
-  'finance-room',
-  ydoc
-)
-
-// Our data structures
-const transactions = ydoc.getArray('transactions')
-const categories = ydoc.getMap('categories')
+// Drain queue when back online
+window.addEventListener('online', () => {
+  drainOfflineQueue() // POST each mutation to Clojure API
+})
 ```
+
+**Key Point**: Y.js is an enhancement, not a replacement for Remix loaders/actions.
 
 #### UI Components: **Radix UI** + **CSS Modules**
 
@@ -132,47 +189,48 @@ export function TransactionRow({ transaction }) {
 }
 ```
 
-#### State Management: **Remix-First, Minimal Client State**
+#### State Management: **Remix-Native, No Client Cache**
 
 ```
 ┌─────────────────────────────────────────────┐
-│ Layer 1: URL State (React Router)           │
+│ Layer 1: URL State (Search Params)          │
 │ - Page, filters, sort, selected transaction │
-│ - Search params for shareable UI state      │
+│ - Shareable via URL                         │
 │ - Browser history works automatically       │
 └─────────────────────────────────────────────┘
                     ↓
 ┌─────────────────────────────────────────────┐
-│ Layer 2: Server State (Datalevin)           │
-│ - Clojure backend owns all data             │
-│ - Remix loaders fetch on server-side        │
-│ - Remix actions mutate on server-side       │
-│ - Automatic revalidation after mutations    │
+│ Layer 2: Server State (Remix + Datalevin)   │
+│ - Loaders fetch on server (SSR)             │
+│ - Actions mutate on server                  │
+│ - Automatic revalidation after actions      │
+│ - HTTP caching via Cache-Control headers    │
+│ - Optimistic UI via useFetcher.formData     │
 └─────────────────────────────────────────────┘
                     ↓
 ┌─────────────────────────────────────────────┐
-│ Layer 3: Client Cache (TanStack Query)      │
-│ - Caches server responses                   │
-│ - Optimistic updates for UX                 │
-│ - Background refetching                     │
-│ - Stale-while-revalidate                    │
-└─────────────────────────────────────────────┘
-                    ↓
-┌─────────────────────────────────────────────┐
-│ Layer 4: Ephemeral UI State (React)         │
+│ Layer 3: Ephemeral UI State (React)         │
 │ - Dropdown open/closed                      │
 │ - Form validation errors                    │
-│ - Loading spinners                          │
-│ - Local component state only                │
+│ - Loading states (fetcher.state)            │
+│ - Component-local state only                │
 └─────────────────────────────────────────────┘
 ```
 
 **Key Principles**:
 - **Server is source of truth** - Datalevin owns all persistent state
 - **URL is UI state** - Filters, sort, page number in search params
-- **Optimistic updates** - via useFetcher and TanStack Query for responsive UX
-- **No client-side replicas** - Don't duplicate server state on client
+- **Remix handles caching** - HTTP caching via standard Cache-Control headers
+- **Optimistic updates** - via useFetcher.formData (read form values during submission)
+- **No client-side cache library** - Remix revalidation + browser caching is sufficient
 - **Progressive enhancement** - Forms work without JavaScript
+
+**Why no TanStack Query?**
+- Remix's automatic revalidation eliminates need for manual cache invalidation
+- useFetcher provides optimistic UI without external library
+- HTTP caching (Cache-Control) handles performance
+- Simpler mental model, fewer dependencies
+- See "Alternatives Considered" section for details
 
 #### Testing: **Vitest + Testing Library + Playwright**
 
@@ -212,13 +270,7 @@ export function TransactionRow({ transaction }) {
 │  │  - Loaders (server-side data fetching)                 │  │
 │  │  - Actions (server-side mutations)                     │  │
 │  │  - useFetcher for optimistic updates                   │  │
-│  └────────────────────┬───────────────────────────────────┘  │
-│                       │                                      │
-│  ┌────────────────────┴───────────────────────────────────┐  │
-│  │  TanStack Query (optional enhancement)                 │  │
-│  │  - Client-side cache                                   │  │
-│  │  - Optimistic updates                                  │  │
-│  │  - Background refetching                               │  │
+│  │  - HTTP caching via Cache-Control                      │  │
 │  └────────────────────┬───────────────────────────────────┘  │
 │                       │                                      │
 └───────────────────────┼──────────────────────────────────────┘
@@ -280,13 +332,22 @@ export async function loader({ request }: LoaderFunctionArgs) {
   const page = url.searchParams.get('page') || '1'
   const category = url.searchParams.get('category') || ''
 
-  // Fetch from Clojure API
+  // Fetch from Clojure API with HTTP caching
   const response = await fetch(
-    `http://localhost:8080/api/transactions?page=${page}&category=${category}`
+    `http://localhost:8080/api/transactions?page=${page}&category=${category}`,
+    {
+      headers: {
+        'Cache-Control': 'max-age=60, stale-while-revalidate=300'
+      }
+    }
   )
   const data = await response.json()
 
-  return json({ transactions: data.data, page, category })
+  return json({ transactions: data.data, page, category }, {
+    headers: {
+      'Cache-Control': 'max-age=60, stale-while-revalidate=300'
+    }
+  })
 }
 
 // Client component
@@ -328,16 +389,21 @@ export async function action({ request, params }: ActionFunctionArgs) {
   return json({ success: true })
 }
 
-// Component with progressive enhancement
+// Component with progressive enhancement and optimistic UI
 export default function CategoryEditor({ transaction, categories }) {
   const fetcher = useFetcher()
+
+  // Optimistic value - show form value during submission
+  const displayCategory = fetcher.formData?.get('categoryId') ?? transaction.categoryId
+  const isUpdating = fetcher.state === 'submitting' || fetcher.state === 'loading'
 
   return (
     <fetcher.Form method="post" action={`/transactions/${transaction.id}/category`}>
       <select
         name="categoryId"
-        defaultValue={transaction.categoryId}
+        value={displayCategory}
         onChange={e => fetcher.submit(e.currentTarget.form)}
+        disabled={isUpdating}
       >
         <option value="">Uncategorized</option>
         {categories.map(c => (
@@ -346,7 +412,7 @@ export default function CategoryEditor({ transaction, categories }) {
       </select>
 
       {/* Show loading state during submission */}
-      {fetcher.state === 'submitting' && <Spinner />}
+      {isUpdating && <span className="loading">Saving...</span>}
     </fetcher.Form>
   )
 }
@@ -439,18 +505,23 @@ export default function TransactionRow({ transaction, categories }) {
 export default function TransactionRow({ transaction, categories }) {
   const fetcher = useFetcher()
 
+  // Optimistic UI - read from form data during submission
+  const displayCategory = fetcher.formData?.get('categoryId') ?? transaction.categoryId
+  const isUpdating = fetcher.state === 'submitting' || fetcher.state === 'loading'
+
   return (
-    <tr>
+    <tr className={isUpdating ? 'updating' : ''}>
       <td><time>{transaction.date}</time></td>
       <td>{transaction.payee}</td>
       <td><data value={transaction.amount}>${transaction.amount}</data></td>
       <td>
-        {/* Same HTML structure, enhanced with useFetcher */}
+        {/* Enhanced with useFetcher for optimistic UI */}
         <fetcher.Form method="post" action={`/transactions/${transaction.id}/category`}>
           <select
             name="categoryId"
-            defaultValue={transaction.categoryId}
-            onChange={e => fetcher.submit(e.currentTarget.form)} {/* Auto-submit on change */}
+            value={displayCategory} {/* Shows optimistic value */}
+            onChange={e => fetcher.submit(e.currentTarget.form)}
+            disabled={isUpdating}
           >
             <option value="">Uncategorized</option>
             {categories.map(c => (
@@ -459,7 +530,7 @@ export default function TransactionRow({ transaction, categories }) {
           </select>
 
           {/* Show inline loading state */}
-          {fetcher.state === 'submitting' && <span>Saving...</span>}
+          {isUpdating && <span className="loading-indicator">Saving...</span>}
         </fetcher.Form>
       </td>
     </tr>
@@ -467,7 +538,7 @@ export default function TransactionRow({ transaction, categories }) {
 }
 ```
 
-**Behavior**: No page reload. Request sent in background. UI shows "Saving..." then updates. Other loaders revalidate automatically.
+**Behavior**: No page reload. Optimistic update shows new category immediately. Request sent in background. UI shows "Saving..." state. After action completes, Remix revalidates loaders automatically and UI reflects server state.
 
 ### File Structure
 
@@ -507,19 +578,39 @@ finance-aggregator/
 │   ├── vitest.config.ts
 │   ├── playwright.config.ts
 │   └── package.json
-├── src/                             # Clojure backend (existing)
-│   └── finance_aggregator/
-│       ├── server.clj
-│       ├── db/
-│       │   ├── categories.clj
-│       │   └── transactions.clj
-│       └── data/
-│           └── schema.clj
-├── test/                            # Clojure tests
-├── resources/
-│   └── config.edn
+├── backend/                         # Clojure backend (existing)
+│   ├── deps.edn
+│   ├── README.md
+│   ├── resources/
+│   │   └── config.edn.example
+│   ├── scripts/
+│   │   └── start_server.clj
+│   ├── src/
+│   │   └── finance_aggregator/
+│   │       ├── db.clj
+│   │       ├── data/
+│   │       │   └── schema.clj
+│   │       ├── db/
+│   │       │   ├── categories.clj
+│   │       │   └── transactions.clj
+│   │       └── simplefin/
+│   │           ├── client.clj
+│   │           └── data.clj
+│   ├── test/
+│   │   └── finance_aggregator/
+│   │       ├── db_test.clj
+│   │       ├── db/
+│   │       │   ├── categories_test.clj
+│   │       │   └── transactions_test.clj
+│   │       └── simplefin/
+│   │           ├── client_test.clj
+│   │           ├── data_test.clj
+│   │           └── data_persistence_test.clj
+│   └── tests.edn
 └── doc/
-    └── adr/
+    ├── adr/
+    └── implementation/
+        └── adr-002-remix-frontend-tasks.md
 ```
 
 ## Implementation
@@ -583,74 +674,162 @@ See [adr-002-remix-frontend-tasks.md](../implementation/adr-002-remix-frontend-t
 
 1. **Server round-trips for mutations**
    - Every edit goes to server
-   - Optimistic updates help but still have latency
-   - **Mitigation**: TanStack Query caching, useFetcher optimistic UI
+   - Network latency affects perceived performance
+   - **Mitigation**: useFetcher optimistic UI (read formData during submission)
+   - **Mitigation**: HTTP caching via Cache-Control headers
+   - **Acceptable**: Primary use case is online, optimistic updates make this feel fast
 
-2. **No offline editing (MVP)**
-   - Requires network connection
-   - **Mitigation**: Plan for Y.js enhancement later, architecture supports it
+2. **No offline editing in MVP**
+   - Requires network connection to make edits
+   - Users will see errors if they try to edit while offline
+   - **Mitigation**: Clear offline indicators, queue for future enhancement
+   - **Acceptable**: Primary use case is "single user online", validate before building
 
 3. **Potential for over-fetching**
-   - SSR fetches all data for route
-   - **Mitigation**: Pagination, smart loaders, TanStack Query
+   - SSR fetches all data for route upfront
+   - May load data that user doesn't need immediately
+   - **Mitigation**: Pagination, smart loader design, defer non-critical data
+   - **Acceptable**: Fast initial paint is more important than minimal bytes
+
+4. **Opinionated routing**
+   - Remix patterns are opinionated (file-based routes, loader/action convention)
+   - Less flexibility than TanStack Router
+   - **Mitigation**: Document patterns, enforce consistency
+   - **Acceptable**: Opinions lead to consistency, reduce bikeshedding
 
 ### Risks & Mitigations
 
 **Risk**: Users expect offline capability from day one
-- **Mitigation**: Validate with users, add offline as enhancement if needed
+- **Mitigation**: Architecture supports adding Y.js queue without full rewrite
 
-**Risk**: Real-time becomes hard requirement**
-- **Mitigation**: Y.js architecture designed, can add when needed
+**Risk**: Real-time collaboration becomes hard requirement early
+- **Mitigation**: Y.js architecture designed, clear path to add later
+
+**Risk**: Server latency feels too slow
+- **Mitigation**: useFetcher optimistic UI (formData provides instant feedback)
+- **Mitigation**: HTTP caching via Cache-Control headers
+- **Mitigation**: Optimize Clojure backend if needed (we control it)
+- **Mitigation**: Measure performance early with realistic data
 
 **Risk**: Remix learning curve for team
-- **Mitigation**: Excellent docs, similar to Next.js, strong community
+- **Mitigation**: Excellent docs, strong community, many examples
 
 **Risk**: SimpleFIN import conflicts with manual edits
-- **Mitigation**: Transaction external-id for deduplication, import as separate operation
+- **Mitigation**: Transaction external-id for deduplication, import as atomic operation
+- **Mitigation**: Show clear import progress, lock UI during import
 
 ## Future Enhancements
 
-### Offline Editing with Y.js
+### Offline Mutation Queue with Y.js
 
-**When**: User feedback indicates offline editing is needed
+**When to Build**: After MVP launch, if user feedback indicates offline editing is important
+
+**Validation Criteria**:
+- Users report being unable to work during commutes/flights
+- Analytics show >5% of attempted edits fail due to offline
+- User interviews validate offline as top priority
 
 **Approach**:
-- Y.js as offline mutation queue
+- Y.js as offline mutation queue only (NOT source of truth)
 - Persists to IndexedDB
 - Drains queue when online
-- Minimal changes to existing architecture
-- Remix remains primary path
+- Minimal changes to existing Remix architecture
+- Server (Datalevin) remains source of truth
 
 **Implementation**:
-- Add Y.js client-side only
-- Queue mutations when offline
-- `navigator.onLine` detection
-- Sync via existing API endpoints
+```typescript
+// Wrap Remix action calls with offline queue
+async function submitTransaction(data) {
+  if (navigator.onLine) {
+    // Normal Remix flow
+    return await fetcher.submit(data)
+  } else {
+    // Queue in Y.js + IndexedDB
+    offlineQueue.add({
+      type: 'create-transaction',
+      data,
+      timestamp: Date.now()
+    })
+    // Show optimistic UI
+    return { status: 'queued' }
+  }
+}
+
+// Drain queue on reconnection
+window.addEventListener('online', async () => {
+  const pending = offlineQueue.getAll()
+  for (const mutation of pending) {
+    await fetch('/api/transactions', {
+      method: 'POST',
+      body: JSON.stringify(mutation.data)
+    })
+    offlineQueue.remove(mutation.id)
+  }
+})
+```
+
+**Architecture Changes Required**: Minimal
+- Add Y.js + IndexedDB dependencies
+- Wrap fetcher.submit calls with offline detection
+- Add queue UI (show pending mutations)
+- Handle conflicts on sync (last-write-wins for MVP)
 
 ### Real-Time Collaboration
 
-**When**: Household sharing becomes priority
+**When to Build**: After households become common use case (multi-user editing validated)
+
+**Validation Criteria**:
+- >20% of users are households with multiple editors
+- Users report conflicts from eventual consistency
+- Feature requests for real-time awareness
 
 **Approach**:
 - Node.js Y.js WebSocket server
 - Y.js → Datalevin bridge
-- Awareness for "User X is editing"
+- Presence awareness ("User X is editing transaction Y")
 - Datalevin remains source of truth
+- Y.js only for real-time sync layer
 
 **Implementation**:
-- Add `yjs-server` directory
-- WebSocket connection
-- Observe Y.js changes, translate to Datalevin transactions
-- UI shows collaboration state
+```typescript
+// Add WebSocket connection for real-time updates
+const wsProvider = new WebsocketProvider(
+  'wss://finance.example.com/collab',
+  'household-123',
+  ydoc
+)
+
+// Subscribe to remote changes
+ydoc.getArray('transactions').observe(event => {
+  event.changes.added.forEach(item => {
+    // Another user added transaction, update UI
+    invalidateTransactionCache()
+  })
+})
+
+// Show awareness
+wsProvider.awareness.on('change', () => {
+  const states = wsProvider.awareness.getStates()
+  // Show "Alice is editing transaction #123"
+})
+```
+
+**Architecture Changes Required**: Moderate
+- Add WebSocket server (Node.js + Y.js)
+- Y.js → Datalevin sync bridge
+- Handle real-time updates in React UI
+- Add presence indicators
 
 ### Multi-Device Sync
 
-**When**: Users report using multiple devices
+**When to Build**: If users report issues with using multiple devices
 
 **Approach**:
-- Same Y.js infrastructure as collaboration
-- Per-user Y.Doc instead of shared
-- Background sync when devices online
+- Reuse Phase 2 real-time infrastructure
+- Per-user Y.Doc instead of shared household doc
+- Background sync when user switches devices
+
+**Note**: This may be unnecessary if offline queue (Phase 1) + real-time collab (Phase 2) already handle this use case.
 
 ## Open Questions
 
@@ -668,13 +847,88 @@ See [adr-002-remix-frontend-tasks.md](../implementation/adr-002-remix-frontend-t
 
 These will be refined during implementation.
 
+## Alternatives Considered
+
+### TanStack Router
+
+**Why not chosen:**
+- Requires DIY SSR or giving up SSR entirely (violates requirement #3)
+- Client-first architecture conflicts with server-as-source-of-truth (requirement #4)
+- No progressive enhancement support (violates requirement #3)
+- Would add complexity for marginal TypeScript inference benefits
+- Works better for pure SPAs or offline-first architectures (not our paradigm)
+
+**When it would be better:**
+- Pure client-side SPA with no SSR
+- Offline-first architecture with local state as source of truth
+- Complex client-side routing with extreme type safety needs
+
+### Next.js
+
+**Why not chosen:**
+- More opinionated than needed (Vercel ecosystem lock-in)
+- Server Components add complexity we don't need
+- Remix loader/action patterns are simpler for our use case
+- Want to keep frontend and Clojure backend clearly separated
+
+**When it would be better:**
+- Need image optimization and other Vercel features
+- Want Server Components for partial hydration
+- Team already expert in Next.js
+
+### Pure Client-Side SPA (Vite + React Router)
+
+**Why not chosen:**
+- No SSR (violates requirement #3)
+- No progressive enhancement
+- Worse initial load performance
+- Would need to DIY data loading patterns
+
+**When it would be better:**
+- Internal tools where SSR doesn't matter
+- Extremely dynamic UIs that can't benefit from SSR
+- Want absolute minimal server infrastructure
+
+### TanStack Query (as addition to Remix)
+
+**Why not chosen:**
+- Remix already provides what TanStack Query does:
+  - Automatic revalidation after actions (no manual cache invalidation)
+  - Optimistic UI via useFetcher.formData
+  - HTTP caching via Cache-Control headers
+- Would create redundant caching layers (Remix revalidation + TanStack Query cache)
+- Adds complexity, mental overhead, and ~50kb bundle size
+- Goes against Remix philosophy of embracing the network
+- Our use case (simple CRUD) doesn't need it
+
+**When it would be better:**
+- Extremely slow backend APIs where aggressive client caching is critical
+- Complex polling/real-time requirements (but Y.js is better for this)
+- Third-party APIs you don't control (we own the Clojure backend)
+- SPA architecture without Remix
+
+**Remix-native approach is simpler:**
+```tsx
+// Optimistic UI without TanStack Query
+const fetcher = useFetcher()
+const displayValue = fetcher.formData?.get('field') ?? serverValue
+
+// Automatic revalidation after actions
+// HTTP caching via Cache-Control headers
+// No manual cache management needed
+```
+
 ## References
 
 - [Remix Documentation](https://remix.run/docs)
+- [React Router v7 (Remix merge)](https://remix.run/blog/merging-remix-and-react-router)
+- [Remix Optimistic UI](https://remix.run/docs/en/main/guides/optimistic-ui) (useFetcher patterns)
 - [TanStack Table](https://tanstack.com/table/latest)
-- [TanStack Query](https://tanstack.com/query/latest) (optional enhancement)
+- [TanStack Router](https://tanstack.com/router/latest) (alternative considered, not chosen)
 - [Progressive Enhancement](https://developer.mozilla.org/en-US/docs/Glossary/Progressive_Enhancement)
-- [Y.js Documentation](https://docs.yjs.dev/) (future)
+- [HTTP Caching](https://developer.mozilla.org/en-US/docs/Web/HTTP/Caching) (Cache-Control)
+- [Y.js Documentation](https://docs.yjs.dev/) (future enhancement)
 - [Radix UI](https://www.radix-ui.com/)
 - [Vitest](https://vitest.dev/)
 - [Playwright](https://playwright.dev/)
+- [Local-First Software](https://www.inkandswitch.com/local-first/) (future architecture consideration)

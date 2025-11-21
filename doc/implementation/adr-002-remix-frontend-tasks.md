@@ -2,9 +2,18 @@
 
 **Related ADR**: [ADR-002: Modern React Frontend Architecture](../adr/adr-002-modern-react-frontend-architecture.md)
 
-**Status**: Active implementation plan (as of 2025-11-18)
+**Status**: Active implementation plan (as of 2025-11-19)
 
 These tasks implement the architecture described in ADR-002. They can be tackled in various orders, though some have natural dependencies. Focus on building features incrementally with TDD.
+
+## Architecture Summary
+
+**Key Principles**:
+- **Remix-native patterns** - No TanStack Query, use built-in revalidation
+- **Server as source of truth** - Datalevin owns all persistent state
+- **Optimistic UI** - via `useFetcher.formData` (no external library)
+- **HTTP caching** - Cache-Control headers for performance
+- **Progressive enhancement** - Forms work without JavaScript
 
 ## Core Tasks (MVP)
 
@@ -15,11 +24,13 @@ These tasks implement the architecture described in ADR-002. They can be tackled
 ```bash
 npx create-remix@latest frontend
 cd frontend
-npm install @tanstack/react-query @tanstack/react-table
+npm install @tanstack/react-table
 npm install @radix-ui/react-dropdown-menu @radix-ui/react-dialog @radix-ui/react-select
 npm install zod
 npm install -D vitest @testing-library/react @testing-library/user-event playwright
 ```
+
+**Note**: We're not installing TanStack Query - Remix's built-in revalidation and useFetcher provide everything we need.
 
 **Deliverables**:
 - Working Remix app
@@ -185,7 +196,12 @@ export async function loader({ request }: LoaderFunctionArgs) {
 
   const transactions = await api.getTransactions({ page, category })
 
-  return json({ transactions, page, category })
+  // Add HTTP caching for performance
+  return json({ transactions, page, category }, {
+    headers: {
+      'Cache-Control': 'max-age=60, stale-while-revalidate=300'
+    }
+  })
 }
 
 export default function TransactionsPage() {
@@ -229,6 +245,7 @@ export function TransactionTable({ transactions }) {
 - Working transaction list
 - Server-side rendering
 - Semantic HTML (`<table>`, `<time>`, `<data>`)
+- HTTP caching headers
 
 **Tests**:
 - Unit: TransactionTable renders rows
@@ -261,12 +278,21 @@ export async function action({ request, params }: ActionFunctionArgs) {
 export function CategoryEditor({ transaction, categories }) {
   const fetcher = useFetcher()
 
+  // Optimistic UI - read from formData during submission
+  const displayCategory =
+    fetcher.formData?.get('categoryId') ??
+    transaction['transaction/category']?.['db/id'] ??
+    ''
+
+  const isUpdating = fetcher.state === 'submitting' || fetcher.state === 'loading'
+
   return (
     <fetcher.Form method="post" action={`/transactions/${transaction['db/id']}/category`}>
       <select
         name="categoryId"
-        defaultValue={transaction['transaction/category']?.['db/id'] || ''}
+        value={displayCategory} // Shows optimistic value
         onChange={e => fetcher.submit(e.currentTarget.form)}
+        disabled={isUpdating}
       >
         <option value="">Uncategorized</option>
         {categories.map(c => (
@@ -275,20 +301,25 @@ export function CategoryEditor({ transaction, categories }) {
           </option>
         ))}
       </select>
-      {fetcher.state === 'submitting' && <span>Saving...</span>}
+      {isUpdating && <span>Saving...</span>}
     </fetcher.Form>
   )
 }
 ```
 
+**Key Pattern**: Optimistic UI using `fetcher.formData` - no external state library needed!
+
 **Deliverables**:
 - Forms work without JS (full page POST)
 - Enhanced with JS (useFetcher, no reload)
-- Loading states
+- Optimistic UI shows selected value immediately
+- Loading states during submission
+- Automatic revalidation after action completes
 
 **Tests**:
-- E2E without JS: Form POST works
-- E2E with JS: No page reload, optimistic update
+- E2E without JS: Form POST works, page reloads with update
+- E2E with JS: No page reload, optimistic update visible, final state matches server
+- Unit: CategoryEditor renders with correct initial value
 
 ---
 
@@ -352,11 +383,33 @@ export default function TransactionsPage() {
 import { useReactTable, getCoreRowModel, getSortedRowModel } from '@tanstack/react-table'
 
 export function TransactionTable({ transactions }) {
+  const [searchParams, setSearchParams] = useSearchParams()
+
   const table = useReactTable({
     data: transactions,
     columns,
     getCoreRowModel: getCoreRowModel(),
     getSortedRowModel: getSortedRowModel(),
+    // Sync sort state with URL
+    state: {
+      sorting: [{
+        id: searchParams.get('sortBy') || 'date',
+        desc: searchParams.get('sortDir') === 'desc'
+      }]
+    },
+    onSortingChange: (updater) => {
+      const newSorting = typeof updater === 'function'
+        ? updater(table.getState().sorting)
+        : updater
+
+      setSearchParams(prev => {
+        if (newSorting[0]) {
+          prev.set('sortBy', newSorting[0].id)
+          prev.set('sortDir', newSorting[0].desc ? 'desc' : 'asc')
+        }
+        return prev
+      })
+    }
   })
 
   return (
@@ -395,12 +448,13 @@ export function TransactionTable({ transactions }) {
 
 **Deliverables**:
 - Sortable columns
-- Client-side sorting (no server round-trip)
-- Maintains Remix patterns
+- Client-side sorting (no server round-trip for small datasets)
+- Sort state in URL (shareable)
+- Maintains semantic HTML
 
 **Tests**:
 - Unit: Click column header, order changes
-- E2E: Sort persists in URL
+- E2E: Sort persists in URL, shareable link works
 
 ---
 
@@ -412,12 +466,60 @@ These are not needed for MVP but keep the door open for future features.
 
 **What**: Y.js-based offline editing with sync
 
-**When**: After MVP is stable and users request offline capability
+**Validation Criteria**:
+- Users report being unable to work during commutes/flights
+- Analytics show >5% of attempted edits fail due to offline
+- User interviews validate offline as top priority
 
 **Approach**:
-- Use Y.js as mutation queue only
+- Use Y.js as mutation queue only (NOT source of truth)
 - Primary path remains Remix loaders/actions
 - Offline queue drains when connection restored
+- Server (Datalevin) remains source of truth
+
+**Implementation**:
+```typescript
+// lib/offline-queue.ts
+import * as Y from 'yjs'
+import { IndexeddbPersistence } from 'y-indexeddb'
+
+const offlineQueue = new Y.Doc()
+const persistence = new IndexeddbPersistence('offline-mutations', offlineQueue)
+
+export async function submitWithOfflineSupport(
+  fetcher: ReturnType<typeof useFetcher>,
+  formData: FormData
+) {
+  if (navigator.onLine) {
+    // Normal Remix flow
+    return fetcher.submit(formData)
+  } else {
+    // Queue in Y.js + IndexedDB
+    const mutations = offlineQueue.getArray('pending-mutations')
+    mutations.push([{
+      type: 'update-category',
+      formData: Object.fromEntries(formData),
+      timestamp: Date.now()
+    }])
+
+    // Show queued state
+    return { status: 'queued' }
+  }
+}
+
+// Drain queue when back online
+window.addEventListener('online', async () => {
+  const mutations = offlineQueue.getArray('pending-mutations')
+  for (const mutation of mutations.toArray()) {
+    // POST each mutation to server
+    await fetch('/api/mutations', {
+      method: 'POST',
+      body: JSON.stringify(mutation)
+    })
+  }
+  mutations.delete(0, mutations.length) // Clear queue
+})
+```
 
 ---
 
@@ -425,13 +527,40 @@ These are not needed for MVP but keep the door open for future features.
 
 **What**: Multiple users editing simultaneously
 
-**When**: After household sharing feature is prioritized
-
 **Approach**:
 - Y.js WebSocket sync
-- Awareness for "User X is editing"
+- Presence awareness ("User X is editing transaction Y")
 - Datalevin remains source of truth
 - Node.js sync server bridges Y.js ↔ Datalevin
+- Y.js only for real-time sync layer
+
+**Implementation**:
+```typescript
+// lib/realtime.ts
+import { WebsocketProvider } from 'y-websocket'
+
+const ydoc = new Y.Doc()
+const wsProvider = new WebsocketProvider(
+  'wss://finance.example.com/collab',
+  'household-123',
+  ydoc
+)
+
+// Subscribe to remote changes
+ydoc.getArray('transactions').observe(event => {
+  event.changes.added.forEach(item => {
+    // Another user added/modified transaction
+    // Invalidate Remix cache, trigger revalidation
+    invalidateTransactionCache()
+  })
+})
+
+// Show awareness
+wsProvider.awareness.on('change', () => {
+  const states = wsProvider.awareness.getStates()
+  // Show "Alice is editing transaction #123"
+})
+```
 
 ---
 
@@ -439,11 +568,12 @@ These are not needed for MVP but keep the door open for future features.
 
 **What**: Single user, edits on phone sync to desktop
 
-**When**: After offline queue is implemented
+**Note**: This may be unnecessary if offline queue (Phase 1) + real-time collab (Phase 2) already handle this use case.
 
 **Approach**:
-- Same Y.js infrastructure as collaboration
-- Per-user Y.Doc instead of shared
+- Reuse Phase 2 real-time infrastructure
+- Per-user Y.Doc instead of shared household doc
+- Background sync when user switches devices
 
 ---
 
@@ -453,11 +583,13 @@ These are not needed for MVP but keep the door open for future features.
 ```
       E2E (Playwright)
       - Critical user paths
+      - Progressive enhancement (with/without JS)
       - 5-10 tests
 
     Integration (Testing Library)
     - Route loaders + actions
     - Component interactions
+    - useFetcher optimistic UI
     - 20-30 tests
 
   Unit (Vitest)
@@ -473,4 +605,58 @@ These are not needed for MVP but keep the door open for future features.
 4. Refactor
 5. Repeat
 
-**Coverage Target**: 80%+ for business logic, 60%+ overall
+**Key Testing Patterns**:
+
+```typescript
+// Test optimistic UI with useFetcher
+test('CategoryEditor shows optimistic value during submission', async () => {
+  const { user } = render(<CategoryEditor transaction={tx} categories={cats} />)
+
+  const select = screen.getByRole('combobox')
+  await user.selectOptions(select, 'groceries')
+
+  // Should show optimistic value immediately
+  expect(select).toHaveValue('groceries')
+  expect(screen.getByText('Saving...')).toBeInTheDocument()
+
+  // Wait for submission to complete
+  await waitFor(() => {
+    expect(screen.queryByText('Saving...')).not.toBeInTheDocument()
+  })
+})
+
+// Test progressive enhancement (without JS)
+test('Form works without JavaScript', async () => {
+  // Disable JavaScript in Playwright
+  await page.context().setJavaScriptEnabled(false)
+
+  await page.goto('/transactions')
+  await page.selectOption('select[name="categoryId"]', 'groceries')
+  await page.click('button[type="submit"]')
+
+  // Should navigate to new page with updated data
+  await page.waitForURL('/transactions')
+  expect(await page.textContent('.category')).toBe('Groceries')
+})
+```
+
+---
+
+## Implementation Notes
+
+**Remix-Native Patterns**:
+- Use `useFetcher.formData` for optimistic UI (no TanStack Query needed)
+- Add `Cache-Control` headers to loaders for performance
+- Automatic revalidation after actions (no manual cache invalidation)
+- Progressive enhancement (forms work without JS)
+
+**State Management**:
+- URL state: Search params for filters, pagination, sort
+- Server state: Remix loaders/actions → Datalevin
+- Ephemeral state: React hooks for dropdowns, modals
+
+**Performance**:
+- HTTP caching via Cache-Control headers
+- Optimistic updates via useFetcher.formData
+- No client-side cache library needed
+- Server-side rendering for fast initial paint
