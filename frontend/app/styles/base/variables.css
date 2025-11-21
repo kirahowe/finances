@@ -1,0 +1,48 @@
+:root {
+  /* Base Colors */
+  --color-dark-gray: #333;
+  --color-medium-gray: #666;
+  --color-light-gray: #ddd;
+  --color-very-light-gray: #f5f5f5;
+  --color-white: #fff;
+  --color-blue: #007aff;
+  --color-dark-blue: #0056b3;
+  --color-green: #27ae60;
+  --color-red: #e74c3c;
+  --color-light-red: #fee;
+  --color-medium-red: #fcc;
+  --color-dark-red: #c33;
+  --color-black-transparent: rgba(0, 0, 0, 0.1);
+  --color-black-semi-transparent: rgba(0, 0, 0, 0.5);
+
+  /* Semantic Colors */
+  --color-text: var(--color-dark-gray);
+  --color-text-muted: var(--color-medium-gray);
+  --color-background: var(--color-very-light-gray);
+  --color-border: var(--color-light-gray);
+  --color-positive: var(--color-green);
+  --color-negative: var(--color-red);
+  --color-primary: var(--color-blue);
+  --color-primary-hover: var(--color-dark-blue);
+  --color-shadow: var(--color-black-transparent);
+  --color-backdrop: var(--color-black-semi-transparent);
+  --color-error-bg: var(--color-light-red);
+  --color-error-text: var(--color-dark-red);
+  --color-error-border: var(--color-medium-red);
+
+  /* Spacing */
+  --spacing-xs: 0.25rem;
+  --spacing-sm: 0.5rem;
+  --spacing-md: 1rem;
+  --spacing-lg: 1.5rem;
+  --spacing-xl: 2rem;
+  --spacing-xxl: 3rem;
+
+  /* Typography */
+  --font-body: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+  --font-mono: 'SF Mono', Monaco, Consolas, monospace;
+
+  /* Layout */
+  --container-max-width: 1200px;
+  --border-radius: 8px;
+}

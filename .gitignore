@@ -5,6 +5,7 @@ backend/data/
 
 # Credentials
 backend/resources/config.edn
+.env
 
 # Clojure
 backend/.cpcache/
@@ -14,3 +15,11 @@ backend/.clj-kondo/
 
 # OS
 .DS_Store
+
+# React Router
+/.react-router/
+/build/
+
+# Frontend
+/node_modules/
+
