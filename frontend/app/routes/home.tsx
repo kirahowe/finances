@@ -1,6 +1,11 @@
+import { useState } from "react";
 import type { Route } from "./+types/home";
-import { api, type Stats } from "../lib/api";
+import { api, type Stats, type Category, type Account, type Transaction } from "../lib/api";
+import { useSearchParams, useFetcher } from "react-router";
+import { formatAmount, formatDate } from "../lib/format";
 import "../styles/pages/dashboard.css";
+import "../styles/components/pagination.css";
+import "../styles/components/category-button.css";
 
 export function meta({}: Route.MetaArgs) {
   return [
@@ -9,13 +14,74 @@ export function meta({}: Route.MetaArgs) {
   ];
 }
 
-export async function loader(): Promise<{ stats: Stats }> {
+export async function loader({ request }: Route.LoaderArgs) {
+  const url = new URL(request.url);
+  const view = url.searchParams.get('view');
+
   const stats = await api.getStats();
-  return { stats };
+
+  let categories: Category[] = [];
+  let accounts: Account[] = [];
+  let transactions: Transaction[] = [];
+
+  if (view === 'categories') {
+    categories = await api.getCategories();
+  } else if (view === 'accounts') {
+    accounts = await api.getAccounts();
+  } else if (view === 'transactions') {
+    [transactions, categories] = await Promise.all([
+      api.getTransactions(),
+      api.getCategories(),
+    ]);
+  }
+
+  return { stats, categories, accounts, transactions, view };
+}
+
+export async function action({ request }: Route.ActionArgs) {
+  const formData = await request.formData();
+  const intent = formData.get("intent");
+
+  if (intent === "refresh-stats") {
+    return { success: true };
+  } else if (intent === "create-category") {
+    const name = formData.get("name") as string;
+    const type = formData.get("type") as "expense" | "income";
+    const ident = formData.get("ident") as string | undefined;
+    await api.createCategory({ name, type, ident: ident || undefined });
+  } else if (intent === "update-category") {
+    const id = parseInt(formData.get("id") as string);
+    const name = formData.get("name") as string;
+    const type = formData.get("type") as "expense" | "income";
+    const ident = formData.get("ident") as string | undefined;
+    await api.updateCategory(id, { name, type, ident: ident || undefined });
+  } else if (intent === "delete-category") {
+    const id = parseInt(formData.get("id") as string);
+    await api.deleteCategory(id);
+  } else if (intent === "update-transaction-category") {
+    const transactionId = parseInt(formData.get("transactionId") as string);
+    const categoryId = formData.get("categoryId");
+    await api.updateTransactionCategory(
+      transactionId,
+      categoryId ? parseInt(categoryId as string) : null
+    );
+  }
+
+  return { success: true };
 }
 
 export default function Home({ loaderData }: Route.ComponentProps) {
-  const { stats } = loaderData;
+  const { stats, categories, accounts, transactions, view } = loaderData;
+  const [searchParams, setSearchParams] = useSearchParams();
+  const fetcher = useFetcher();
+
+  const handleRefresh = () => {
+    fetcher.submit({ intent: "refresh-stats" }, { method: "post" });
+  };
+
+  const handleViewChange = (newView: string) => {
+    setSearchParams({ view: newView });
+  };
 
   return (
     <div className="container">
@@ -36,14 +102,379 @@ export default function Home({ loaderData }: Route.ComponentProps) {
         </div>
       </div>
 
-      <nav className="card">
-        <h2>Navigate</h2>
-        <div className="nav-links">
-          <a href="/categories" className="button">Categories</a>
-          <a href="/accounts" className="button">Accounts</a>
-          <a href="/transactions" className="button">Transactions</a>
+      <div className="card">
+        <div className="card-header">
+          <h2>Navigate</h2>
+          <button className="button" onClick={handleRefresh}>
+            Refresh Stats
+          </button>
         </div>
-      </nav>
+        <div className="nav-links">
+          <button onClick={() => handleViewChange('categories')} className="button">
+            Categories
+          </button>
+          <button onClick={() => handleViewChange('accounts')} className="button">
+            Accounts
+          </button>
+          <button onClick={() => handleViewChange('transactions')} className="button">
+            Transactions
+          </button>
+        </div>
+      </div>
+
+      {view === 'categories' && <CategoriesSection categories={categories} />}
+      {view === 'accounts' && <AccountsSection accounts={accounts} />}
+      {view === 'transactions' && <TransactionsSection transactions={transactions} categories={categories} />}
     </div>
+  );
+}
+
+function CategoriesSection({ categories }: { categories: Category[] }) {
+  const [showForm, setShowForm] = useState(false);
+  const [editingCategory, setEditingCategory] = useState<Category | null>(null);
+  const fetcher = useFetcher();
+
+  const handleEdit = (category: Category) => {
+    setEditingCategory(category);
+    setShowForm(true);
+  };
+
+  const handleDelete = (category: Category) => {
+    if (confirm(`Delete category "${category["category/name"]}"?`)) {
+      fetcher.submit(
+        { intent: "delete-category", id: category["db/id"].toString() },
+        { method: "post" }
+      );
+    }
+  };
+
+  const handleCloseForm = () => {
+    setShowForm(false);
+    setEditingCategory(null);
+  };
+
+  return (
+    <div className="card">
+      <div className="card-header">
+        <h2>Categories</h2>
+        <button className="button" onClick={() => setShowForm(true)}>
+          Add Category
+        </button>
+      </div>
+
+      <table className="table">
+        <thead>
+          <tr>
+            <th>Name</th>
+            <th>Type</th>
+            <th>Actions</th>
+          </tr>
+        </thead>
+        <tbody>
+          {categories.map((category) => (
+            <tr key={category["db/id"]}>
+              <td>{category["category/name"]}</td>
+              <td>{category["category/type"]}</td>
+              <td>
+                <div className="button-group">
+                  <button
+                    className="button button-secondary"
+                    onClick={() => handleEdit(category)}
+                  >
+                    Edit
+                  </button>
+                  <button
+                    className="button button-secondary"
+                    onClick={() => handleDelete(category)}
+                  >
+                    Delete
+                  </button>
+                </div>
+              </td>
+            </tr>
+          ))}
+        </tbody>
+      </table>
+
+      {showForm && (
+        <CategoryForm
+          category={editingCategory}
+          onClose={handleCloseForm}
+        />
+      )}
+    </div>
+  );
+}
+
+function CategoryForm({
+  category,
+  onClose,
+}: {
+  category: Category | null;
+  onClose: () => void;
+}) {
+  const fetcher = useFetcher();
+  const isEditing = category !== null;
+
+  const handleSubmit = (e: React.FormEvent<HTMLFormElement>) => {
+    e.preventDefault();
+    const formData = new FormData(e.currentTarget);
+    fetcher.submit(formData, { method: "post" });
+    onClose();
+  };
+
+  return (
+    <div className="modal-backdrop" onClick={onClose}>
+      <div className="modal-content" onClick={(e) => e.stopPropagation()}>
+        <h2>{isEditing ? "Edit Category" : "Add Category"}</h2>
+        <form onSubmit={handleSubmit}>
+          <input
+            type="hidden"
+            name="intent"
+            value={isEditing ? "update-category" : "create-category"}
+          />
+          {isEditing && (
+            <input
+              type="hidden"
+              name="id"
+              value={category["db/id"].toString()}
+            />
+          )}
+
+          <div className="form-group">
+            <label className="form-label" htmlFor="name">
+              Name
+            </label>
+            <input
+              className="form-input"
+              type="text"
+              id="name"
+              name="name"
+              defaultValue={category?.["category/name"] || ""}
+              required
+            />
+          </div>
+
+          <div className="form-group">
+            <label className="form-label" htmlFor="type">
+              Type
+            </label>
+            <select
+              className="form-select"
+              id="type"
+              name="type"
+              defaultValue={category?.["category/type"] || "expense"}
+              required
+            >
+              <option value="expense">Expense</option>
+              <option value="income">Income</option>
+            </select>
+          </div>
+
+          <div className="form-group">
+            <label className="form-label" htmlFor="ident">
+              Identifier (Optional)
+            </label>
+            <input
+              className="form-input"
+              type="text"
+              id="ident"
+              name="ident"
+              defaultValue={category?.["category/ident"] || ""}
+            />
+          </div>
+
+          <div className="form-actions">
+            <button type="button" className="button button-secondary" onClick={onClose}>
+              Cancel
+            </button>
+            <button type="submit" className="button">
+              {isEditing ? "Update" : "Create"}
+            </button>
+          </div>
+        </form>
+      </div>
+    </div>
+  );
+}
+
+function AccountsSection({ accounts }: { accounts: Account[] }) {
+  return (
+    <div className="card">
+      <h2>Accounts</h2>
+      <table className="table">
+        <thead>
+          <tr>
+            <th>Name</th>
+            <th>Type</th>
+            <th>Currency</th>
+            <th>External ID</th>
+          </tr>
+        </thead>
+        <tbody>
+          {accounts.map((account) => (
+            <tr key={account["db/id"]}>
+              <td>{account["account/name"]}</td>
+              <td>{account["account/type"]}</td>
+              <td>{account["account/currency"]}</td>
+              <td>{account["account/external-id"] || "—"}</td>
+            </tr>
+          ))}
+        </tbody>
+      </table>
+    </div>
+  );
+}
+
+function TransactionsSection({
+  transactions,
+  categories
+}: {
+  transactions: Transaction[];
+  categories: Category[];
+}) {
+  const [page, setPage] = useState(0);
+  const [pageSize, setPageSize] = useState(20);
+
+  const startIdx = page * pageSize;
+  const endIdx = startIdx + pageSize;
+  const paginatedTransactions = transactions.slice(startIdx, endIdx);
+  const totalPages = Math.ceil(transactions.length / pageSize);
+
+  return (
+    <div className="card">
+      <h2>Transactions</h2>
+      <table className="table">
+        <thead>
+          <tr>
+            <th>Date</th>
+            <th>Payee</th>
+            <th>Description</th>
+            <th>Amount</th>
+            <th>Category</th>
+          </tr>
+        </thead>
+        <tbody>
+          {paginatedTransactions.map((transaction) => (
+            <TransactionRow
+              key={transaction["db/id"]}
+              transaction={transaction}
+              categories={categories}
+            />
+          ))}
+        </tbody>
+      </table>
+
+      <div className="pagination">
+        <button
+          className="button button-secondary"
+          onClick={() => setPage(0)}
+          disabled={page === 0}
+        >
+          First
+        </button>
+        <button
+          className="button button-secondary"
+          onClick={() => setPage(page - 1)}
+          disabled={page === 0}
+        >
+          Previous
+        </button>
+        <span className="pagination-info">
+          Page {page + 1} of {totalPages}
+        </span>
+        <button
+          className="button button-secondary"
+          onClick={() => setPage(page + 1)}
+          disabled={page >= totalPages - 1}
+        >
+          Next
+        </button>
+        <button
+          className="button button-secondary"
+          onClick={() => setPage(totalPages - 1)}
+          disabled={page >= totalPages - 1}
+        >
+          Last
+        </button>
+
+        <select
+          className="form-select pagination-size"
+          value={pageSize}
+          onChange={(e) => {
+            setPageSize(parseInt(e.target.value));
+            setPage(0);
+          }}
+        >
+          <option value="10">10 per page</option>
+          <option value="20">20 per page</option>
+          <option value="50">50 per page</option>
+          <option value="100">100 per page</option>
+        </select>
+      </div>
+    </div>
+  );
+}
+
+function TransactionRow({
+  transaction,
+  categories,
+}: {
+  transaction: Transaction;
+  categories: Category[];
+}) {
+  const [isEditing, setIsEditing] = useState(false);
+  const fetcher = useFetcher();
+
+  const currentCategoryId = transaction["transaction/category"]?.["db/id"] || null;
+  const amount = transaction["transaction/amount"];
+  const isPositive = amount > 0;
+
+  const handleCategoryChange = (categoryId: string) => {
+    fetcher.submit(
+      {
+        intent: "update-transaction-category",
+        transactionId: transaction["db/id"].toString(),
+        categoryId: categoryId || "",
+      },
+      { method: "post" }
+    );
+    setIsEditing(false);
+  };
+
+  return (
+    <tr>
+      <td>{formatDate(transaction["transaction/posted-date"])}</td>
+      <td>{transaction["transaction/payee"]}</td>
+      <td>{transaction["transaction/description"] || "—"}</td>
+      <td className={isPositive ? "positive" : "negative"}>
+        {formatAmount(amount)}
+      </td>
+      <td>
+        {isEditing ? (
+          <select
+            className="form-select"
+            defaultValue={currentCategoryId?.toString() || ""}
+            onChange={(e) => handleCategoryChange(e.target.value)}
+            onBlur={() => setIsEditing(false)}
+            autoFocus
+          >
+            <option value="">Uncategorized</option>
+            {categories.map((cat) => (
+              <option key={cat["db/id"]} value={cat["db/id"].toString()}>
+                {cat["category/name"]}
+              </option>
+            ))}
+          </select>
+        ) : (
+          <button
+            className="category-button"
+            onClick={() => setIsEditing(true)}
+          >
+            {transaction["transaction/category"]?.["category/name"] || "Uncategorized"}
+          </button>
+        )}
+      </td>
+    </tr>
   );
 }

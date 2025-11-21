@@ -1,6 +1,7 @@
 import { useState } from "react";
 import type { Route } from "./+types/transactions";
 import { api, type Transaction, type Category } from "../lib/api";
+import { formatAmount, formatDate } from "../lib/format";
 import { useFetcher } from "react-router";
 import "../styles/components/pagination.css";
 import "../styles/components/category-button.css";
@@ -28,19 +29,6 @@ export async function action({ request }: Route.ActionArgs) {
   );
 
   return { success: true };
-}
-
-function formatAmount(amount: number): string {
-  const formatter = new Intl.NumberFormat('en-CA', {
-    style: 'currency',
-    currency: 'CAD',
-  });
-  return formatter.format(amount);
-}
-
-function formatDate(dateString: string): string {
-  const date = new Date(dateString);
-  return date.toLocaleDateString();
 }
 
 export default function Transactions({ loaderData }: Route.ComponentProps) {
