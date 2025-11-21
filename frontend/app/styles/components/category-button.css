@@ -1,0 +1,14 @@
+.category-button {
+  background: none;
+  border: none;
+  color: var(--color-primary);
+  cursor: pointer;
+  padding: 0;
+  text-decoration: underline;
+  font-family: inherit;
+  font-size: inherit;
+}
+
+.category-button:hover {
+  color: var(--color-primary-hover);
+}

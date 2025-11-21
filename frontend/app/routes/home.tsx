@@ -1,5 +1,6 @@
 import type { Route } from "./+types/home";
 import { api, type Stats } from "../lib/api";
+import "../styles/pages/dashboard.css";
 
 export function meta({}: Route.MetaArgs) {
   return [

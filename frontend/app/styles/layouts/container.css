@@ -3,32 +3,3 @@
   margin: 0 auto;
   padding: var(--spacing-xl);
 }
-
-.stats-grid {
-  display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
-  gap: var(--spacing-lg);
-  margin-bottom: var(--spacing-xl);
-}
-
-.stat-card {
-  background: var(--color-white);
-  border-radius: var(--border-radius);
-  padding: var(--spacing-lg);
-  box-shadow: 0 2px 4px var(--color-shadow);
-  text-align: center;
-}
-
-.stat-value {
-  font-size: 2.5rem;
-  font-weight: bold;
-  color: var(--color-primary);
-  margin-bottom: var(--spacing-sm);
-}
-
-.stat-label {
-  color: var(--color-text-muted);
-  font-size: 0.875rem;
-  text-transform: uppercase;
-  letter-spacing: 0.5px;
-}

@@ -44,6 +44,18 @@
   text-decoration: none;
 }
 
+.card-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: var(--spacing-lg);
+}
+
+.button-group {
+  display: flex;
+  gap: var(--spacing-sm);
+}
+
 .table {
   width: 100%;
   border-collapse: collapse;
