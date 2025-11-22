@@ -1,8 +1,11 @@
 import { useState } from "react";
 import type { Route } from "./+types/home";
 import { api, type Stats, type Category, type Account, type Transaction } from "../lib/api";
-import { useSearchParams, useFetcher } from "react-router";
-import { formatAmount, formatDate } from "../lib/format";
+import { useSearchParams, useFetcher, useNavigation } from "react-router";
+import { OptimisticTransactionTable } from "../components/OptimisticTransactionTable";
+import { LoadingIndicator } from "../components/LoadingIndicator";
+import { ErrorDisplay } from "../components/ErrorDisplay";
+import { generateCategoryIdent } from "../lib/identGenerator";
 import "../styles/pages/dashboard.css";
 import "../styles/components/pagination.css";
 import "../styles/components/category-button.css";
@@ -73,7 +76,11 @@ export async function action({ request }: Route.ActionArgs) {
 export default function Home({ loaderData }: Route.ComponentProps) {
   const { stats, categories, accounts, transactions, view } = loaderData;
   const [searchParams, setSearchParams] = useSearchParams();
+  const [error, setError] = useState<string | null>(null);
   const fetcher = useFetcher();
+  const navigation = useNavigation();
+
+  const isLoading = navigation.state === 'loading';
 
   const handleRefresh = () => {
     fetcher.submit({ intent: "refresh-stats" }, { method: "post" });
@@ -86,6 +93,8 @@ export default function Home({ loaderData }: Route.ComponentProps) {
   return (
     <div className="container">
       <h1>Finance Aggregator</h1>
+
+      <ErrorDisplay error={error} onDismiss={() => setError(null)} />
 
       <div className="stats-grid">
         <div className="stat-card">
@@ -122,9 +131,11 @@ export default function Home({ loaderData }: Route.ComponentProps) {
         </div>
       </div>
 
-      {view === 'categories' && <CategoriesSection categories={categories} />}
-      {view === 'accounts' && <AccountsSection accounts={accounts} />}
-      {view === 'transactions' && <TransactionsSection transactions={transactions} categories={categories} />}
+      <LoadingIndicator isLoading={isLoading} message="Loading data..." />
+
+      {!isLoading && view === 'categories' && <CategoriesSection categories={categories} />}
+      {!isLoading && view === 'accounts' && <AccountsSection accounts={accounts} />}
+      {!isLoading && view === 'transactions' && <TransactionsSection transactions={transactions} categories={categories} />}
     </div>
   );
 }
@@ -215,10 +226,15 @@ function CategoryForm({
 }) {
   const fetcher = useFetcher();
   const isEditing = category !== null;
+  const [name, setName] = useState(category?.["category/name"] || "");
+
+  const generatedIdent = generateCategoryIdent(name);
 
   const handleSubmit = (e: React.FormEvent<HTMLFormElement>) => {
     e.preventDefault();
     const formData = new FormData(e.currentTarget);
+    // Add the auto-generated ident
+    formData.set("ident", generatedIdent);
     fetcher.submit(formData, { method: "post" });
     onClose();
   };
@@ -250,7 +266,8 @@ function CategoryForm({
               type="text"
               id="name"
               name="name"
-              defaultValue={category?.["category/name"] || ""}
+              value={name}
+              onChange={(e) => setName(e.target.value)}
               required
             />
           </div>
@@ -269,19 +286,6 @@ function CategoryForm({
               <option value="expense">Expense</option>
               <option value="income">Income</option>
             </select>
-          </div>
-
-          <div className="form-group">
-            <label className="form-label" htmlFor="ident">
-              Identifier (Optional)
-            </label>
-            <input
-              className="form-input"
-              type="text"
-              id="ident"
-              name="ident"
-              defaultValue={category?.["category/ident"] || ""}
-            />
           </div>
 
           <div className="form-actions">
@@ -314,8 +318,8 @@ function AccountsSection({ accounts }: { accounts: Account[] }) {
         <tbody>
           {accounts.map((account) => (
             <tr key={account["db/id"]}>
-              <td>{account["account/name"]}</td>
-              <td>{account["account/type"]}</td>
+              <td>{account["account/external-name"]}</td>
+              <td>{account["account/type"] || "—"}</td>
               <td>{account["account/currency"]}</td>
               <td>{account["account/external-id"] || "—"}</td>
             </tr>
@@ -335,35 +339,38 @@ function TransactionsSection({
 }) {
   const [page, setPage] = useState(0);
   const [pageSize, setPageSize] = useState(20);
+  const [error, setError] = useState<string | null>(null);
 
-  const startIdx = page * pageSize;
-  const endIdx = startIdx + pageSize;
-  const paginatedTransactions = transactions.slice(startIdx, endIdx);
   const totalPages = Math.ceil(transactions.length / pageSize);
+
+  const handleCategoryChange = async (
+    transactionId: number,
+    categoryId: number | null,
+    rollback: () => void
+  ) => {
+    try {
+      await api.updateTransactionCategory(transactionId, categoryId);
+      // Success - no rollback needed, clear any previous errors
+      setError(null);
+    } catch (err) {
+      // Failure - rollback the optimistic update
+      rollback();
+      const errorMessage = err instanceof Error ? err.message : 'Failed to update transaction category';
+      setError(errorMessage);
+    }
+  };
 
   return (
     <div className="card">
       <h2>Transactions</h2>
-      <table className="table">
-        <thead>
-          <tr>
-            <th>Date</th>
-            <th>Payee</th>
-            <th>Description</th>
-            <th>Amount</th>
-            <th>Category</th>
-          </tr>
-        </thead>
-        <tbody>
-          {paginatedTransactions.map((transaction) => (
-            <TransactionRow
-              key={transaction["db/id"]}
-              transaction={transaction}
-              categories={categories}
-            />
-          ))}
-        </tbody>
-      </table>
+      <ErrorDisplay error={error} onDismiss={() => setError(null)} />
+      <OptimisticTransactionTable
+        transactions={transactions}
+        categories={categories}
+        onCategoryChange={handleCategoryChange}
+        page={page}
+        pageSize={pageSize}
+      />
 
       <div className="pagination">
         <button
@@ -413,68 +420,5 @@ function TransactionsSection({
         </select>
       </div>
     </div>
-  );
-}
-
-function TransactionRow({
-  transaction,
-  categories,
-}: {
-  transaction: Transaction;
-  categories: Category[];
-}) {
-  const [isEditing, setIsEditing] = useState(false);
-  const fetcher = useFetcher();
-
-  const currentCategoryId = transaction["transaction/category"]?.["db/id"] || null;
-  const amount = transaction["transaction/amount"];
-  const isPositive = amount > 0;
-
-  const handleCategoryChange = (categoryId: string) => {
-    fetcher.submit(
-      {
-        intent: "update-transaction-category",
-        transactionId: transaction["db/id"].toString(),
-        categoryId: categoryId || "",
-      },
-      { method: "post" }
-    );
-    setIsEditing(false);
-  };
-
-  return (
-    <tr>
-      <td>{formatDate(transaction["transaction/posted-date"])}</td>
-      <td>{transaction["transaction/payee"]}</td>
-      <td>{transaction["transaction/description"] || "—"}</td>
-      <td className={isPositive ? "positive" : "negative"}>
-        {formatAmount(amount)}
-      </td>
-      <td>
-        {isEditing ? (
-          <select
-            className="form-select"
-            defaultValue={currentCategoryId?.toString() || ""}
-            onChange={(e) => handleCategoryChange(e.target.value)}
-            onBlur={() => setIsEditing(false)}
-            autoFocus
-          >
-            <option value="">Uncategorized</option>
-            {categories.map((cat) => (
-              <option key={cat["db/id"]} value={cat["db/id"].toString()}>
-                {cat["category/name"]}
-              </option>
-            ))}
-          </select>
-        ) : (
-          <button
-            className="category-button"
-            onClick={() => setIsEditing(true)}
-          >
-            {transaction["transaction/category"]?.["category/name"] || "Uncategorized"}
-          </button>
-        )}
-      </td>
-    </tr>
   );
 }

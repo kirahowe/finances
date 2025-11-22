@@ -154,6 +154,11 @@
   color: var(--color-negative);
 }
 
+.numeric {
+  font-family: Menlo, Consolas, Monaco, Adwaita Mono, Liberation Mono, Lucida Console, monospace;
+  font-variant-numeric: tabular-nums;
+}
+
 .error-stack {
   overflow-x: auto;
   padding: var(--spacing-md);

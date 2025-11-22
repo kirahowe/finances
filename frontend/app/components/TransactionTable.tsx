@@ -1,0 +1,164 @@
+import { useState } from 'react';
+import {
+  useReactTable,
+  getCoreRowModel,
+  getSortedRowModel,
+  flexRender,
+  createColumnHelper,
+  type SortingState,
+} from '@tanstack/react-table';
+import type { Transaction, Category } from '../lib/api';
+import { formatAmount, formatDate } from '../lib/format';
+
+interface TransactionTableProps {
+  transactions: Transaction[];
+  categories: Category[];
+  onCategoryChange: (transactionId: number, categoryId: number | null) => void;
+  page?: number;
+  pageSize?: number;
+}
+
+export function TransactionTable({
+  transactions,
+  categories,
+  onCategoryChange,
+  page = 0,
+  pageSize,
+}: TransactionTableProps) {
+  const [sorting, setSorting] = useState<SortingState>([]);
+  const [editingTransactionId, setEditingTransactionId] = useState<number | null>(null);
+
+  const columnHelper = createColumnHelper<Transaction>();
+
+  const columns = [
+    columnHelper.accessor('transaction/posted-date', {
+      id: 'date',
+      header: 'Date',
+      cell: (info) => <span className="numeric">{formatDate(info.getValue())}</span>,
+    }),
+    columnHelper.accessor('transaction/payee', {
+      id: 'payee',
+      header: 'Payee',
+      cell: (info) => info.getValue(),
+    }),
+    columnHelper.accessor('transaction/description', {
+      id: 'description',
+      header: 'Description',
+      cell: (info) => info.getValue() || '—',
+    }),
+    columnHelper.accessor('transaction/amount', {
+      id: 'amount',
+      header: 'Amount',
+      cell: (info) => {
+        const amount = info.getValue();
+        return (
+          <span className={`numeric ${amount > 0 ? 'positive' : 'negative'}`}>
+            {formatAmount(amount)}
+          </span>
+        );
+      },
+    }),
+    columnHelper.display({
+      id: 'category',
+      header: 'Category',
+      cell: (info) => {
+        const transaction = info.row.original;
+        const isEditing = editingTransactionId === transaction['db/id'];
+        const currentCategory = transaction['transaction/category'];
+
+        if (isEditing) {
+          return (
+            <select
+              className="form-select"
+              defaultValue={currentCategory?.['db/id']?.toString() || ''}
+              onChange={(e) => {
+                const value = e.target.value;
+                onCategoryChange(
+                  transaction['db/id'],
+                  value ? parseInt(value) : null
+                );
+                setEditingTransactionId(null);
+              }}
+              onBlur={() => setEditingTransactionId(null)}
+              autoFocus
+            >
+              <option value="">Uncategorized</option>
+              {categories.map((cat) => (
+                <option key={cat['db/id']} value={cat['db/id'].toString()}>
+                  {cat['category/name']}
+                </option>
+              ))}
+            </select>
+          );
+        }
+
+        return (
+          <button
+            className="category-button"
+            onClick={() => setEditingTransactionId(transaction['db/id'])}
+          >
+            {currentCategory?.['category/name'] || 'Uncategorized'}
+          </button>
+        );
+      },
+    }),
+  ];
+
+  const table = useReactTable({
+    data: transactions,
+    columns,
+    state: {
+      sorting,
+    },
+    onSortingChange: setSorting,
+    getCoreRowModel: getCoreRowModel(),
+    getSortedRowModel: getSortedRowModel(),
+  });
+
+  // Get sorted rows, then apply pagination if specified
+  const sortedRows = table.getRowModel().rows;
+  const displayRows = pageSize !== undefined
+    ? sortedRows.slice(page * pageSize, (page + 1) * pageSize)
+    : sortedRows;
+
+  return (
+    <table className="table">
+      <thead>
+        {table.getHeaderGroups().map((headerGroup) => (
+          <tr key={headerGroup.id}>
+            {headerGroup.headers.map((header) => (
+              <th
+                key={header.id}
+                onClick={header.column.getToggleSortingHandler()}
+                style={{
+                  cursor: header.column.getCanSort() ? 'pointer' : 'default',
+                  userSelect: 'none',
+                }}
+              >
+                {header.isPlaceholder
+                  ? null
+                  : flexRender(
+                      header.column.columnDef.header,
+                      header.getContext()
+                    )}
+                {header.column.getIsSorted() === 'asc' && ' ↑'}
+                {header.column.getIsSorted() === 'desc' && ' ↓'}
+              </th>
+            ))}
+          </tr>
+        ))}
+      </thead>
+      <tbody>
+        {displayRows.map((row) => (
+          <tr key={row.id}>
+            {row.getVisibleCells().map((cell) => (
+              <td key={cell.id}>
+                {flexRender(cell.column.columnDef.cell, cell.getContext())}
+              </td>
+            ))}
+          </tr>
+        ))}
+      </tbody>
+    </table>
+  );
+}

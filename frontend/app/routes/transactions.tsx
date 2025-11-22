@@ -1,8 +1,10 @@
 import { useState } from "react";
 import type { Route } from "./+types/transactions";
 import { api, type Transaction, type Category } from "../lib/api";
-import { formatAmount, formatDate } from "../lib/format";
-import { useFetcher } from "react-router";
+import { OptimisticTransactionTable } from "../components/OptimisticTransactionTable";
+import { LoadingIndicator } from "../components/LoadingIndicator";
+import { ErrorDisplay } from "../components/ErrorDisplay";
+import { useNavigation, useRevalidator } from "react-router";
 import "../styles/components/pagination.css";
 import "../styles/components/category-button.css";
 
@@ -35,37 +37,54 @@ export default function Transactions({ loaderData }: Route.ComponentProps) {
   const { transactions, categories } = loaderData;
   const [page, setPage] = useState(0);
   const [pageSize, setPageSize] = useState(20);
+  const [error, setError] = useState<string | null>(null);
+  const navigation = useNavigation();
+  const revalidator = useRevalidator();
 
-  const startIdx = page * pageSize;
-  const endIdx = startIdx + pageSize;
-  const paginatedTransactions = transactions.slice(startIdx, endIdx);
+  const isLoading = navigation.state === 'loading';
+
   const totalPages = Math.ceil(transactions.length / pageSize);
+
+  const handleCategoryChange = async (
+    transactionId: number,
+    categoryId: number | null,
+    rollback: () => void
+  ) => {
+    try {
+      await api.updateTransactionCategory(transactionId, categoryId);
+      // Success - no rollback needed, clear any previous errors
+      setError(null);
+    } catch (err) {
+      // Failure - rollback the optimistic update
+      rollback();
+      const errorMessage = err instanceof Error ? err.message : 'Failed to update transaction category';
+      setError(errorMessage);
+    }
+  };
 
   return (
     <div className="container">
       <h1>Transactions</h1>
 
-      <div className="card">
-        <table className="table">
-          <thead>
-            <tr>
-              <th>Date</th>
-              <th>Payee</th>
-              <th>Description</th>
-              <th>Amount</th>
-              <th>Category</th>
-            </tr>
-          </thead>
-          <tbody>
-            {paginatedTransactions.map((transaction) => (
-              <TransactionRow
-                key={transaction["db/id"]}
-                transaction={transaction}
-                categories={categories}
-              />
-            ))}
-          </tbody>
-        </table>
+      <ErrorDisplay error={error} onDismiss={() => setError(null)} />
+      <LoadingIndicator isLoading={isLoading} message="Loading transactions..." />
+
+      {!isLoading && (
+        <div className="card">
+          <div className="card-header">
+            <h2>All Transactions</h2>
+            <button className="button" onClick={() => revalidator.revalidate()}>
+              Refresh
+            </button>
+          </div>
+
+          <OptimisticTransactionTable
+            transactions={transactions}
+            categories={categories}
+            onCategoryChange={handleCategoryChange}
+            page={page}
+            pageSize={pageSize}
+          />
 
         <div className="pagination">
           <button
@@ -114,7 +133,8 @@ export default function Transactions({ loaderData }: Route.ComponentProps) {
             <option value="100">100 per page</option>
           </select>
         </div>
-      </div>
+        </div>
+      )}
 
       <div className="nav-links">
         <a href="/" className="button button-secondary">
@@ -122,67 +142,5 @@ export default function Transactions({ loaderData }: Route.ComponentProps) {
         </a>
       </div>
     </div>
-  );
-}
-
-function TransactionRow({
-  transaction,
-  categories,
-}: {
-  transaction: Transaction;
-  categories: Category[];
-}) {
-  const [isEditing, setIsEditing] = useState(false);
-  const fetcher = useFetcher();
-
-  const currentCategoryId = transaction["transaction/category"]?.["db/id"] || null;
-  const amount = transaction["transaction/amount"];
-  const isPositive = amount > 0;
-
-  const handleCategoryChange = (categoryId: string) => {
-    fetcher.submit(
-      {
-        transactionId: transaction["db/id"].toString(),
-        categoryId: categoryId || "",
-      },
-      { method: "post" }
-    );
-    setIsEditing(false);
-  };
-
-  return (
-    <tr>
-      <td>{formatDate(transaction["transaction/posted-date"])}</td>
-      <td>{transaction["transaction/payee"]}</td>
-      <td>{transaction["transaction/description"] || "—"}</td>
-      <td className={isPositive ? "positive" : "negative"}>
-        {formatAmount(amount)}
-      </td>
-      <td>
-        {isEditing ? (
-          <select
-            className="form-select"
-            defaultValue={currentCategoryId?.toString() || ""}
-            onChange={(e) => handleCategoryChange(e.target.value)}
-            onBlur={() => setIsEditing(false)}
-            autoFocus
-          >
-            <option value="">Uncategorized</option>
-            {categories.map((cat) => (
-              <option key={cat["db/id"]} value={cat["db/id"].toString()}>
-                {cat["category/name"]}
-              </option>
-            ))}
-          </select>
-        ) : (
-          <button
-            className="category-button"
-            onClick={() => setIsEditing(true)}
-          >
-            {transaction["transaction/category"]?.["category/name"] || "Uncategorized"}
-          </button>
-        )}
-      </td>
-    </tr>
   );
 }

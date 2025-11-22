@@ -24,8 +24,8 @@ const TransactionSchema = z.object({
 
 const AccountSchema = z.object({
   'db/id': z.number(),
-  'account/name': z.string(),
-  'account/type': z.string(),
+  'account/external-name': z.string(),
+  'account/type': z.string().optional(),
   'account/currency': z.string(),
   'account/external-id': z.string().optional(),
 });

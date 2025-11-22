@@ -1,7 +1,9 @@
 import { useState } from "react";
 import type { Route } from "./+types/categories";
 import { api, type Category } from "../lib/api";
-import { useFetcher } from "react-router";
+import { useFetcher, useNavigation, useRevalidator } from "react-router";
+import { LoadingIndicator } from "../components/LoadingIndicator";
+import { generateCategoryIdent } from "../lib/identGenerator";
 
 export function meta({}: Route.MetaArgs) {
   return [{ title: "Categories - Finance Aggregator" }];
@@ -40,6 +42,10 @@ export default function Categories({ loaderData }: Route.ComponentProps) {
   const [showForm, setShowForm] = useState(false);
   const [editingCategory, setEditingCategory] = useState<Category | null>(null);
   const fetcher = useFetcher();
+  const navigation = useNavigation();
+  const revalidator = useRevalidator();
+
+  const isLoading = navigation.state === 'loading';
 
   const handleEdit = (category: Category) => {
     setEditingCategory(category);
@@ -64,15 +70,23 @@ export default function Categories({ loaderData }: Route.ComponentProps) {
     <div className="container">
       <h1>Categories</h1>
 
-      <div className="card">
-        <div className="card-header">
-          <h2>All Categories</h2>
-          <button className="button" onClick={() => setShowForm(true)}>
-            Add Category
-          </button>
-        </div>
+      <LoadingIndicator isLoading={isLoading} message="Loading categories..." />
 
-        <table className="table">
+      {!isLoading && (
+        <div className="card">
+          <div className="card-header">
+            <h2>All Categories</h2>
+            <div style={{ display: 'flex', gap: '10px' }}>
+              <button className="button" onClick={() => setShowForm(true)}>
+                Add Category
+              </button>
+              <button className="button button-secondary" onClick={() => revalidator.revalidate()}>
+                Refresh
+              </button>
+            </div>
+          </div>
+
+          <table className="table">
           <thead>
             <tr>
               <th>Name</th>
@@ -105,7 +119,8 @@ export default function Categories({ loaderData }: Route.ComponentProps) {
             ))}
           </tbody>
         </table>
-      </div>
+        </div>
+      )}
 
       {showForm && (
         <CategoryForm
@@ -132,10 +147,15 @@ function CategoryForm({
 }) {
   const fetcher = useFetcher();
   const isEditing = category !== null;
+  const [name, setName] = useState(category?.["category/name"] || "");
+
+  const generatedIdent = generateCategoryIdent(name);
 
   const handleSubmit = (e: React.FormEvent<HTMLFormElement>) => {
     e.preventDefault();
     const formData = new FormData(e.currentTarget);
+    // Add the auto-generated ident
+    formData.set("ident", generatedIdent);
     fetcher.submit(formData, { method: "post" });
     onClose();
   };
@@ -167,7 +187,8 @@ function CategoryForm({
               type="text"
               id="name"
               name="name"
-              defaultValue={category?.["category/name"] || ""}
+              value={name}
+              onChange={(e) => setName(e.target.value)}
               required
             />
           </div>
@@ -190,14 +211,16 @@ function CategoryForm({
 
           <div className="form-group">
             <label className="form-label" htmlFor="ident">
-              Identifier (Optional)
+              Identifier (Auto-generated)
             </label>
             <input
               className="form-input"
               type="text"
               id="ident"
               name="ident"
-              defaultValue={category?.["category/ident"] || ""}
+              value={generatedIdent}
+              readOnly
+              style={{ backgroundColor: '#f5f5f5', cursor: 'not-allowed' }}
             />
           </div>
 
