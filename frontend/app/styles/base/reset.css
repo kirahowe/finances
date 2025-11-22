@@ -2,13 +2,17 @@
   box-sizing: border-box;
 }
 
-html, body {
+html {
   margin: 0;
   padding: 0;
   height: 100%;
+  background-color: var(--color-background);
 }
 
 body {
+  margin: 0;
+  padding: 0;
+  height: 100%;
   font-family: var(--font-body);
   color: var(--color-text);
   background-color: var(--color-background);

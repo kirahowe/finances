@@ -1,11 +1,13 @@
-import { useState } from "react";
+import { useState, useRef, useEffect } from "react";
 import type { Route } from "./+types/home";
 import { api, type Stats, type Category, type Account, type Transaction } from "../lib/api";
 import { useSearchParams, useFetcher, useNavigation } from "react-router";
 import { OptimisticTransactionTable } from "../components/OptimisticTransactionTable";
+import { CategoryTable } from "../components/CategoryTable";
 import { LoadingIndicator } from "../components/LoadingIndicator";
 import { ErrorDisplay } from "../components/ErrorDisplay";
 import { generateCategoryIdent } from "../lib/identGenerator";
+import type { CategoryDraft } from "../lib/categoryDraft";
 import "../styles/pages/dashboard.css";
 import "../styles/components/pagination.css";
 import "../styles/components/category-button.css";
@@ -141,13 +143,45 @@ export default function Home({ loaderData }: Route.ComponentProps) {
 }
 
 function CategoriesSection({ categories }: { categories: Category[] }) {
-  const [showForm, setShowForm] = useState(false);
   const [editingCategory, setEditingCategory] = useState<Category | null>(null);
+  const [newCategoryIds, setNewCategoryIds] = useState<number[]>([]);
+  const [optimisticCategories, setOptimisticCategories] = useState<Category[]>([]);
+  const nextTempIdRef = useRef(-1);
   const fetcher = useFetcher();
+
+  // Merge server categories with optimistic categories
+  const allCategories = [...categories, ...optimisticCategories];
+
+  // Clean up optimistic categories when they appear in the server data
+  useEffect(() => {
+    if (optimisticCategories.length > 0) {
+      setOptimisticCategories((prev) =>
+        prev.filter((opt) =>
+          !categories.some((cat) => cat['category/name'] === opt['category/name'])
+        )
+      );
+    }
+  }, [categories, optimisticCategories.length]);
+
+  // Track IDs of categories that were optimistically added
+  useEffect(() => {
+    const optimisticIds = optimisticCategories.map((cat) => cat['db/id']);
+    if (optimisticIds.length > 0) {
+      setNewCategoryIds((prev) => {
+        const serverNewIds = categories
+          .filter((cat) =>
+            optimisticCategories.some((opt) => opt['category/name'] === cat['category/name'])
+          )
+          .map((cat) => cat['db/id']);
+
+        const combined = [...new Set([...prev, ...optimisticIds, ...serverNewIds])];
+        return combined;
+      });
+    }
+  }, [categories, optimisticCategories]);
 
   const handleEdit = (category: Category) => {
     setEditingCategory(category);
-    setShowForm(true);
   };
 
   const handleDelete = (category: Category) => {
@@ -159,8 +193,30 @@ function CategoriesSection({ categories }: { categories: Category[] }) {
     }
   };
 
+  const handleCreate = (draft: CategoryDraft) => {
+    // Create optimistic category
+    const tempId = nextTempIdRef.current--;
+    const optimisticCategory: Category = {
+      'db/id': tempId,
+      'category/name': draft.name,
+      'category/type': draft.type,
+    };
+
+    setOptimisticCategories((prev) => [...prev, optimisticCategory]);
+
+    const ident = generateCategoryIdent(draft.name);
+    fetcher.submit(
+      {
+        intent: "create-category",
+        name: draft.name,
+        type: draft.type,
+        ident,
+      },
+      { method: "post" }
+    );
+  };
+
   const handleCloseForm = () => {
-    setShowForm(false);
     setEditingCategory(null);
   };
 
@@ -168,46 +224,17 @@ function CategoriesSection({ categories }: { categories: Category[] }) {
     <div className="card">
       <div className="card-header">
         <h2>Categories</h2>
-        <button className="button" onClick={() => setShowForm(true)}>
-          Add Category
-        </button>
       </div>
 
-      <table className="table">
-        <thead>
-          <tr>
-            <th>Name</th>
-            <th>Type</th>
-            <th>Actions</th>
-          </tr>
-        </thead>
-        <tbody>
-          {categories.map((category) => (
-            <tr key={category["db/id"]}>
-              <td>{category["category/name"]}</td>
-              <td>{category["category/type"]}</td>
-              <td>
-                <div className="button-group">
-                  <button
-                    className="button button-secondary"
-                    onClick={() => handleEdit(category)}
-                  >
-                    Edit
-                  </button>
-                  <button
-                    className="button button-secondary"
-                    onClick={() => handleDelete(category)}
-                  >
-                    Delete
-                  </button>
-                </div>
-              </td>
-            </tr>
-          ))}
-        </tbody>
-      </table>
+      <CategoryTable
+        categories={allCategories}
+        newCategoryIds={newCategoryIds}
+        onEdit={handleEdit}
+        onDelete={handleDelete}
+        onCreate={handleCreate}
+      />
 
-      {showForm && (
+      {editingCategory && (
         <CategoryForm
           category={editingCategory}
           onClose={handleCloseForm}
