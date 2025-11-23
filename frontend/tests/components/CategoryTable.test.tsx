@@ -30,8 +30,8 @@ describe('CategoryTable', () => {
 
     expect(screen.getByText('Groceries')).toBeInTheDocument();
     expect(screen.getByText('Salary')).toBeInTheDocument();
-    expect(screen.getByText('expense')).toBeInTheDocument();
-    expect(screen.getByText('income')).toBeInTheDocument();
+    expect(screen.getByText('Expense')).toBeInTheDocument();
+    expect(screen.getByText('Income')).toBeInTheDocument();
   });
 
   it('shows a "+" button to add a new category', () => {

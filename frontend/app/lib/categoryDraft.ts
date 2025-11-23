@@ -1,6 +1,8 @@
+import type { CategoryType } from './categoryTypes';
+
 export interface CategoryDraft {
   name: string;
-  type: 'expense' | 'income';
+  type: CategoryType;
 }
 
 export interface ValidationResult {

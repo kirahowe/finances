@@ -8,6 +8,7 @@ import { LoadingIndicator } from "../components/LoadingIndicator";
 import { ErrorDisplay } from "../components/ErrorDisplay";
 import { generateCategoryIdent } from "../lib/identGenerator";
 import type { CategoryDraft } from "../lib/categoryDraft";
+import { CATEGORY_TYPE_OPTIONS, type CategoryType } from "../lib/categoryTypes";
 import { calculateSortOrderUpdates, optimizeSortOrderUpdates } from "../lib/categoryReorder";
 import { debounce } from "../lib/debounce";
 import { parseSortingState, serializeSortingState } from "../lib/sortingState";
@@ -57,13 +58,13 @@ export async function action({ request }: Route.ActionArgs) {
     return { success: true };
   } else if (intent === "create-category") {
     const name = formData.get("name") as string;
-    const type = formData.get("type") as "expense" | "income";
+    const type = formData.get("type") as CategoryType;
     const ident = formData.get("ident") as string | undefined;
     await api.createCategory({ name, type, ident: ident || undefined });
   } else if (intent === "update-category") {
     const id = parseInt(formData.get("id") as string);
     const name = formData.get("name") as string;
-    const type = formData.get("type") as "expense" | "income";
+    const type = formData.get("type") as CategoryType;
     const ident = formData.get("ident") as string | undefined;
     await api.updateCategory(id, { name, type, ident: ident || undefined });
   } else if (intent === "delete-category") {
@@ -352,8 +353,11 @@ function CategoryForm({
               defaultValue={category?.["category/type"] || "expense"}
               required
             >
-              <option value="expense">Expense</option>
-              <option value="income">Income</option>
+              {CATEGORY_TYPE_OPTIONS.map((option) => (
+                <option key={option.value} value={option.value}>
+                  {option.label}
+                </option>
+              ))}
             </select>
           </div>
 

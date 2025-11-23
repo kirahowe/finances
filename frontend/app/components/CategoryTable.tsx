@@ -7,6 +7,7 @@ import {
   isDraftEmpty,
   type CategoryDraft,
 } from '../lib/categoryDraft';
+import { CATEGORY_TYPE_OPTIONS, getCategoryTypeLabel, type CategoryType } from '../lib/categoryTypes';
 import { createDragDropManager } from '../lib/dragAndDrop';
 import { EditIcon } from './icons/EditIcon';
 import { DeleteIcon } from './icons/DeleteIcon';
@@ -190,7 +191,7 @@ export function CategoryTable({
                 }}
               >
                 <td>{category['category/name']}</td>
-                <td>{category['category/type']}</td>
+                <td>{getCategoryTypeLabel(category['category/type'])}</td>
                 <td>
                   <div className="button-group">
                     <button
@@ -252,7 +253,7 @@ export function CategoryTable({
                   aria-label="Type"
                   value={draft.type}
                   onChange={(e) =>
-                    updateField('type', e.target.value as 'expense' | 'income')
+                    updateField('type', e.target.value as CategoryType)
                   }
                   onKeyDown={(e) => {
                     if (e.key === 'Escape') {
@@ -261,8 +262,11 @@ export function CategoryTable({
                     }
                   }}
                 >
-                  <option value="expense">expense</option>
-                  <option value="income">income</option>
+                  {CATEGORY_TYPE_OPTIONS.map((option) => (
+                    <option key={option.value} value={option.value}>
+                      {option.label}
+                    </option>
+                  ))}
                 </select>
               </td>
               <td>

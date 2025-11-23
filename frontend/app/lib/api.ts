@@ -1,4 +1,5 @@
 import { z } from 'zod';
+import { CATEGORY_TYPES, type CategoryType } from './categoryTypes';
 
 // API Base URL - defaulting to localhost:8080
 const API_BASE = typeof window !== 'undefined'
@@ -9,7 +10,7 @@ const API_BASE = typeof window !== 'undefined'
 const CategorySchema = z.object({
   'db/id': z.number(),
   'category/name': z.string(),
-  'category/type': z.enum(['expense', 'income']),
+  'category/type': z.enum(CATEGORY_TYPES),
   'category/ident': z.string().optional(),
   'category/sort-order': z.number().optional(),
 });
@@ -66,7 +67,7 @@ export const api = {
     return result.data;
   },
 
-  async createCategory(data: { name: string; type: 'expense' | 'income'; ident?: string }): Promise<Category> {
+  async createCategory(data: { name: string; type: CategoryType; ident?: string }): Promise<Category> {
     const response = await fetch(`${API_BASE}/api/categories`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
@@ -77,7 +78,7 @@ export const api = {
     return result.data;
   },
 
-  async updateCategory(id: number, data: { name: string; type: 'expense' | 'income'; ident?: string }): Promise<Category> {
+  async updateCategory(id: number, data: { name: string; type: CategoryType; ident?: string }): Promise<Category> {
     const response = await fetch(`${API_BASE}/api/categories/${id}`, {
       method: 'PUT',
       headers: { 'Content-Type': 'application/json' },
