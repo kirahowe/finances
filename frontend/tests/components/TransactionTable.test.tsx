@@ -3,6 +3,7 @@ import { render, screen, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { TransactionTable } from '../../app/components/TransactionTable';
 import type { Transaction, Category } from '../../app/lib/api';
+import type { SortingState } from '@tanstack/react-table';
 
 describe('TransactionTable', () => {
   const mockCategories: Category[] = [
@@ -51,6 +52,8 @@ describe('TransactionTable', () => {
         transactions={mockTransactions}
         categories={mockCategories}
         onCategoryChange={vi.fn()}
+        sorting={[]}
+        onSortingChange={vi.fn()}
       />
     );
 
@@ -65,6 +68,8 @@ describe('TransactionTable', () => {
         transactions={mockTransactions}
         categories={mockCategories}
         onCategoryChange={vi.fn()}
+        sorting={[]}
+        onSortingChange={vi.fn()}
       />
     );
 
@@ -78,97 +83,74 @@ describe('TransactionTable', () => {
     expect(amountHeader).toBeInTheDocument();
   });
 
-  it('sorts by date when date header is clicked', async () => {
+  it('calls onSortingChange when column header is clicked', async () => {
     const user = userEvent.setup();
+    const onSortingChange = vi.fn();
 
     render(
       <TransactionTable
         transactions={mockTransactions}
         categories={mockCategories}
         onCategoryChange={vi.fn()}
+        sorting={[]}
+        onSortingChange={onSortingChange}
       />
     );
 
     const dateHeader = screen.getByRole('columnheader', { name: /date/i });
-
-    // Get all rows before sorting
-    const rowsBefore = screen.getAllByRole('row').slice(1); // skip header row
-    const firstRowBefore = within(rowsBefore[0]).getByRole('cell', { name: /Store A/i });
-    expect(firstRowBefore).toBeInTheDocument();
-
-    // Click to sort ascending (earliest first)
     await user.click(dateHeader);
 
-    // Check for sort indicator
-    expect(dateHeader.textContent).toMatch(/[↑↓]/);
-
-    // Get all rows after sorting
-    const rowsAfter = screen.getAllByRole('row').slice(1);
-    const firstRowAfter = within(rowsAfter[0]);
-
-    // Store B should be first (2024-01-10 is earliest)
-    expect(firstRowAfter.getByText('Store B')).toBeInTheDocument();
+    // Should call onSortingChange with new sorting state
+    expect(onSortingChange).toHaveBeenCalled();
+    const callArg = onSortingChange.mock.calls[0][0];
+    // TanStack Table passes an updater function, we need to call it with current state
+    const newSorting = typeof callArg === 'function' ? callArg([]) : callArg;
+    expect(newSorting).toEqual([{ id: 'date', desc: false }]);
   });
 
-  it('sorts by amount when amount header is clicked', async () => {
-    const user = userEvent.setup();
+  it('displays sort indicators based on sorting prop', () => {
+    const { rerender } = render(
+      <TransactionTable
+        transactions={mockTransactions}
+        categories={mockCategories}
+        onCategoryChange={vi.fn()}
+        sorting={[{ id: 'date', desc: false }]}
+        onSortingChange={vi.fn()}
+      />
+    );
 
+    const dateHeader = screen.getByRole('columnheader', { name: /date/i });
+    expect(dateHeader.textContent).toContain('↑');
+
+    // Change to descending
+    rerender(
+      <TransactionTable
+        transactions={mockTransactions}
+        categories={mockCategories}
+        onCategoryChange={vi.fn()}
+        sorting={[{ id: 'date', desc: true }]}
+        onSortingChange={vi.fn()}
+      />
+    );
+
+    expect(dateHeader.textContent).toContain('↓');
+  });
+
+  it('sorts data according to sorting prop', () => {
     render(
       <TransactionTable
         transactions={mockTransactions}
         categories={mockCategories}
         onCategoryChange={vi.fn()}
+        sorting={[{ id: 'date', desc: false }]}
+        onSortingChange={vi.fn()}
       />
     );
 
-    const amountHeader = screen.getByRole('columnheader', { name: /amount/i });
-
-    // Click to sort (first click is descending: largest to smallest)
-    await user.click(amountHeader);
-
-    // Check for sort indicator
-    expect(amountHeader.textContent).toMatch(/[↑↓]/);
-
-    // Get first row - should be Employer with 2000 (largest amount)
+    // With ascending date sort, Store B (2024-01-10) should be first
     const rows = screen.getAllByRole('row').slice(1);
-    const cells = within(rows[0]).getAllByRole('cell');
-    const payeeCell = cells[1]; // Payee is second column
-    expect(payeeCell).toHaveTextContent('Employer');
-
-    // Click again to sort ascending (smallest to largest)
-    await user.click(amountHeader);
-
-    // Now Store B with -100 should be first
-    const rowsAfterSecondClick = screen.getAllByRole('row').slice(1);
-    const cellsAfterSecondClick = within(rowsAfterSecondClick[0]).getAllByRole('cell');
-    const payeeCellAfterSecondClick = cellsAfterSecondClick[1];
-    expect(payeeCellAfterSecondClick).toHaveTextContent('Store B');
-  });
-
-  it('toggles sort direction on subsequent clicks', async () => {
-    const user = userEvent.setup();
-
-    render(
-      <TransactionTable
-        transactions={mockTransactions}
-        categories={mockCategories}
-        onCategoryChange={vi.fn()}
-      />
-    );
-
-    const payeeHeader = screen.getByRole('columnheader', { name: /payee/i });
-
-    // First click - ascending
-    await user.click(payeeHeader);
-    let rows = screen.getAllByRole('row').slice(1);
-    let firstRow = within(rows[0]);
-    expect(firstRow.getByText('Employer')).toBeInTheDocument(); // E comes first
-
-    // Second click - descending
-    await user.click(payeeHeader);
-    rows = screen.getAllByRole('row').slice(1);
-    firstRow = within(rows[0]);
-    expect(firstRow.getByText('Store B')).toBeInTheDocument(); // S comes first descending
+    const firstRow = within(rows[0]);
+    expect(firstRow.getByText('Store B')).toBeInTheDocument();
   });
 
   it('allows category editing when category button is clicked', async () => {
@@ -180,6 +162,8 @@ describe('TransactionTable', () => {
         transactions={mockTransactions}
         categories={mockCategories}
         onCategoryChange={onCategoryChange}
+        sorting={[]}
+        onSortingChange={vi.fn()}
       />
     );
 

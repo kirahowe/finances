@@ -43,6 +43,8 @@ describe('OptimisticTransactionTable', () => {
         transactions={mockTransactions}
         categories={mockCategories}
         onCategoryChange={onCategoryChange}
+        sorting={[]}
+        onSortingChange={vi.fn()}
       />
     );
 
@@ -71,6 +73,8 @@ describe('OptimisticTransactionTable', () => {
         transactions={mockTransactions}
         categories={mockCategories}
         onCategoryChange={onCategoryChange}
+        sorting={[]}
+        onSortingChange={vi.fn()}
       />
     );
 
@@ -102,6 +106,8 @@ describe('OptimisticTransactionTable', () => {
         transactions={mockTransactions}
         categories={mockCategories}
         onCategoryChange={onCategoryChange}
+        sorting={[]}
+        onSortingChange={vi.fn()}
       />
     );
 

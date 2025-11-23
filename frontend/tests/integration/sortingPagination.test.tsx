@@ -1,8 +1,10 @@
 import { describe, it, expect, vi } from 'vitest';
 import { render, screen, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
+import { useState } from 'react';
 import { OptimisticTransactionTable } from '../../app/components/OptimisticTransactionTable';
 import type { Transaction, Category } from '../../app/lib/api';
+import type { SortingState } from '@tanstack/react-table';
 
 describe('Sorting with Pagination', () => {
   const mockCategories: Category[] = [
@@ -44,13 +46,21 @@ describe('Sorting with Pagination', () => {
   it('sorts entire dataset, not just current page', async () => {
     const user = userEvent.setup();
 
-    render(
-      <OptimisticTransactionTable
-        transactions={mockTransactions}
-        categories={mockCategories}
-        onCategoryChange={vi.fn()}
-      />
-    );
+    function TestWrapper() {
+      const [sorting, setSorting] = useState<SortingState>([]);
+
+      return (
+        <OptimisticTransactionTable
+          transactions={mockTransactions}
+          categories={mockCategories}
+          onCategoryChange={vi.fn()}
+          sorting={sorting}
+          onSortingChange={setSorting}
+        />
+      );
+    }
+
+    render(<TestWrapper />);
 
     // Click payee header to sort
     const payeeHeader = screen.getByRole('columnheader', { name: /payee/i });
@@ -73,15 +83,23 @@ describe('Sorting with Pagination', () => {
   it('maintains sort order when data represents a single page of larger dataset', async () => {
     const user = userEvent.setup();
 
+    function TestWrapper() {
+      const [sorting, setSorting] = useState<SortingState>([]);
+
+      return (
+        <OptimisticTransactionTable
+          transactions={mockTransactions}
+          categories={mockCategories}
+          onCategoryChange={vi.fn()}
+          sorting={sorting}
+          onSortingChange={setSorting}
+        />
+      );
+    }
+
     // This represents what the component receives after pagination happens upstream
     // The component should still sort this slice correctly
-    render(
-      <OptimisticTransactionTable
-        transactions={mockTransactions}
-        categories={mockCategories}
-        onCategoryChange={vi.fn()}
-      />
-    );
+    render(<TestWrapper />);
 
     // Sort by date
     const dateHeader = screen.getByRole('columnheader', { name: /date/i });

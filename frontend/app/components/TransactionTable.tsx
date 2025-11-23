@@ -9,6 +9,7 @@ import {
 } from '@tanstack/react-table';
 import type { Transaction, Category } from '../lib/api';
 import { formatAmount, formatDate } from '../lib/format';
+import { serializeSortingState } from '../lib/sortingState';
 
 interface TransactionTableProps {
   transactions: Transaction[];
@@ -16,6 +17,8 @@ interface TransactionTableProps {
   onCategoryChange: (transactionId: number, categoryId: number | null) => void;
   page?: number;
   pageSize?: number;
+  sorting: SortingState;
+  onSortingChange: (sorting: SortingState) => void;
 }
 
 export function TransactionTable({
@@ -24,8 +27,9 @@ export function TransactionTable({
   onCategoryChange,
   page = 0,
   pageSize,
+  sorting,
+  onSortingChange,
 }: TransactionTableProps) {
-  const [sorting, setSorting] = useState<SortingState>([]);
   const [editingTransactionId, setEditingTransactionId] = useState<number | null>(null);
 
   const columnHelper = createColumnHelper<Transaction>();
@@ -110,7 +114,7 @@ export function TransactionTable({
     state: {
       sorting,
     },
-    onSortingChange: setSorting,
+    onSortingChange,
     getCoreRowModel: getCoreRowModel(),
     getSortedRowModel: getSortedRowModel(),
   });

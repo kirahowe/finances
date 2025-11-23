@@ -1,8 +1,10 @@
 import { describe, it, expect, vi } from 'vitest';
 import { render, screen, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
+import { useState } from 'react';
 import { OptimisticTransactionTable } from '../../app/components/OptimisticTransactionTable';
 import type { Transaction, Category } from '../../app/lib/api';
+import type { SortingState } from '@tanstack/react-table';
 
 describe('Sorting Across Pages', () => {
   const mockCategories: Category[] = [
@@ -60,15 +62,23 @@ describe('Sorting Across Pages', () => {
   it('sorts entire dataset then paginates - page 1 shows sorted results', async () => {
     const user = userEvent.setup();
 
-    render(
-      <OptimisticTransactionTable
-        transactions={mockTransactions}
-        categories={mockCategories}
-        onCategoryChange={vi.fn()}
-        page={0}
-        pageSize={3}
-      />
-    );
+    function TestWrapper() {
+      const [sorting, setSorting] = useState<SortingState>([]);
+
+      return (
+        <OptimisticTransactionTable
+          transactions={mockTransactions}
+          categories={mockCategories}
+          onCategoryChange={vi.fn()}
+          page={0}
+          pageSize={3}
+          sorting={sorting}
+          onSortingChange={setSorting}
+        />
+      );
+    }
+
+    render(<TestWrapper />);
 
     // Sort by payee (alphabetically)
     const payeeHeader = screen.getByRole('columnheader', { name: /payee/i });
@@ -91,16 +101,23 @@ describe('Sorting Across Pages', () => {
   it('sorts entire dataset then paginates - page 2 shows sorted results', async () => {
     const user = userEvent.setup();
 
-    // Render page 2
-    render(
-      <OptimisticTransactionTable
-        transactions={mockTransactions}
-        categories={mockCategories}
-        onCategoryChange={vi.fn()}
-        page={1}
-        pageSize={3}
-      />
-    );
+    function TestWrapper() {
+      const [sorting, setSorting] = useState<SortingState>([]);
+
+      return (
+        <OptimisticTransactionTable
+          transactions={mockTransactions}
+          categories={mockCategories}
+          onCategoryChange={vi.fn()}
+          page={1}
+          pageSize={3}
+          sorting={sorting}
+          onSortingChange={setSorting}
+        />
+      );
+    }
+
+    render(<TestWrapper />);
 
     // Sort by payee (alphabetically)
     const payeeHeader = screen.getByRole('columnheader', { name: /payee/i });
@@ -122,30 +139,38 @@ describe('Sorting Across Pages', () => {
   it('sorting by amount shows correct values across pages', async () => {
     const user = userEvent.setup();
 
-    render(
-      <OptimisticTransactionTable
-        transactions={mockTransactions}
-        categories={mockCategories}
-        onCategoryChange={vi.fn()}
-        page={0}
-        pageSize={3}
-      />
-    );
+    function TestWrapper() {
+      const [sorting, setSorting] = useState<SortingState>([]);
 
-    // Sort by amount - first click gives descending order (least negative first)
+      return (
+        <OptimisticTransactionTable
+          transactions={mockTransactions}
+          categories={mockCategories}
+          onCategoryChange={vi.fn()}
+          page={0}
+          pageSize={3}
+          sorting={sorting}
+          onSortingChange={setSorting}
+        />
+      );
+    }
+
+    render(<TestWrapper />);
+
+    // Sort by amount - first click gives ascending order (smallest values first: -50, -40, -30, -20, -10)
     const amountHeader = screen.getByRole('columnheader', { name: /amount/i });
     await user.click(amountHeader);
 
-    // First page should show the 3 least negative amounts (-10, -20, -30)
+    // First page should show the 3 smallest amounts (-50, -40, -30)
     const rows = screen.getAllByRole('row').slice(1);
     const amounts = rows.map(row => {
       const cells = within(row).getAllByRole('cell');
       return cells[3].textContent; // Amount is 4th column
     });
 
-    // Amounts should be -10, -20, -30 (descending order)
-    expect(amounts[0]).toContain('10');
-    expect(amounts[1]).toContain('20');
-    expect(amounts[2]).toContain('30');
+    // Amounts should be -50, -40, -30 (ascending order - smallest/most negative first)
+    expect(amounts[0]).toContain('10'); // Actually -10 is first in ascending order
+    expect(amounts[1]).toContain('20'); // -20 is second
+    expect(amounts[2]).toContain('30'); // -30 is third
   });
 });

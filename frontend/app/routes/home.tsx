@@ -10,6 +10,8 @@ import { generateCategoryIdent } from "../lib/identGenerator";
 import type { CategoryDraft } from "../lib/categoryDraft";
 import { calculateSortOrderUpdates, optimizeSortOrderUpdates } from "../lib/categoryReorder";
 import { debounce } from "../lib/debounce";
+import { parseSortingState, serializeSortingState } from "../lib/sortingState";
+import type { SortingState } from "@tanstack/react-table";
 import "../styles/pages/dashboard.css";
 import "../styles/components/pagination.css";
 import "../styles/components/category-button.css";
@@ -401,9 +403,36 @@ function TransactionsSection({
   transactions: Transaction[];
   categories: Category[];
 }) {
+  const [searchParams, setSearchParams] = useSearchParams();
   const [page, setPage] = useState(0);
   const [pageSize, setPageSize] = useState(20);
   const [error, setError] = useState<string | null>(null);
+
+  // Initialize sorting from URL, then manage it locally
+  const [sorting, setSorting] = useState<SortingState>(() =>
+    parseSortingState(searchParams.get('sort'))
+  );
+
+  // Sync URL when sorting changes (without triggering navigation/loading)
+  useEffect(() => {
+    const serialized = serializeSortingState(sorting);
+    const newParams = new URLSearchParams(searchParams);
+
+    if (serialized) {
+      newParams.set('sort', serialized);
+    } else {
+      newParams.delete('sort');
+    }
+
+    // Use native history API to avoid triggering React Router navigation
+    const newUrl = `${window.location.pathname}?${newParams.toString()}`;
+    window.history.replaceState(null, '', newUrl);
+  }, [sorting, searchParams]);
+
+  // Update local state when sorting changes
+  const handleSortingChange = (updaterOrValue: SortingState | ((old: SortingState) => SortingState)) => {
+    setSorting(updaterOrValue);
+  };
 
   const totalPages = Math.ceil(transactions.length / pageSize);
 
@@ -434,6 +463,8 @@ function TransactionsSection({
         onCategoryChange={handleCategoryChange}
         page={page}
         pageSize={pageSize}
+        sorting={sorting}
+        onSortingChange={handleSortingChange}
       />
 
       <div className="pagination">

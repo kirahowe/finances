@@ -20,6 +20,8 @@ interface OptimisticTransactionTableProps {
   ) => void;
   page?: number;
   pageSize?: number;
+  sorting: SortingState;
+  onSortingChange: (sorting: SortingState) => void;
 }
 
 export function OptimisticTransactionTable({
@@ -28,8 +30,9 @@ export function OptimisticTransactionTable({
   onCategoryChange,
   page = 0,
   pageSize,
+  sorting,
+  onSortingChange,
 }: OptimisticTransactionTableProps) {
-  const [sorting, setSorting] = useState<SortingState>([]);
   const [editingTransactionId, setEditingTransactionId] = useState<number | null>(null);
 
   // Local state for optimistic updates
@@ -159,7 +162,7 @@ export function OptimisticTransactionTable({
     state: {
       sorting,
     },
-    onSortingChange: setSorting,
+    onSortingChange,
     getCoreRowModel: getCoreRowModel(),
     getSortedRowModel: getSortedRowModel(),
   });
