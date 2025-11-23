@@ -52,9 +52,10 @@
 (defn- stats-handler []
   "Get basic database statistics"
   (try
-    (let [institution-count (count (d/q '[:find ?e :where [?e :institution/id _]] @db/conn))
-          account-count (count (d/q '[:find ?e :where [?e :account/external-id _]] @db/conn))
-          transaction-count (count (d/q '[:find ?e :where [?e :transaction/external-id _]] @db/conn))]
+    (let [db (d/db db/conn)
+          institution-count (count (d/q '[:find ?e :where [?e :institution/id _]] db))
+          account-count (count (d/q '[:find ?e :where [?e :account/external-id _]] db))
+          transaction-count (count (d/q '[:find ?e :where [?e :transaction/external-id _]] db))]
       (json-response {:success true
                       :data {:institutions institution-count
                              :accounts account-count
