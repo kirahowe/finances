@@ -1,7 +1,8 @@
-import { describe, it, expect, vi } from 'vitest';
+import { describe, it, expect } from 'vitest';
 import { render, screen, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { useState } from 'react';
+import { createMemoryRouter, RouterProvider } from 'react-router';
 import { OptimisticTransactionTable } from '../../app/components/OptimisticTransactionTable';
 import type { Transaction, Category } from '../../app/lib/api';
 import type { SortingState } from '@tanstack/react-table';
@@ -59,9 +60,7 @@ describe('Sorting Across Pages', () => {
     },
   ];
 
-  it('sorts entire dataset then paginates - page 1 shows sorted results', async () => {
-    const user = userEvent.setup();
-
+  const renderWithRouter = (page: number) => {
     function TestWrapper() {
       const [sorting, setSorting] = useState<SortingState>([]);
 
@@ -69,8 +68,7 @@ describe('Sorting Across Pages', () => {
         <OptimisticTransactionTable
           transactions={mockTransactions}
           categories={mockCategories}
-          onCategoryChange={vi.fn()}
-          page={0}
+          page={page}
           pageSize={3}
           sorting={sorting}
           onSortingChange={setSorting}
@@ -78,7 +76,24 @@ describe('Sorting Across Pages', () => {
       );
     }
 
-    render(<TestWrapper />);
+    const router = createMemoryRouter(
+      [
+        {
+          path: '/',
+          element: <TestWrapper />,
+          action: async () => ({ success: true }),
+        },
+      ],
+      {
+        initialEntries: ['/'],
+      }
+    );
+    return render(<RouterProvider router={router} />);
+  };
+
+  it('sorts entire dataset then paginates - page 1 shows sorted results', async () => {
+    const user = userEvent.setup();
+    renderWithRouter(0);
 
     // Sort by payee (alphabetically)
     const payeeHeader = screen.getByRole('columnheader', { name: /payee/i });
@@ -100,24 +115,7 @@ describe('Sorting Across Pages', () => {
 
   it('sorts entire dataset then paginates - page 2 shows sorted results', async () => {
     const user = userEvent.setup();
-
-    function TestWrapper() {
-      const [sorting, setSorting] = useState<SortingState>([]);
-
-      return (
-        <OptimisticTransactionTable
-          transactions={mockTransactions}
-          categories={mockCategories}
-          onCategoryChange={vi.fn()}
-          page={1}
-          pageSize={3}
-          sorting={sorting}
-          onSortingChange={setSorting}
-        />
-      );
-    }
-
-    render(<TestWrapper />);
+    renderWithRouter(1);
 
     // Sort by payee (alphabetically)
     const payeeHeader = screen.getByRole('columnheader', { name: /payee/i });
@@ -138,24 +136,7 @@ describe('Sorting Across Pages', () => {
 
   it('sorting by amount shows correct values across pages', async () => {
     const user = userEvent.setup();
-
-    function TestWrapper() {
-      const [sorting, setSorting] = useState<SortingState>([]);
-
-      return (
-        <OptimisticTransactionTable
-          transactions={mockTransactions}
-          categories={mockCategories}
-          onCategoryChange={vi.fn()}
-          page={0}
-          pageSize={3}
-          sorting={sorting}
-          onSortingChange={setSorting}
-        />
-      );
-    }
-
-    render(<TestWrapper />);
+    renderWithRouter(0);
 
     // Sort by amount - first click gives ascending order (smallest values first: -50, -40, -30, -20, -10)
     const amountHeader = screen.getByRole('columnheader', { name: /amount/i });

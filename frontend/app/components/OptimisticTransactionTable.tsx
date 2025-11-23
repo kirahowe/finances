@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+import { useState } from 'react';
 import {
   useReactTable,
   getCoreRowModel,
@@ -7,17 +7,13 @@ import {
   createColumnHelper,
   type SortingState,
 } from '@tanstack/react-table';
+import { useFetcher } from 'react-router';
 import type { Transaction, Category } from '../lib/api';
 import { formatAmount, formatDate } from '../lib/format';
 
 interface OptimisticTransactionTableProps {
   transactions: Transaction[];
   categories: Category[];
-  onCategoryChange: (
-    transactionId: number,
-    categoryId: number | null,
-    rollback: () => void
-  ) => void;
   page?: number;
   pageSize?: number;
   sorting: SortingState;
@@ -27,59 +23,46 @@ interface OptimisticTransactionTableProps {
 export function OptimisticTransactionTable({
   transactions,
   categories,
-  onCategoryChange,
   page = 0,
   pageSize,
   sorting,
   onSortingChange,
 }: OptimisticTransactionTableProps) {
   const [editingTransactionId, setEditingTransactionId] = useState<number | null>(null);
-
-  // Local state for optimistic updates
-  const [optimisticTransactions, setOptimisticTransactions] = useState<Transaction[]>(transactions);
-
-  // Update local state when props change (e.g., after successful save)
-  useEffect(() => {
-    setOptimisticTransactions(transactions);
-  }, [transactions]);
+  const fetcher = useFetcher();
 
   const columnHelper = createColumnHelper<Transaction>();
 
+  // Helper function to get optimistic category for a transaction
+  const getOptimisticCategory = (transaction: Transaction): Category | null => {
+    // Check if this transaction is being updated via fetcher
+    const isUpdating =
+      fetcher.state !== 'idle' &&
+      fetcher.formData?.get('transactionId') === transaction['db/id'].toString();
+
+    if (isUpdating) {
+      // Show optimistic value from formData
+      const categoryId = fetcher.formData?.get('categoryId');
+      if (categoryId) {
+        return categories.find(cat => cat['db/id'] === parseInt(categoryId as string)) || null;
+      }
+      return null;
+    }
+
+    // Show server value
+    return transaction['transaction/category'] || null;
+  };
+
   const handleCategoryChange = (transactionId: number, categoryId: number | null) => {
-    // Find the new category
-    const newCategory = categoryId
-      ? categories.find((cat) => cat['db/id'] === categoryId)
-      : null;
+    // Use fetcher to submit the change (Remix-native optimistic UI)
+    const formData = new FormData();
+    formData.set('intent', 'update-transaction-category');
+    formData.set('transactionId', transactionId.toString());
+    if (categoryId !== null) {
+      formData.set('categoryId', categoryId.toString());
+    }
 
-    // Store the original transaction for rollback
-    const originalTransaction = optimisticTransactions.find(
-      (tx) => tx['db/id'] === transactionId
-    );
-
-    if (!originalTransaction) return;
-
-    // Optimistic update: Update UI immediately
-    setOptimisticTransactions((prev) =>
-      prev.map((tx) =>
-        tx['db/id'] === transactionId
-          ? { ...tx, 'transaction/category': newCategory || null }
-          : tx
-      )
-    );
-
-    // Provide rollback function
-    const rollback = () => {
-      setOptimisticTransactions((prev) =>
-        prev.map((tx) =>
-          tx['db/id'] === transactionId
-            ? { ...tx, 'transaction/category': originalTransaction['transaction/category'] }
-            : tx
-        )
-      );
-    };
-
-    // Call parent with rollback function
-    onCategoryChange(transactionId, categoryId, rollback);
+    fetcher.submit(formData, { method: 'post' });
     setEditingTransactionId(null);
   };
 
@@ -117,13 +100,18 @@ export function OptimisticTransactionTable({
       cell: (info) => {
         const transaction = info.row.original;
         const isEditing = editingTransactionId === transaction['db/id'];
-        const currentCategory = transaction['transaction/category'];
+
+        // Use Remix-native optimistic UI pattern
+        const optimisticCategory = getOptimisticCategory(transaction);
+        const isUpdating =
+          fetcher.state !== 'idle' &&
+          fetcher.formData?.get('transactionId') === transaction['db/id'].toString();
 
         if (isEditing) {
           return (
             <select
               className="form-select"
-              defaultValue={currentCategory?.['db/id']?.toString() || ''}
+              defaultValue={optimisticCategory?.['db/id']?.toString() || ''}
               onChange={(e) => {
                 const value = e.target.value;
                 handleCategoryChange(
@@ -148,8 +136,10 @@ export function OptimisticTransactionTable({
           <button
             className="category-button"
             onClick={() => setEditingTransactionId(transaction['db/id'])}
+            disabled={isUpdating}
           >
-            {currentCategory?.['category/name'] || 'Uncategorized'}
+            {optimisticCategory?.['category/name'] || 'Uncategorized'}
+            {isUpdating && ' (saving...)'}
           </button>
         );
       },
@@ -157,7 +147,7 @@ export function OptimisticTransactionTable({
   ];
 
   const table = useReactTable({
-    data: optimisticTransactions,
+    data: transactions,
     columns,
     state: {
       sorting,

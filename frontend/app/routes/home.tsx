@@ -44,6 +44,8 @@ export async function loader({ request }: Route.LoaderArgs) {
     ]);
   }
 
+  // Return plain object - React Router v7 handles serialization
+  // Note: For HTTP caching headers, consider using Response object when needed
   return { stats, categories, accounts, transactions, view };
 }
 
@@ -296,12 +298,8 @@ function CategoryForm({
 
   const generatedIdent = generateCategoryIdent(name);
 
-  const handleSubmit = (e: React.FormEvent<HTMLFormElement>) => {
-    e.preventDefault();
-    const formData = new FormData(e.currentTarget);
-    // Add the auto-generated ident
-    formData.set("ident", generatedIdent);
-    fetcher.submit(formData, { method: "post" });
+  const handleSubmit = () => {
+    // Close modal after submission (works with fetcher)
     onClose();
   };
 
@@ -309,11 +307,16 @@ function CategoryForm({
     <div className="modal-backdrop" onClick={onClose}>
       <div className="modal-content" onClick={(e) => e.stopPropagation()}>
         <h2>{isEditing ? "Edit Category" : "Add Category"}</h2>
-        <form onSubmit={handleSubmit}>
+        <fetcher.Form method="post" onSubmit={handleSubmit}>
           <input
             type="hidden"
             name="intent"
             value={isEditing ? "update-category" : "create-category"}
+          />
+          <input
+            type="hidden"
+            name="ident"
+            value={generatedIdent}
           />
           {isEditing && (
             <input
@@ -362,7 +365,7 @@ function CategoryForm({
               {isEditing ? "Update" : "Create"}
             </button>
           </div>
-        </form>
+        </fetcher.Form>
       </div>
     </div>
   );
@@ -436,23 +439,6 @@ function TransactionsSection({
 
   const totalPages = Math.ceil(transactions.length / pageSize);
 
-  const handleCategoryChange = async (
-    transactionId: number,
-    categoryId: number | null,
-    rollback: () => void
-  ) => {
-    try {
-      await api.updateTransactionCategory(transactionId, categoryId);
-      // Success - no rollback needed, clear any previous errors
-      setError(null);
-    } catch (err) {
-      // Failure - rollback the optimistic update
-      rollback();
-      const errorMessage = err instanceof Error ? err.message : 'Failed to update transaction category';
-      setError(errorMessage);
-    }
-  };
-
   return (
     <div className="card">
       <h2>Transactions</h2>
@@ -460,7 +446,6 @@ function TransactionsSection({
       <OptimisticTransactionTable
         transactions={transactions}
         categories={categories}
-        onCategoryChange={handleCategoryChange}
         page={page}
         pageSize={pageSize}
         sorting={sorting}

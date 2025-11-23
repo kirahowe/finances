@@ -1,7 +1,8 @@
-import { describe, it, expect, vi } from 'vitest';
+import { describe, it, expect } from 'vitest';
 import { render, screen, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { useState } from 'react';
+import { createMemoryRouter, RouterProvider } from 'react-router';
 import { OptimisticTransactionTable } from '../../app/components/OptimisticTransactionTable';
 import type { Transaction, Category } from '../../app/lib/api';
 import type { SortingState } from '@tanstack/react-table';
@@ -43,24 +44,38 @@ describe('Sorting with Pagination', () => {
     },
   ];
 
+  function TestWrapper() {
+    const [sorting, setSorting] = useState<SortingState>([]);
+
+    return (
+      <OptimisticTransactionTable
+        transactions={mockTransactions}
+        categories={mockCategories}
+        sorting={sorting}
+        onSortingChange={setSorting}
+      />
+    );
+  }
+
+  const renderWithRouter = () => {
+    const router = createMemoryRouter(
+      [
+        {
+          path: '/',
+          element: <TestWrapper />,
+          action: async () => ({ success: true }),
+        },
+      ],
+      {
+        initialEntries: ['/'],
+      }
+    );
+    return render(<RouterProvider router={router} />);
+  };
+
   it('sorts entire dataset, not just current page', async () => {
     const user = userEvent.setup();
-
-    function TestWrapper() {
-      const [sorting, setSorting] = useState<SortingState>([]);
-
-      return (
-        <OptimisticTransactionTable
-          transactions={mockTransactions}
-          categories={mockCategories}
-          onCategoryChange={vi.fn()}
-          sorting={sorting}
-          onSortingChange={setSorting}
-        />
-      );
-    }
-
-    render(<TestWrapper />);
+    renderWithRouter();
 
     // Click payee header to sort
     const payeeHeader = screen.getByRole('columnheader', { name: /payee/i });
@@ -82,24 +97,7 @@ describe('Sorting with Pagination', () => {
 
   it('maintains sort order when data represents a single page of larger dataset', async () => {
     const user = userEvent.setup();
-
-    function TestWrapper() {
-      const [sorting, setSorting] = useState<SortingState>([]);
-
-      return (
-        <OptimisticTransactionTable
-          transactions={mockTransactions}
-          categories={mockCategories}
-          onCategoryChange={vi.fn()}
-          sorting={sorting}
-          onSortingChange={setSorting}
-        />
-      );
-    }
-
-    // This represents what the component receives after pagination happens upstream
-    // The component should still sort this slice correctly
-    render(<TestWrapper />);
+    renderWithRouter();
 
     // Sort by date
     const dateHeader = screen.getByRole('columnheader', { name: /date/i });

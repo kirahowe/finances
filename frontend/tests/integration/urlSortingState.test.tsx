@@ -1,7 +1,7 @@
-import { describe, it, expect, vi } from 'vitest';
+import { describe, it, expect } from 'vitest';
 import { render, screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
-import { MemoryRouter, Routes, Route, useSearchParams } from 'react-router';
+import { createMemoryRouter, RouterProvider, useSearchParams } from 'react-router';
 import { OptimisticTransactionTable } from '../../app/components/OptimisticTransactionTable';
 import type { Transaction, Category } from '../../app/lib/api';
 import { parseSortingState, serializeSortingState } from '../../app/lib/sortingState';
@@ -40,7 +40,6 @@ describe('URL Sorting State Persistence', () => {
     const sorting = parseSortingState(searchParams.get('sort'));
 
     const handleSortingChange = (updaterOrValue: SortingState | ((old: SortingState) => SortingState)) => {
-      // Handle updater function from TanStack Table
       const newSorting = typeof updaterOrValue === 'function'
         ? updaterOrValue(sorting)
         : updaterOrValue;
@@ -63,7 +62,6 @@ describe('URL Sorting State Persistence', () => {
         <OptimisticTransactionTable
           transactions={mockTransactions}
           categories={mockCategories}
-          onCategoryChange={vi.fn()}
           sorting={sorting}
           onSortingChange={handleSortingChange}
         />
@@ -71,16 +69,25 @@ describe('URL Sorting State Persistence', () => {
     );
   }
 
+  const renderWithRouter = (initialUrl = '/') => {
+    const router = createMemoryRouter(
+      [
+        {
+          path: '/',
+          element: <TestComponent />,
+          action: async () => ({ success: true }),
+        },
+      ],
+      {
+        initialEntries: [initialUrl],
+      }
+    );
+    return render(<RouterProvider router={router} />);
+  };
+
   it('updates URL when sorting changes', async () => {
     const user = userEvent.setup();
-
-    render(
-      <MemoryRouter initialEntries={['/']}>
-        <Routes>
-          <Route path="/" element={<TestComponent />} />
-        </Routes>
-      </MemoryRouter>
-    );
+    renderWithRouter();
 
     // Initially, URL should have no sort param
     let urlDisplay = screen.getByTestId('current-url');
@@ -90,23 +97,16 @@ describe('URL Sorting State Persistence', () => {
     const dateHeader = screen.getByRole('columnheader', { name: /date/i });
     await user.click(dateHeader);
 
-    // URL should now have sort parameter (URL encoded)
+    // URL should now have sort parameter
     await waitFor(() => {
       urlDisplay = screen.getByTestId('current-url');
-      // URLSearchParams.toString() encodes : as %3A
       expect(urlDisplay.textContent).toContain('sort=date');
       expect(urlDisplay.textContent).toContain('asc');
     });
   });
 
   it('restores sorting state from URL on page load', () => {
-    render(
-      <MemoryRouter initialEntries={['/?sort=amount:desc']}>
-        <Routes>
-          <Route path="/" element={<TestComponent />} />
-        </Routes>
-      </MemoryRouter>
-    );
+    renderWithRouter('/?sort=amount:desc');
 
     // Amount header should show descending indicator
     const amountHeader = screen.getByRole('columnheader', { name: /amount/i });
@@ -115,13 +115,7 @@ describe('URL Sorting State Persistence', () => {
 
   it('preserves sorting across page refreshes (via URL)', () => {
     // First render with sorting
-    const { unmount } = render(
-      <MemoryRouter initialEntries={['/?sort=payee:asc']}>
-        <Routes>
-          <Route path="/" element={<TestComponent />} />
-        </Routes>
-      </MemoryRouter>
-    );
+    const { unmount } = renderWithRouter('/?sort=payee:asc');
 
     // Verify sorting is applied
     let payeeHeader = screen.getByRole('columnheader', { name: /payee/i });
@@ -131,13 +125,7 @@ describe('URL Sorting State Persistence', () => {
     unmount();
 
     // Re-render with same URL (simulate page reload)
-    render(
-      <MemoryRouter initialEntries={['/?sort=payee:asc']}>
-        <Routes>
-          <Route path="/" element={<TestComponent />} />
-        </Routes>
-      </MemoryRouter>
-    );
+    renderWithRouter('/?sort=payee:asc');
 
     // Sorting should still be applied
     payeeHeader = screen.getByRole('columnheader', { name: /payee/i });
@@ -145,13 +133,7 @@ describe('URL Sorting State Persistence', () => {
   });
 
   it('supports multiple column sorting in URL', () => {
-    render(
-      <MemoryRouter initialEntries={['/?sort=date:desc,amount:asc']}>
-        <Routes>
-          <Route path="/" element={<TestComponent />} />
-        </Routes>
-      </MemoryRouter>
-    );
+    renderWithRouter('/?sort=date:desc,amount:asc');
 
     // Both headers should show sort indicators
     const dateHeader = screen.getByRole('columnheader', { name: /date/i });
@@ -163,14 +145,7 @@ describe('URL Sorting State Persistence', () => {
 
   it('removes sort param from URL when sorting is cleared', async () => {
     const user = userEvent.setup();
-
-    render(
-      <MemoryRouter initialEntries={['/?sort=date:asc']}>
-        <Routes>
-          <Route path="/" element={<TestComponent />} />
-        </Routes>
-      </MemoryRouter>
-    );
+    renderWithRouter('/?sort=date:asc');
 
     // Initially sorted
     let urlDisplay = screen.getByTestId('current-url');
@@ -191,14 +166,7 @@ describe('URL Sorting State Persistence', () => {
 
   it('preserves other URL params when updating sort', async () => {
     const user = userEvent.setup();
-
-    render(
-      <MemoryRouter initialEntries={['/?view=transactions&page=2']}>
-        <Routes>
-          <Route path="/" element={<TestComponent />} />
-        </Routes>
-      </MemoryRouter>
-    );
+    renderWithRouter('/?view=transactions&page=2');
 
     // Add sorting
     const dateHeader = screen.getByRole('columnheader', { name: /date/i });
