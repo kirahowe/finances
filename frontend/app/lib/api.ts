@@ -11,6 +11,7 @@ const CategorySchema = z.object({
   'category/name': z.string(),
   'category/type': z.enum(['expense', 'income']),
   'category/ident': z.string().optional(),
+  'category/sort-order': z.number().optional(),
 });
 
 const TransactionSchema = z.object({
@@ -118,6 +119,17 @@ export const api = {
     });
     const json = await response.json();
     const result = ApiResponseSchema(TransactionSchema).parse(json);
+    return result.data;
+  },
+
+  async batchUpdateCategorySortOrders(updates: Array<{ id: number; sortOrder: number }>): Promise<Category[]> {
+    const response = await fetch(`${API_BASE}/api/categories/batch-sort`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ updates }),
+    });
+    const json = await response.json();
+    const result = ApiResponseSchema(z.array(CategorySchema)).parse(json);
     return result.data;
   },
 };

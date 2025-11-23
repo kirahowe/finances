@@ -16,12 +16,19 @@
     (d/pull db '[*] [:category/ident ident])))
 
 (defn list-all
-  "Return all categories from the database.
+  "Return all categories from the database, sorted by sort-order.
+   Categories without sort-order appear last.
    Conn is a datalevin connection (not an atom)."
   [conn]
-  (d/q '[:find [(pull ?e [*]) ...]
-         :where [?e :category/name _]]
-       (d/db conn)))
+  (let [categories (d/q '[:find [(pull ?e [*]) ...]
+                          :where [?e :category/name _]]
+                        (d/db conn))]
+    ;; Sort by :category/sort-order, with nil values at the end
+    (sort-by (fn [cat]
+               (if-let [order (:category/sort-order cat)]
+                 order
+                 Long/MAX_VALUE))
+             categories)))
 
 (defn get-by-id
   "Get a category by its db/id. Returns nil if not found.
@@ -68,3 +75,18 @@
                         :where [?tx :transaction/category ?cat-id]]
                       db
                       category-id)))))
+
+(defn batch-update-sort-orders!
+  "Batch update sort orders for multiple categories.
+   Takes a sequence of maps with :db/id and :category/sort-order.
+   Returns the updated categories.
+   Conn is a datalevin connection (not an atom)."
+  [conn updates]
+  (let [tx-data (mapv (fn [{:keys [db/id category/sort-order]}]
+                        {:db/id id
+                         :category/sort-order sort-order})
+                      updates)]
+    (d/transact! conn tx-data)
+    ;; Return all updated categories
+    (let [db (d/db conn)]
+      (mapv #(d/pull db '[*] (:db/id %)) updates))))

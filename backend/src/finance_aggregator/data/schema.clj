@@ -29,10 +29,11 @@
    :transaction/transfer-pair {:db/valueType :db.type/ref}   ; links paired transfers
 
    ;; Categories (user-defined)
-   :category/name   {:db/valueType :db.type/string}
-   :category/parent {:db/valueType :db.type/ref}     ; hierarchical categories
-   :category/type   {:db/valueType :db.type/keyword} ; :expense, :income
-   :category/ident  {:db/unique :db.unique/identity} ; like :category/groceries
+   :category/name       {:db/valueType :db.type/string}
+   :category/parent     {:db/valueType :db.type/ref}     ; hierarchical categories
+   :category/type       {:db/valueType :db.type/keyword} ; :expense, :income
+   :category/ident      {:db/unique :db.unique/identity} ; like :category/groceries
+   :category/sort-order {:db/valueType :db.type/long}    ; for custom ordering
 
    ;; Payee patterns for auto-categorization
    :payee-rule/pattern  {:db/valueType :db.type/string}

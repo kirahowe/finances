@@ -131,9 +131,10 @@
         (let [body (slurp (:body req))
               data (read-json body)
               ;; Add category namespace to keys and convert values to keywords
-              normalized-data {:category/name (:name data)
-                               :category/type (keyword (:type data))
-                               :category/ident (keyword (:ident data))}
+              normalized-data (cond-> {:category/name (:name data)
+                                       :category/type (keyword (:type data))
+                                       :category/ident (keyword (:ident data))}
+                                (:sortOrder data) (assoc :category/sort-order (:sortOrder data)))
               category (categories/create! db/conn normalized-data)]
           (json-response {:success true :data category}))
         (catch Exception e
@@ -151,7 +152,8 @@
               normalized-data (cond-> {}
                                 (:name data) (assoc :category/name (:name data))
                                 (:type data) (assoc :category/type (keyword (:type data)))
-                                (:ident data) (assoc :category/ident (keyword (:ident data))))
+                                (:ident data) (assoc :category/ident (keyword (:ident data)))
+                                (:sortOrder data) (assoc :category/sort-order (:sortOrder data)))
               updated (categories/update! db/conn db-id normalized-data)]
           (json-response {:success true :data updated}))
         (catch Exception e
@@ -172,6 +174,24 @@
             (do
               (categories/delete! db/conn db-id)
               (json-response {:success true :data {:deleted true}}))))
+        (catch Exception e
+          {:status 400
+           :headers {"Content-Type" "application/json"
+                     "Access-Control-Allow-Origin" "*"}
+           :body (json/write-json-str {:success false :error (.getMessage e)})}))
+
+      ;; Batch update category sort orders
+      (and (= method :post) (= uri "/api/categories/batch-sort"))
+      (try
+        (let [body (slurp (:body req))
+              data (read-json body)
+              ;; Convert from camelCase to category namespace format
+              updates (mapv (fn [update]
+                              {:db/id (:id update)
+                               :category/sort-order (:sortOrder update)})
+                            (:updates data))
+              result (categories/batch-update-sort-orders! db/conn updates)]
+          (json-response {:success true :data result}))
         (catch Exception e
           {:status 400
            :headers {"Content-Type" "application/json"

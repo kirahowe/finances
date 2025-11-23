@@ -1,4 +1,4 @@
-import { useState, type KeyboardEvent, useEffect, useRef } from 'react';
+import { useState, type KeyboardEvent, useEffect, useRef, useCallback } from 'react';
 import type { Category } from '../lib/api';
 import {
   createDraftCategory,
@@ -7,6 +7,10 @@ import {
   isDraftEmpty,
   type CategoryDraft,
 } from '../lib/categoryDraft';
+import { createDragDropManager } from '../lib/dragAndDrop';
+import { EditIcon } from './icons/EditIcon';
+import { DeleteIcon } from './icons/DeleteIcon';
+import { DragIcon } from './icons/DragIcon';
 
 interface CategoryTableProps {
   categories: Category[];
@@ -14,6 +18,7 @@ interface CategoryTableProps {
   onEdit: (category: Category) => void;
   onDelete: (category: Category) => void;
   onCreate: (draft: CategoryDraft) => void;
+  onReorder?: (reorderedCategories: Category[]) => void;
 }
 
 export function CategoryTable({
@@ -22,12 +27,22 @@ export function CategoryTable({
   onEdit,
   onDelete,
   onCreate,
+  onReorder,
 }: CategoryTableProps) {
   const [draft, setDraft] = useState<CategoryDraft | null>(null);
   const [validationError, setValidationError] = useState<string | null>(null);
   const nameInputRef = useRef<HTMLInputElement>(null);
   const lastNewCategoryRef = useRef<HTMLTableRowElement>(null);
   const prevCategoryCountRef = useRef(categories.length);
+
+  // Drag-drop manager
+  const dragDropManager = useRef(createDragDropManager<Category>()).current;
+  const [dragState, setDragState] = useState(dragDropManager.getState());
+
+  // Subscribe to drag-drop state changes
+  useEffect(() => {
+    return dragDropManager.subscribe(setDragState);
+  }, [dragDropManager]);
 
   // Split categories into existing and new
   const newCategoryIdSet = new Set(newCategoryIds);
@@ -126,6 +141,23 @@ export function CategoryTable({
     }
   };
 
+  const handleDragStart = useCallback((index: number) => {
+    dragDropManager.startDrag(index);
+  }, [dragDropManager]);
+
+  const handleDragOver = useCallback((e: React.DragEvent, index: number) => {
+    e.preventDefault();
+    dragDropManager.dragOver(index, orderedCategories, (reordered) => {
+      if (onReorder) {
+        onReorder(reordered);
+      }
+    });
+  }, [dragDropManager, orderedCategories, onReorder]);
+
+  const handleDragEnd = useCallback(() => {
+    dragDropManager.endDrag();
+  }, [dragDropManager]);
+
   return (
     <div>
       <table className="table">
@@ -134,6 +166,7 @@ export function CategoryTable({
             <th>Name</th>
             <th>Type</th>
             <th>Actions</th>
+            <th style={{ width: '40px' }}></th>
           </tr>
         </thead>
         <tbody>
@@ -147,6 +180,14 @@ export function CategoryTable({
               <tr
                 key={category['db/id']}
                 ref={isLastNewCategory ? lastNewCategoryRef : null}
+                draggable
+                onDragStart={() => handleDragStart(index)}
+                onDragOver={(e) => handleDragOver(e, index)}
+                onDragEnd={handleDragEnd}
+                style={{
+                  opacity: dragState.draggedIndex === index ? 0.5 : 1,
+                  transition: 'opacity 0.2s ease',
+                }}
               >
                 <td>{category['category/name']}</td>
                 <td>{category['category/type']}</td>
@@ -155,16 +196,23 @@ export function CategoryTable({
                     <button
                       className="button button-secondary"
                       onClick={() => onEdit(category)}
+                      style={{ padding: '6px 12px', display: 'inline-flex', alignItems: 'center' }}
+                      title="Edit"
                     >
-                      Edit
+                      <EditIcon size={16} />
                     </button>
                     <button
                       className="button button-secondary"
                       onClick={() => onDelete(category)}
+                      style={{ padding: '6px 12px', display: 'inline-flex', alignItems: 'center' }}
+                      title="Delete"
                     >
-                      Delete
+                      <DeleteIcon size={16} />
                     </button>
                   </div>
+                </td>
+                <td style={{ textAlign: 'center', cursor: 'move', color: '#999' }}>
+                  <DragIcon size={20} />
                 </td>
               </tr>
             );

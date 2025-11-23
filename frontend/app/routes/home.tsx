@@ -8,6 +8,8 @@ import { LoadingIndicator } from "../components/LoadingIndicator";
 import { ErrorDisplay } from "../components/ErrorDisplay";
 import { generateCategoryIdent } from "../lib/identGenerator";
 import type { CategoryDraft } from "../lib/categoryDraft";
+import { calculateSortOrderUpdates, optimizeSortOrderUpdates } from "../lib/categoryReorder";
+import { debounce } from "../lib/debounce";
 import "../styles/pages/dashboard.css";
 import "../styles/components/pagination.css";
 import "../styles/components/category-button.css";
@@ -146,11 +148,19 @@ function CategoriesSection({ categories }: { categories: Category[] }) {
   const [editingCategory, setEditingCategory] = useState<Category | null>(null);
   const [newCategoryIds, setNewCategoryIds] = useState<number[]>([]);
   const [optimisticCategories, setOptimisticCategories] = useState<Category[]>([]);
+  const [localCategories, setLocalCategories] = useState<Category[]>([]);
   const nextTempIdRef = useRef(-1);
+  const originalCategoriesRef = useRef(categories);
   const fetcher = useFetcher();
 
+  // Update original categories ref when server data changes
+  useEffect(() => {
+    originalCategoriesRef.current = categories;
+    setLocalCategories(categories);
+  }, [categories]);
+
   // Merge server categories with optimistic categories
-  const allCategories = [...categories, ...optimisticCategories];
+  const allCategories = [...localCategories, ...optimisticCategories];
 
   // Clean up optimistic categories when they appear in the server data
   useEffect(() => {
@@ -220,6 +230,32 @@ function CategoriesSection({ categories }: { categories: Category[] }) {
     setEditingCategory(null);
   };
 
+  // Debounced batch update for reordering
+  const debouncedBatchUpdate = useRef(
+    debounce(async (updates: Array<{ id: number; sortOrder: number }>) => {
+      try {
+        await api.batchUpdateCategorySortOrders(updates);
+      } catch (error) {
+        console.error('Failed to update category order:', error);
+        // Revert to original order on error
+        setLocalCategories(originalCategoriesRef.current);
+      }
+    }, 500)
+  ).current;
+
+  const handleReorder = (reordered: Category[]) => {
+    // Optimistically update local state
+    setLocalCategories(reordered);
+
+    // Calculate and batch the updates
+    const allUpdates = calculateSortOrderUpdates(reordered);
+    const optimizedUpdates = optimizeSortOrderUpdates(allUpdates, originalCategoriesRef.current);
+
+    if (optimizedUpdates.length > 0) {
+      debouncedBatchUpdate(optimizedUpdates);
+    }
+  };
+
   return (
     <div className="card">
       <div className="card-header">
@@ -232,6 +268,7 @@ function CategoriesSection({ categories }: { categories: Category[] }) {
         onEdit={handleEdit}
         onDelete={handleDelete}
         onCreate={handleCreate}
+        onReorder={handleReorder}
       />
 
       {editingCategory && (
