@@ -80,14 +80,14 @@ describe('OptimisticTransactionTable', () => {
     const categoryButton = screen.getByRole('button', { name: 'Groceries' });
     await user.click(categoryButton);
 
-    // Dropdown should appear with all categories
-    const select = screen.getByRole('combobox');
-    expect(select).toBeInTheDocument();
+    // Dropdown should appear with filter input
+    const input = screen.getByRole('textbox');
+    expect(input).toBeInTheDocument();
 
-    // All categories should be available as options
-    expect(screen.getByRole('option', { name: 'Groceries' })).toBeInTheDocument();
-    expect(screen.getByRole('option', { name: 'Salary' })).toBeInTheDocument();
-    expect(screen.getByRole('option', { name: 'Uncategorized' })).toBeInTheDocument();
+    // All categories should be available in the list
+    const listItems = screen.getAllByRole('listitem');
+    expect(listItems.length).toBe(3); // Uncategorized, Groceries, Salary
+    expect(screen.getByText('Uncategorized')).toBeInTheDocument();
   });
 
   it('shows loading state when updating category', async () => {
@@ -106,8 +106,13 @@ describe('OptimisticTransactionTable', () => {
     const categoryButton = screen.getByRole('button', { name: 'Groceries' });
     await user.click(categoryButton);
 
-    const select = screen.getByRole('combobox');
-    await user.selectOptions(select, '2');
+    // Should show dropdown
+    const input = screen.getByRole('textbox');
+    expect(input).toBeInTheDocument();
+
+    // Click on a category in the list
+    const salaryOption = screen.getAllByText('Salary').find(el => el.tagName === 'LI');
+    await user.click(salaryOption!);
 
     // Note: In a real scenario, we'd see the loading state briefly.
     // For this unit test, we just verify the component renders correctly

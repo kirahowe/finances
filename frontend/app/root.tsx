@@ -13,6 +13,7 @@ import "./styles/base/variables.css";
 import "./styles/base/reset.css";
 import "./styles/base/typography.css";
 import "./styles/components/common.css";
+import "./styles/components/category-dropdown.css";
 import "./styles/layouts/container.css";
 
 export const links: Route.LinksFunction = () => [];

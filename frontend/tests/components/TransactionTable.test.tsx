@@ -171,8 +171,14 @@ describe('TransactionTable', () => {
     const categoryButtons = screen.getAllByRole('button', { name: /Groceries|Salary/i });
     await user.click(categoryButtons[0]);
 
-    // Should show a dropdown/select
-    const select = screen.getByRole('combobox');
-    expect(select).toBeInTheDocument();
+    // Should show a dropdown with input and list
+    const input = screen.getByRole('textbox');
+    expect(input).toBeInTheDocument();
+    expect(input).toHaveFocus();
+
+    // Should show category list (check for list items, not all text occurrences)
+    const listItems = screen.getAllByRole('listitem');
+    expect(listItems.length).toBeGreaterThanOrEqual(3);
+    expect(screen.getByText('Uncategorized')).toBeInTheDocument();
   });
 });

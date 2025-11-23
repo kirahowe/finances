@@ -10,6 +10,7 @@ import {
 import type { Transaction, Category } from '../lib/api';
 import { formatAmount, formatDate } from '../lib/format';
 import { serializeSortingState } from '../lib/sortingState';
+import { CategoryDropdown } from './CategoryDropdown';
 
 interface TransactionTableProps {
   transactions: Transaction[];
@@ -72,27 +73,15 @@ export function TransactionTable({
 
         if (isEditing) {
           return (
-            <select
-              className="form-select"
-              defaultValue={currentCategory?.['db/id']?.toString() || ''}
-              onChange={(e) => {
-                const value = e.target.value;
-                onCategoryChange(
-                  transaction['db/id'],
-                  value ? parseInt(value) : null
-                );
+            <CategoryDropdown
+              categories={categories}
+              selectedCategoryId={currentCategory?.['db/id'] || null}
+              onSelect={(categoryId) => {
+                onCategoryChange(transaction['db/id'], categoryId);
                 setEditingTransactionId(null);
               }}
-              onBlur={() => setEditingTransactionId(null)}
-              autoFocus
-            >
-              <option value="">Uncategorized</option>
-              {categories.map((cat) => (
-                <option key={cat['db/id']} value={cat['db/id'].toString()}>
-                  {cat['category/name']}
-                </option>
-              ))}
-            </select>
+              onClose={() => setEditingTransactionId(null)}
+            />
           );
         }
 

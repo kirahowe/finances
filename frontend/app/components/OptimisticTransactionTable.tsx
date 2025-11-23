@@ -10,6 +10,7 @@ import {
 import { useFetcher } from 'react-router';
 import type { Transaction, Category } from '../lib/api';
 import { formatAmount, formatDate } from '../lib/format';
+import { CategoryDropdown } from './CategoryDropdown';
 
 interface OptimisticTransactionTableProps {
   transactions: Transaction[];
@@ -109,26 +110,14 @@ export function OptimisticTransactionTable({
 
         if (isEditing) {
           return (
-            <select
-              className="form-select"
-              defaultValue={optimisticCategory?.['db/id']?.toString() || ''}
-              onChange={(e) => {
-                const value = e.target.value;
-                handleCategoryChange(
-                  transaction['db/id'],
-                  value ? parseInt(value) : null
-                );
+            <CategoryDropdown
+              categories={categories}
+              selectedCategoryId={optimisticCategory?.['db/id'] || null}
+              onSelect={(categoryId) => {
+                handleCategoryChange(transaction['db/id'], categoryId);
               }}
-              onBlur={() => setEditingTransactionId(null)}
-              autoFocus
-            >
-              <option value="">Uncategorized</option>
-              {categories.map((cat) => (
-                <option key={cat['db/id']} value={cat['db/id'].toString()}>
-                  {cat['category/name']}
-                </option>
-              ))}
-            </select>
+              onClose={() => setEditingTransactionId(null)}
+            />
           );
         }
 
