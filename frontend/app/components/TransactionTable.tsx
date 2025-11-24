@@ -74,13 +74,13 @@ export function TransactionTable({
       cell: (info) => {
         const transaction = info.row.original;
         const isEditing = editingTransactionId === transaction['db/id'];
-        const currentCategory = transaction['transaction/category'];
+        const categoryRef = transaction['transaction/category'];
 
         if (isEditing) {
           return (
             <CategoryDropdown
               categories={categories}
-              selectedCategoryId={currentCategory?.['db/id'] || null}
+              selectedCategoryId={categoryRef?.['db/id'] || null}
               onSelect={(categoryId) => {
                 onCategoryChange(transaction['db/id'], categoryId);
                 setEditingTransactionId(null);
@@ -95,7 +95,7 @@ export function TransactionTable({
             className="category-button"
             onClick={() => setEditingTransactionId(transaction['db/id'])}
           >
-            {currentCategory?.['category/name'] || 'Uncategorized'}
+            {categoryRef?.['category/name'] || 'Uncategorized'}
           </button>
         );
       },

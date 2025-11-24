@@ -7,6 +7,8 @@ const API_BASE = typeof window !== 'undefined'
   : 'http://localhost:8080';
 
 // Zod Schemas
+
+// Full category schema (from /api/categories)
 const CategorySchema = z.object({
   'db/id': z.number(),
   'category/name': z.string(),
@@ -15,6 +17,13 @@ const CategorySchema = z.object({
   'category/sort-order': z.number().optional(),
 });
 
+// Minimal category reference (nested in transactions)
+const CategoryRefSchema = z.object({
+  'db/id': z.number(),
+  'category/name': z.string(),
+});
+
+// Full account schema (from /api/accounts)
 const AccountSchema = z.object({
   'db/id': z.number(),
   'account/external-name': z.string(),
@@ -23,14 +32,20 @@ const AccountSchema = z.object({
   'account/external-id': z.string().optional(),
 });
 
+// Minimal account reference (nested in transactions)
+const AccountRefSchema = z.object({
+  'db/id': z.number(),
+  'account/external-name': z.string(),
+});
+
 const TransactionSchema = z.object({
   'db/id': z.number(),
   'transaction/amount': z.number(),
   'transaction/payee': z.string(),
   'transaction/description': z.string().nullable().optional(),
   'transaction/posted-date': z.string(),
-  'transaction/category': CategorySchema.nullable().optional(),
-  'transaction/account': AccountSchema.nullable().optional(),
+  'transaction/category': CategoryRefSchema.nullable().optional(),
+  'transaction/account': AccountRefSchema.nullable().optional(),
 });
 
 const StatsSchema = z.object({

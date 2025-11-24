@@ -38,9 +38,9 @@
                                    :where [?e :institution/id _]]
                   "accounts" '[:find [(pull ?e [*]) ...]
                                :where [?e :account/external-id _]]
-                  "transactions" '[:find [(pull ?e [* {:transaction/category [*]
-                                                       :transaction/account [*]}])]
-                                   :where [?e :transaction/external-id _]]
+                  "transactions" '[:find [(pull ?e [* {:transaction/category [:db/id :category/name]
+                                                       :transaction/account [:db/id :account/external-name]}]) ...]
+                                  :where [?e :transaction/external-id _]]
                   (throw (Exception. "Unknown entity type")))
           results (d/q query (d/db db/conn))]
       (json-response {:success true :data results}))

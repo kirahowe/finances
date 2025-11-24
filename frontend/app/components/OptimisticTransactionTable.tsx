@@ -35,7 +35,7 @@ export function OptimisticTransactionTable({
   const columnHelper = createColumnHelper<Transaction>();
 
   // Helper function to get optimistic category for a transaction
-  const getOptimisticCategory = (transaction: Transaction): Category | null => {
+  const getOptimisticCategory = (transaction: Transaction): { id: number | null; name: string } => {
     // Check if this transaction is being updated via fetcher
     const isUpdating =
       fetcher.state !== 'idle' &&
@@ -45,13 +45,18 @@ export function OptimisticTransactionTable({
       // Show optimistic value from formData
       const categoryId = fetcher.formData?.get('categoryId');
       if (categoryId) {
-        return categories.find(cat => cat['db/id'] === parseInt(categoryId as string)) || null;
+        const cat = categories.find(c => c['db/id'] === parseInt(categoryId as string));
+        return { id: parseInt(categoryId as string), name: cat?.['category/name'] || 'Uncategorized' };
       }
-      return null;
+      return { id: null, name: 'Uncategorized' };
     }
 
-    // Show server value
-    return transaction['transaction/category'] || null;
+    // Use values directly from transaction
+    const categoryRef = transaction['transaction/category'];
+    return {
+      id: categoryRef?.['db/id'] || null,
+      name: categoryRef?.['category/name'] || 'Uncategorized'
+    };
   };
 
   const handleCategoryChange = (transactionId: number, categoryId: number | null) => {
@@ -107,7 +112,6 @@ export function OptimisticTransactionTable({
         const transaction = info.row.original;
         const isEditing = editingTransactionId === transaction['db/id'];
 
-        // Use Remix-native optimistic UI pattern
         const optimisticCategory = getOptimisticCategory(transaction);
         const isUpdating =
           fetcher.state !== 'idle' &&
@@ -117,7 +121,7 @@ export function OptimisticTransactionTable({
           return (
             <CategoryDropdown
               categories={categories}
-              selectedCategoryId={optimisticCategory?.['db/id'] || null}
+              selectedCategoryId={optimisticCategory.id}
               onSelect={(categoryId) => {
                 handleCategoryChange(transaction['db/id'], categoryId);
               }}
@@ -132,7 +136,7 @@ export function OptimisticTransactionTable({
             onClick={() => setEditingTransactionId(transaction['db/id'])}
             disabled={isUpdating}
           >
-            {optimisticCategory?.['category/name'] || 'Uncategorized'}
+            {optimisticCategory.name}
             {isUpdating && ' (saving...)'}
           </button>
         );
