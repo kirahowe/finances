@@ -7,6 +7,7 @@ interface CategoryDropdownProps {
   categories: Category[];
   selectedCategoryId: number | null;
   onSelect: (categoryId: number | null) => void;
+  onSelectAndNext?: (categoryId: number | null) => void;
   onClose: () => void;
 }
 
@@ -14,6 +15,7 @@ export function CategoryDropdown({
   categories,
   selectedCategoryId,
   onSelect,
+  onSelectAndNext,
   onClose,
 }: CategoryDropdownProps) {
   const [filter, setFilter] = useState('');
@@ -109,7 +111,12 @@ export function CategoryDropdown({
       case 'select':
         e.preventDefault();
         if (result.highlightedIndex >= 0 && result.highlightedIndex < options.length) {
-          onSelect(options[result.highlightedIndex].id);
+          // Use onSelectAndNext if provided (for Enter key navigation), otherwise use onSelect
+          if (onSelectAndNext) {
+            onSelectAndNext(options[result.highlightedIndex].id);
+          } else {
+            onSelect(options[result.highlightedIndex].id);
+          }
         }
         break;
 

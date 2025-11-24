@@ -34,6 +34,15 @@ export function OptimisticTransactionTable({
 
   const columnHelper = createColumnHelper<Transaction>();
 
+  // Helper to find next transaction ID in the displayed rows
+  const findNextTransactionId = (currentTxId: number, displayedTransactions: Transaction[]): number | null => {
+    const currentIndex = displayedTransactions.findIndex(tx => tx['db/id'] === currentTxId);
+    if (currentIndex === -1 || currentIndex === displayedTransactions.length - 1) {
+      return null; // Not found or last transaction
+    }
+    return displayedTransactions[currentIndex + 1]['db/id'];
+  };
+
   // Helper function to get optimistic category for a transaction
   const getOptimisticCategory = (transaction: Transaction): { id: number | null; name: string } => {
     // Check if this transaction is being updated via fetcher
@@ -125,6 +134,11 @@ export function OptimisticTransactionTable({
               onSelect={(categoryId) => {
                 handleCategoryChange(transaction['db/id'], categoryId);
               }}
+              onSelectAndNext={(categoryId) => {
+                handleCategoryChange(transaction['db/id'], categoryId);
+                const nextTxId = findNextTransactionId(transaction['db/id'], displayedTransactions);
+                setEditingTransactionId(nextTxId);
+              }}
               onClose={() => setEditingTransactionId(null)}
             />
           );
@@ -160,6 +174,9 @@ export function OptimisticTransactionTable({
   const displayRows = pageSize !== undefined
     ? sortedRows.slice(page * pageSize, (page + 1) * pageSize)
     : sortedRows;
+
+  // Get the actual Transaction objects from displayRows for navigation
+  const displayedTransactions = displayRows.map(row => row.original);
 
   return (
     <table className="table">

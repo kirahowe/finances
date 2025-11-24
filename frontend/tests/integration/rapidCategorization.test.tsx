@@ -220,4 +220,126 @@ describe('Rapid Categorization Workflow', () => {
     // Should not have changed category
     expect(onCategoryChange).not.toHaveBeenCalled();
   });
+
+  it('navigates to next transaction when Enter is pressed', async () => {
+    const user = userEvent.setup();
+    const onCategoryChange = vi.fn();
+
+    render(
+      <TransactionTable
+        transactions={mockTransactions}
+        categories={mockCategories}
+        onCategoryChange={onCategoryChange}
+        sorting={[]}
+        onSortingChange={vi.fn()}
+      />
+    );
+
+    // Click first transaction's category button
+    const categoryButtons = screen.getAllByRole('button', { name: 'Uncategorized' });
+    await user.click(categoryButtons[0]);
+
+    // Filter input should be visible
+    let input = screen.getByRole('textbox');
+    expect(input).toBeInTheDocument();
+
+    // Navigate to Groceries and press Enter
+    await user.type(input, '{ArrowDown}');
+    await user.type(input, '{ArrowDown}');
+    await user.type(input, '{Enter}');
+
+    // First transaction should be categorized
+    expect(onCategoryChange).toHaveBeenCalledWith(1, 1);
+
+    // Dropdown for NEXT transaction should now be open
+    input = screen.getByRole('textbox');
+    expect(input).toBeInTheDocument();
+
+    // Navigate to Gas and press Enter
+    await user.type(input, '{ArrowDown}');
+    await user.type(input, '{ArrowDown}');
+    await user.type(input, '{ArrowDown}');
+    await user.type(input, '{Enter}');
+
+    // Second transaction should be categorized
+    expect(onCategoryChange).toHaveBeenCalledWith(2, 2);
+
+    // Dropdown for THIRD transaction should now be open
+    input = screen.getByRole('textbox');
+    expect(input).toBeInTheDocument();
+  });
+
+  it('does not navigate to next transaction when clicking to select', async () => {
+    const user = userEvent.setup();
+    const onCategoryChange = vi.fn();
+
+    render(
+      <TransactionTable
+        transactions={mockTransactions}
+        categories={mockCategories}
+        onCategoryChange={onCategoryChange}
+        sorting={[]}
+        onSortingChange={vi.fn()}
+      />
+    );
+
+    // Click first transaction's category button
+    const categoryButtons = screen.getAllByRole('button', { name: 'Uncategorized' });
+    await user.click(categoryButtons[0]);
+
+    // Input should be visible
+    expect(screen.getByRole('textbox')).toBeInTheDocument();
+
+    // Click on Groceries option
+    const groceriesOption = screen.getByText('Groceries');
+    await user.click(groceriesOption);
+
+    // First transaction should be categorized
+    expect(onCategoryChange).toHaveBeenCalledWith(1, 1);
+
+    // Dropdown should be closed (no input visible)
+    expect(screen.queryByRole('textbox')).not.toBeInTheDocument();
+  });
+
+  it('does not navigate past last transaction', async () => {
+    const user = userEvent.setup();
+    const onCategoryChange = vi.fn();
+
+    const singleTransaction: Transaction[] = [
+      {
+        'db/id': 1,
+        'transaction/posted-date': '2024-01-15',
+        'transaction/payee': 'Store A',
+        'transaction/description': 'Purchase 1',
+        'transaction/amount': -50.0,
+        'transaction/category': null,
+      },
+    ];
+
+    render(
+      <TransactionTable
+        transactions={singleTransaction}
+        categories={mockCategories}
+        onCategoryChange={onCategoryChange}
+        sorting={[]}
+        onSortingChange={vi.fn()}
+      />
+    );
+
+    // Click the only transaction's category button
+    const categoryButton = screen.getByRole('button', { name: 'Uncategorized' });
+    await user.click(categoryButton);
+
+    // Navigate to Groceries and press Enter
+    const input = screen.getByRole('textbox');
+    await user.type(input, '{ArrowDown}');
+    await user.type(input, '{ArrowDown}');
+    await user.type(input, '{Enter}');
+
+    // Transaction should be categorized
+    expect(onCategoryChange).toHaveBeenCalledWith(1, 1);
+
+    // Dropdown should be closed since there's no next transaction
+    expect(screen.queryByRole('textbox')).not.toBeInTheDocument();
+  });
 });

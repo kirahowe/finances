@@ -35,6 +35,15 @@ export function TransactionTable({
 
   const columnHelper = createColumnHelper<Transaction>();
 
+  // Helper to find next transaction ID in the displayed rows
+  const findNextTransactionId = (currentTxId: number, displayedTransactions: Transaction[]): number | null => {
+    const currentIndex = displayedTransactions.findIndex(tx => tx['db/id'] === currentTxId);
+    if (currentIndex === -1 || currentIndex === displayedTransactions.length - 1) {
+      return null; // Not found or last transaction
+    }
+    return displayedTransactions[currentIndex + 1]['db/id'];
+  };
+
   const columns = [
     columnHelper.accessor('transaction/posted-date', {
       id: 'date',
@@ -85,6 +94,11 @@ export function TransactionTable({
                 onCategoryChange(transaction['db/id'], categoryId);
                 setEditingTransactionId(null);
               }}
+              onSelectAndNext={(categoryId) => {
+                onCategoryChange(transaction['db/id'], categoryId);
+                const nextTxId = findNextTransactionId(transaction['db/id'], displayedTransactions);
+                setEditingTransactionId(nextTxId);
+              }}
               onClose={() => setEditingTransactionId(null)}
             />
           );
@@ -118,6 +132,9 @@ export function TransactionTable({
   const displayRows = pageSize !== undefined
     ? sortedRows.slice(page * pageSize, (page + 1) * pageSize)
     : sortedRows;
+
+  // Get the actual Transaction objects from displayRows for navigation
+  const displayedTransactions = displayRows.map(row => row.original);
 
   return (
     <table className="table">
