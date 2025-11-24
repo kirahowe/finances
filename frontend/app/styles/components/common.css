@@ -66,15 +66,30 @@
 }
 
 .table th {
-  padding: var(--spacing-sm) var(--spacing-md);
+  padding: var(--spacing-xs) var(--spacing-md);
   text-align: left;
   border-bottom: 2px solid var(--color-border);
   font-weight: 600;
 }
 
 .table td {
-  padding: var(--spacing-sm) var(--spacing-md);
+  padding: var(--spacing-xs) var(--spacing-md);
   border-bottom: 1px solid var(--color-border);
+}
+
+/* Category column - fixed width to prevent shifting when dropdown opens */
+.table th:nth-child(5),
+.table td:nth-child(5) {
+  min-width: 180px;
+  width: 180px;
+}
+
+/* Amount column - ensure it fits at least 11 monospace characters */
+.table th:nth-child(4),
+.table td:nth-child(4) {
+  min-width: 140px;
+  text-align: right;
+  white-space: nowrap;
 }
 
 .table tr:hover {
@@ -157,6 +172,7 @@
 .numeric {
   font-family: Menlo, Consolas, Monaco, Adwaita Mono, Liberation Mono, Lucida Console, monospace;
   font-variant-numeric: tabular-nums;
+  white-space: nowrap;
 }
 
 .error-stack {
