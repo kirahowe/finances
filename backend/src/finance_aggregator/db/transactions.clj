@@ -11,6 +11,7 @@
                   ;; To remove, use retract operation
                   [[:db/retract tx-id :transaction/category]])]
     (d/transact! conn tx-data)
-    ;; Return the updated transaction with category info
+    ;; Return the updated transaction with category info (minimal payload)
     (let [db (d/db conn)]
-      (d/pull db '[* {:transaction/category [*]}] tx-id))))
+      (d/pull db '[* {:transaction/category [:db/id :category/name]
+                      :transaction/account [:db/id :account/external-name]}] tx-id))))
