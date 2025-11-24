@@ -1,20 +1,28 @@
 import type { Category } from './api';
 
 /**
- * Filters categories by name (case-insensitive)
+ * Normalizes a string for filtering by removing all non-alphanumeric characters and converting to lowercase
+ */
+function normalizeForFiltering(text: string): string {
+  return text.toLowerCase().replace(/[^a-z0-9]/g, '');
+}
+
+/**
+ * Filters categories by name (case-insensitive and whitespace-insensitive)
  */
 export function filterCategories(
   categories: Category[],
   filter: string
 ): Category[] {
-  if (!filter) {
+  if (!filter.trim()) {
     return categories;
   }
 
-  const lowerFilter = filter.toLowerCase();
-  return categories.filter((category) =>
-    category['category/name'].toLowerCase().includes(lowerFilter)
-  );
+  const normalizedQuery = normalizeForFiltering(filter);
+  return categories.filter((category) => {
+    const normalizedName = normalizeForFiltering(category['category/name']);
+    return normalizedName.includes(normalizedQuery);
+  });
 }
 
 /**

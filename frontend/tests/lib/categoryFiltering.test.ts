@@ -69,6 +69,71 @@ describe('categoryFiltering', () => {
       const result = filterCategories(categories, '(');
       expect(result).toHaveLength(1);
     });
+
+    it('ignores whitespace when filtering - matches across spaces', () => {
+      const categories: Category[] = [
+        {
+          'db/id': 1,
+          'category/name': 'Work Income',
+          'category/type': 'income',
+        },
+        {
+          'db/id': 2,
+          'category/name': 'Food - Groceries',
+          'category/type': 'expense',
+        },
+        {
+          'db/id': 3,
+          'category/name': 'Gym Membership',
+          'category/type': 'expense',
+        },
+      ];
+
+      // "workinc" should match "Work Income"
+      const result1 = filterCategories(categories, 'workinc');
+      expect(result1).toHaveLength(1);
+      expect(result1[0]['category/name']).toBe('Work Income');
+
+      // "foodgroceries" should match "Food - Groceries"
+      const result2 = filterCategories(categories, 'foodgroceries');
+      expect(result2).toHaveLength(1);
+      expect(result2[0]['category/name']).toBe('Food - Groceries');
+
+      // "gymmem" should match "Gym Membership"
+      const result3 = filterCategories(categories, 'gymmem');
+      expect(result3).toHaveLength(1);
+      expect(result3[0]['category/name']).toBe('Gym Membership');
+    });
+
+    it('whitespace-insensitive filtering still matches partial words', () => {
+      const categories: Category[] = [
+        {
+          'db/id': 1,
+          'category/name': 'Work Income',
+          'category/type': 'income',
+        },
+      ];
+
+      // "work" should still match "Work Income"
+      const result = filterCategories(categories, 'work');
+      expect(result).toHaveLength(1);
+      expect(result[0]['category/name']).toBe('Work Income');
+    });
+
+    it('whitespace-insensitive filtering is case insensitive', () => {
+      const categories: Category[] = [
+        {
+          'db/id': 1,
+          'category/name': 'Work Income',
+          'category/type': 'income',
+        },
+      ];
+
+      // "WORKINC" should match "Work Income"
+      const result = filterCategories(categories, 'WORKINC');
+      expect(result).toHaveLength(1);
+      expect(result[0]['category/name']).toBe('Work Income');
+    });
   });
 
   describe('getSelectedIndex', () => {
