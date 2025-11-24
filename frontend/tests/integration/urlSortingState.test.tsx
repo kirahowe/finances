@@ -1,6 +1,7 @@
 import { describe, it, expect } from 'vitest';
 import { render, screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
+import { useEffect } from 'react';
 import { createMemoryRouter, RouterProvider, useSearchParams } from 'react-router';
 import { OptimisticTransactionTable } from '../../app/components/OptimisticTransactionTable';
 import type { Transaction, Category } from '../../app/lib/api';
@@ -38,6 +39,21 @@ describe('URL Sorting State Persistence', () => {
   function TestComponent() {
     const [searchParams, setSearchParams] = useSearchParams();
     const sorting = parseSortingState(searchParams.get('sort'));
+
+    // Sync default sort to URL on mount if URL has no sort param
+    useEffect(() => {
+      const currentSort = searchParams.get('sort');
+      if (!currentSort) {
+        const serialized = serializeSortingState(sorting);
+        if (serialized) {
+          setSearchParams((prev) => {
+            const newParams = new URLSearchParams(prev);
+            newParams.set('sort', serialized);
+            return newParams;
+          }, { replace: true });
+        }
+      }
+    }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
     const handleSortingChange = (updaterOrValue: SortingState | ((old: SortingState) => SortingState)) => {
       const newSorting = typeof updaterOrValue === 'function'
@@ -89,19 +105,20 @@ describe('URL Sorting State Persistence', () => {
     const user = userEvent.setup();
     renderWithRouter();
 
-    // Initially, URL should have no sort param
+    // Initially, URL should have default sort (date ascending)
     let urlDisplay = screen.getByTestId('current-url');
-    expect(urlDisplay.textContent).toBe('');
+    expect(urlDisplay.textContent).toContain('sort=date');
+    expect(urlDisplay.textContent).toContain('asc');
 
-    // Click date header to sort
+    // Click date header to toggle sort to descending
     const dateHeader = screen.getByRole('columnheader', { name: /date/i });
     await user.click(dateHeader);
 
-    // URL should now have sort parameter
+    // URL should now show descending sort
     await waitFor(() => {
       urlDisplay = screen.getByTestId('current-url');
       expect(urlDisplay.textContent).toContain('sort=date');
-      expect(urlDisplay.textContent).toContain('asc');
+      expect(urlDisplay.textContent).toContain('desc');
     });
   });
 
@@ -143,24 +160,26 @@ describe('URL Sorting State Persistence', () => {
     expect(amountHeader.textContent).toContain('↑');
   });
 
-  it('removes sort param from URL when sorting is cleared', async () => {
+  it('cycles through sort directions', async () => {
     const user = userEvent.setup();
-    renderWithRouter('/?sort=date:asc');
+    renderWithRouter();
 
-    // Initially sorted
-    let urlDisplay = screen.getByTestId('current-url');
-    expect(urlDisplay.textContent).toContain('sort=date');
-    expect(urlDisplay.textContent).toContain('asc');
-
-    // Click date header twice to cycle through asc -> desc -> no sort
+    // Click date header to cycle through: default asc -> desc -> back to asc
     const dateHeader = screen.getByRole('columnheader', { name: /date/i });
-    await user.click(dateHeader); // asc -> desc
-    await user.click(dateHeader); // desc -> no sort
 
-    // URL should no longer have sort param
+    // Initially sorted ascending (default)
+    expect(dateHeader.textContent).toContain('↑');
+
+    // First click: asc -> desc
+    await user.click(dateHeader);
     await waitFor(() => {
-      urlDisplay = screen.getByTestId('current-url');
-      expect(urlDisplay.textContent).not.toContain('sort=');
+      expect(dateHeader.textContent).toContain('↓');
+    });
+
+    // Second click: desc -> back to asc
+    await user.click(dateHeader);
+    await waitFor(() => {
+      expect(dateHeader.textContent).toContain('↑');
     });
   });
 
@@ -168,11 +187,7 @@ describe('URL Sorting State Persistence', () => {
     const user = userEvent.setup();
     renderWithRouter('/?view=transactions&page=2');
 
-    // Add sorting
-    const dateHeader = screen.getByRole('columnheader', { name: /date/i });
-    await user.click(dateHeader);
-
-    // URL should have both view, page, and sort params
+    // Default sort will be applied automatically (date:asc)
     await waitFor(() => {
       const urlDisplay = screen.getByTestId('current-url');
       const urlText = urlDisplay.textContent || '';
@@ -180,6 +195,20 @@ describe('URL Sorting State Persistence', () => {
       expect(urlText).toContain('page=2');
       expect(urlText).toContain('sort=date');
       expect(urlText).toContain('asc');
+    });
+
+    // Click to toggle sort
+    const dateHeader = screen.getByRole('columnheader', { name: /date/i });
+    await user.click(dateHeader);
+
+    // URL should still have view, page, and updated sort (now desc)
+    await waitFor(() => {
+      const urlDisplay = screen.getByTestId('current-url');
+      const urlText = urlDisplay.textContent || '';
+      expect(urlText).toContain('view=transactions');
+      expect(urlText).toContain('page=2');
+      expect(urlText).toContain('sort=date');
+      expect(urlText).toContain('desc');
     });
   });
 });

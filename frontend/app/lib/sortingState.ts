@@ -17,11 +17,11 @@ export function serializeSortingState(sorting: SortingState): string {
 
 /**
  * Parses a URL sorting parameter back into a SortingState.
- * Returns empty array for invalid input.
+ * Returns default sort (date ascending) for invalid or empty input.
  */
 export function parseSortingState(sortParam: string | null | undefined): SortingState {
   if (!sortParam || sortParam.trim() === '') {
-    return [];
+    return [{ id: 'date', desc: false }]; // Default: sort by date ascending
   }
 
   const parts = sortParam.split(',');
@@ -42,6 +42,11 @@ export function parseSortingState(sortParam: string | null | undefined): Sorting
       id: id.trim(),
       desc: direction === 'desc',
     });
+  }
+
+  // If all parts were invalid, return default sort
+  if (result.length === 0) {
+    return [{ id: 'date', desc: false }];
   }
 
   return result;

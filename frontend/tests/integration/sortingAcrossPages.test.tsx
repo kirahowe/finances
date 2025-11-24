@@ -105,7 +105,7 @@ describe('Sorting Across Pages', () => {
 
     const payees = rows.map(row => {
       const cells = within(row).getAllByRole('cell');
-      return cells[1].textContent; // Payee is second column
+      return cells[2].textContent; // Payee is third column (Date, Account, Payee, ...)
     });
 
     expect(payees[0]).toBe('Alice');
@@ -127,7 +127,7 @@ describe('Sorting Across Pages', () => {
 
     const payees = rows.map(row => {
       const cells = within(row).getAllByRole('cell');
-      return cells[1].textContent; // Payee is second column
+      return cells[2].textContent; // Payee is third column (Date, Account, Payee, ...)
     });
 
     expect(payees[0]).toBe('David');
@@ -146,7 +146,7 @@ describe('Sorting Across Pages', () => {
     const rows = screen.getAllByRole('row').slice(1);
     const amounts = rows.map(row => {
       const cells = within(row).getAllByRole('cell');
-      return cells[3].textContent; // Amount is 4th column
+      return cells[4].textContent; // Amount is 5th column (Date, Account, Payee, Description, Amount, ...)
     });
 
     // Amounts should be -50, -40, -30 (ascending order - smallest/most negative first)

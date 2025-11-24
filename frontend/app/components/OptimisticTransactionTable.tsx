@@ -73,6 +73,11 @@ export function OptimisticTransactionTable({
       header: 'Date',
       cell: (info) => <span className="numeric">{formatDate(info.getValue())}</span>,
     }),
+    columnHelper.accessor(row => row['transaction/account']?.['account/external-name'], {
+      id: 'account',
+      header: 'Account',
+      cell: (info) => info.getValue() || '—',
+    }),
     columnHelper.accessor('transaction/payee', {
       id: 'payee',
       header: 'Payee',

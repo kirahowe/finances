@@ -36,19 +36,19 @@ describe('sortingState', () => {
   });
 
   describe('parseSortingState', () => {
-    it('parses empty string to empty sorting state', () => {
+    it('parses empty string to default sort (date ascending)', () => {
       const result = parseSortingState('');
-      expect(result).toEqual([]);
+      expect(result).toEqual([{ id: 'date', desc: false }]);
     });
 
-    it('parses null to empty sorting state', () => {
+    it('parses null to default sort (date ascending)', () => {
       const result = parseSortingState(null);
-      expect(result).toEqual([]);
+      expect(result).toEqual([{ id: 'date', desc: false }]);
     });
 
-    it('parses undefined to empty sorting state', () => {
+    it('parses undefined to default sort (date ascending)', () => {
       const result = parseSortingState(undefined);
-      expect(result).toEqual([]);
+      expect(result).toEqual([{ id: 'date', desc: false }]);
     });
 
     it('parses single column ascending sort', () => {
@@ -69,9 +69,9 @@ describe('sortingState', () => {
       ]);
     });
 
-    it('handles malformed input gracefully', () => {
+    it('handles malformed input by returning default sort', () => {
       const result = parseSortingState('invalid');
-      expect(result).toEqual([]);
+      expect(result).toEqual([{ id: 'date', desc: false }]);
     });
 
     it('handles partially malformed input', () => {
@@ -82,18 +82,19 @@ describe('sortingState', () => {
       ]);
     });
 
-    it('handles invalid direction', () => {
+    it('handles invalid direction by returning default sort', () => {
       const result = parseSortingState('date:invalid');
-      expect(result).toEqual([]);
+      expect(result).toEqual([{ id: 'date', desc: false }]);
     });
   });
 
   describe('round-trip serialization', () => {
-    it('preserves empty state', () => {
+    it('empty state serializes to empty string, but parses to default sort', () => {
       const original: SortingState = [];
       const serialized = serializeSortingState(original);
+      expect(serialized).toBe('');
       const parsed = parseSortingState(serialized);
-      expect(parsed).toEqual(original);
+      expect(parsed).toEqual([{ id: 'date', desc: false }]);
     });
 
     it('preserves single sort', () => {

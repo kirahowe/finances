@@ -113,7 +113,8 @@ describe('Sorting with Pagination', () => {
     // First date should be 2024-01-10 (Store A) - formatted as MM/DD/YYYY or similar
     expect(dates[0]).toBeTruthy();
     // Just verify Store A is in first row since date formatting varies
-    const firstRowPayee = within(rows[0]).getAllByRole('cell')[1];
+    // Payee is now at index 2 (Date, Account, Payee, Description, Amount, Category)
+    const firstRowPayee = within(rows[0]).getAllByRole('cell')[2];
     expect(firstRowPayee).toHaveTextContent('Store A');
   });
 });

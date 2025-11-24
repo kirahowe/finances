@@ -38,7 +38,8 @@
                                    :where [?e :institution/id _]]
                   "accounts" '[:find [(pull ?e [*]) ...]
                                :where [?e :account/external-id _]]
-                  "transactions" '[:find [(pull ?e [* {:transaction/category [*]}]) ...]
+                  "transactions" '[:find [(pull ?e [* {:transaction/category [*]
+                                                       :transaction/account [*]}])]
                                    :where [?e :transaction/external-id _]]
                   (throw (Exception. "Unknown entity type")))
           results (d/q query (d/db db/conn))]

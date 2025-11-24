@@ -15,6 +15,14 @@ const CategorySchema = z.object({
   'category/sort-order': z.number().optional(),
 });
 
+const AccountSchema = z.object({
+  'db/id': z.number(),
+  'account/external-name': z.string(),
+  'account/type': z.string().optional(),
+  'account/currency': z.string(),
+  'account/external-id': z.string().optional(),
+});
+
 const TransactionSchema = z.object({
   'db/id': z.number(),
   'transaction/amount': z.number(),
@@ -22,14 +30,7 @@ const TransactionSchema = z.object({
   'transaction/description': z.string().nullable().optional(),
   'transaction/posted-date': z.string(),
   'transaction/category': CategorySchema.nullable().optional(),
-});
-
-const AccountSchema = z.object({
-  'db/id': z.number(),
-  'account/external-name': z.string(),
-  'account/type': z.string().optional(),
-  'account/currency': z.string(),
-  'account/external-id': z.string().optional(),
+  'transaction/account': AccountSchema.nullable().optional(),
 });
 
 const StatsSchema = z.object({
