@@ -1,0 +1,17 @@
+{;; Base system configuration
+ ;; All environments inherit from this
+
+ ;; Database configuration
+ :finance-aggregator.system/db-path "./data/finance.db"
+
+ ;; HTTP server configuration
+ :finance-aggregator.system/http-port 8080
+
+ ;; Database component
+ :finance-aggregator.db/connection
+ {:db-path #ig/ref :finance-aggregator.system/db-path}
+
+ ;; HTTP server component
+ :finance-aggregator.http/server
+ {:port #ig/ref :finance-aggregator.system/http-port
+  :db #ig/ref :finance-aggregator.db/connection}}

@@ -1,0 +1,8 @@
+{;; Development environment overrides
+ ;; Merges with base-system.edn
+
+ ;; Use dev database
+ :finance-aggregator.system/db-path "./data/dev.db"
+
+ ;; Development server port
+ :finance-aggregator.system/http-port 8080}
