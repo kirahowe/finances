@@ -1,4 +1,4 @@
-import { useState, useRef, useEffect } from "react";
+import { useState, useRef, useEffect, useMemo } from "react";
 import type { Route } from "./+types/home";
 import { api, type Stats, type Category, type Account, type Transaction } from "../lib/api";
 import { useSearchParams, useFetcher, useNavigation } from "react-router";
@@ -7,6 +7,7 @@ import { CategoryTable } from "../components/CategoryTable";
 import { LoadingIndicator } from "../components/LoadingIndicator";
 import { ErrorDisplay } from "../components/ErrorDisplay";
 import { Pagination } from "../components/Pagination";
+import { FilterBar, type FilterConfig } from "../components/FilterBar";
 import { generateCategoryIdent } from "../lib/identGenerator";
 import type { CategoryDraft } from "../lib/categoryDraft";
 import { CATEGORY_TYPE_OPTIONS, type CategoryType } from "../lib/categoryTypes";
@@ -15,9 +16,12 @@ import { debounce } from "../lib/debounce";
 import { parseSortingState, serializeSortingState } from "../lib/sortingState";
 import type { SortingState } from "@tanstack/react-table";
 import type { PageSize } from "../lib/pagination";
+import { parseFilters, serializeFilters, toggleFilterValue, clearFilterField, clearAllFilters, type FilterState, type FilterValue } from "../lib/filterState";
+import { extractFilterOptions, applyFilters } from "../lib/filterOptions";
 import "../styles/pages/dashboard.css";
 import "../styles/components/pagination.css";
 import "../styles/components/category-button.css";
+import "../styles/components/filter.css";
 
 export function meta({}: Route.MetaArgs) {
   return [
@@ -417,38 +421,102 @@ function TransactionsSection({
   const [pageSize, setPageSize] = useState<PageSize>(25);
   const [error, setError] = useState<string | null>(null);
 
-  // Initialize sorting from URL, then manage it locally
+  // Initialize sorting from URL
   const [sorting, setSorting] = useState<SortingState>(() =>
     parseSortingState(searchParams.get('sort'))
   );
 
-  // Sync URL when sorting changes (without triggering navigation/loading)
+  // Initialize filters from URL - single source of truth
+  const [filters, setFilters] = useState<FilterState>(() =>
+    parseFilters(searchParams.get('filters'))
+  );
+
+  // Extract filter options from all transactions
+  const filterConfigs = useMemo<FilterConfig[]>(() => {
+    const accountOptions = extractFilterOptions(
+      transactions,
+      tx => tx['transaction/account']?.['db/id'],
+      tx => tx['transaction/account']?.['account/external-name'] || 'Unknown'
+    );
+
+    const categoryOptions = extractFilterOptions(
+      transactions,
+      tx => tx['transaction/category']?.['db/id'],
+      tx => tx['transaction/category']?.['category/name'] || 'Uncategorized'
+    );
+
+    return [
+      { field: 'account', label: 'Account', options: accountOptions },
+      { field: 'category', label: 'Category', options: categoryOptions },
+    ];
+  }, [transactions]);
+
+  // Apply filters to transactions
+  const filteredTransactions = useMemo(() => {
+    return applyFilters(
+      transactions,
+      filters,
+      {
+        account: (tx: Transaction) => tx['transaction/account']?.['db/id'],
+        category: (tx: Transaction) => tx['transaction/category']?.['db/id'],
+      }
+    );
+  }, [transactions, filters]);
+
+  // Sync URL when sorting or filters change
   useEffect(() => {
-    const serialized = serializeSortingState(sorting);
     const newParams = new URLSearchParams(searchParams);
 
-    if (serialized) {
-      newParams.set('sort', serialized);
+    const serializedSort = serializeSortingState(sorting);
+    if (serializedSort) {
+      newParams.set('sort', serializedSort);
     } else {
       newParams.delete('sort');
+    }
+
+    const serializedFilters = serializeFilters(filters);
+    if (serializedFilters) {
+      newParams.set('filters', serializedFilters);
+    } else {
+      newParams.delete('filters');
     }
 
     // Use native history API to avoid triggering React Router navigation
     const newUrl = `${window.location.pathname}?${newParams.toString()}`;
     window.history.replaceState(null, '', newUrl);
-  }, [sorting, searchParams]);
+  }, [sorting, filters, searchParams]);
 
-  // Update local state when sorting changes
   const handleSortingChange = (updaterOrValue: SortingState | ((old: SortingState) => SortingState)) => {
     setSorting(updaterOrValue);
+  };
+
+  const handleToggleFilterValue = (field: string, value: FilterValue) => {
+    setFilters(prev => toggleFilterValue(prev, field, value));
+  };
+
+  const handleClearFilterField = (field: string) => {
+    setFilters(prev => clearFilterField(prev, field));
+  };
+
+  const handleClearAllFilters = () => {
+    setFilters(clearAllFilters());
   };
 
   return (
     <div className="card">
       <h2>Transactions</h2>
       <ErrorDisplay error={error} onDismiss={() => setError(null)} />
+
+      <FilterBar
+        filters={filterConfigs}
+        filterState={filters}
+        onToggleValue={handleToggleFilterValue}
+        onClearField={handleClearFilterField}
+        onClearAll={handleClearAllFilters}
+      />
+
       <OptimisticTransactionTable
-        transactions={transactions}
+        transactions={filteredTransactions}
         categories={categories}
         page={page}
         pageSize={pageSize}
@@ -459,7 +527,7 @@ function TransactionsSection({
       <Pagination
         currentPage={page}
         pageSize={pageSize}
-        totalItems={transactions.length}
+        totalItems={filteredTransactions.length}
         onPageChange={setPage}
         onPageSizeChange={setPageSize}
       />
