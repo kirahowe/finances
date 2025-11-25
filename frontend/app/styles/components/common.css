@@ -59,7 +59,7 @@
 .table {
   width: 100%;
   border-collapse: collapse;
-  table-layout: fixed;
+  table-layout: auto;
 }
 
 .table thead {
@@ -73,48 +73,28 @@
   font-weight: 600;
 }
 
+
 .table td {
   padding: var(--spacing-xs) var(--spacing-md);
   border-bottom: 1px solid var(--color-border);
-}
-
-/* Fixed column widths to prevent visual jank */
-/* Date column */
-.table th:nth-child(1),
-.table td:nth-child(1) {
-  width: 110px;
-}
-
-/* Account column */
-.table th:nth-child(2),
-.table td:nth-child(2) {
-  width: 150px;
-}
-
-/* Payee column */
-.table th:nth-child(3),
-.table td:nth-child(3) {
-  width: 200px;
-}
-
-/* Description column */
-.table th:nth-child(4),
-.table td:nth-child(4) {
-  width: 250px;
-}
-
-/* Amount column - ensure it fits at least 11 monospace characters */
-.table th:nth-child(5),
-.table td:nth-child(5) {
-  width: 120px;
-  text-align: right;
+  overflow: hidden;
+  text-overflow: ellipsis;
   white-space: nowrap;
+  max-width: 0;
+}
+
+/* Amount column */
+.table td:nth-child(5) {
+  text-align: right;
 }
 
 /* Category column - fixed width to prevent shifting when dropdown opens */
 .table th:nth-child(6),
 .table td:nth-child(6) {
   width: 180px;
+  max-width: 180px;
+  overflow: visible;
+  position: relative;
 }
 
 .table tr:hover {

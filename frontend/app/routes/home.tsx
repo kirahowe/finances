@@ -6,6 +6,7 @@ import { OptimisticTransactionTable } from "../components/OptimisticTransactionT
 import { CategoryTable } from "../components/CategoryTable";
 import { LoadingIndicator } from "../components/LoadingIndicator";
 import { ErrorDisplay } from "../components/ErrorDisplay";
+import { Pagination } from "../components/Pagination";
 import { generateCategoryIdent } from "../lib/identGenerator";
 import type { CategoryDraft } from "../lib/categoryDraft";
 import { CATEGORY_TYPE_OPTIONS, type CategoryType } from "../lib/categoryTypes";
@@ -13,6 +14,7 @@ import { calculateSortOrderUpdates, optimizeSortOrderUpdates } from "../lib/cate
 import { debounce } from "../lib/debounce";
 import { parseSortingState, serializeSortingState } from "../lib/sortingState";
 import type { SortingState } from "@tanstack/react-table";
+import type { PageSize } from "../lib/pagination";
 import "../styles/pages/dashboard.css";
 import "../styles/components/pagination.css";
 import "../styles/components/category-button.css";
@@ -412,7 +414,7 @@ function TransactionsSection({
 }) {
   const [searchParams, setSearchParams] = useSearchParams();
   const [page, setPage] = useState(0);
-  const [pageSize, setPageSize] = useState(20);
+  const [pageSize, setPageSize] = useState<PageSize>(25);
   const [error, setError] = useState<string | null>(null);
 
   // Initialize sorting from URL, then manage it locally
@@ -441,8 +443,6 @@ function TransactionsSection({
     setSorting(updaterOrValue);
   };
 
-  const totalPages = Math.ceil(transactions.length / pageSize);
-
   return (
     <div className="card">
       <h2>Transactions</h2>
@@ -456,53 +456,13 @@ function TransactionsSection({
         onSortingChange={handleSortingChange}
       />
 
-      <div className="pagination">
-        <button
-          className="button button-secondary"
-          onClick={() => setPage(0)}
-          disabled={page === 0}
-        >
-          First
-        </button>
-        <button
-          className="button button-secondary"
-          onClick={() => setPage(page - 1)}
-          disabled={page === 0}
-        >
-          Previous
-        </button>
-        <span className="pagination-info">
-          Page {page + 1} of {totalPages}
-        </span>
-        <button
-          className="button button-secondary"
-          onClick={() => setPage(page + 1)}
-          disabled={page >= totalPages - 1}
-        >
-          Next
-        </button>
-        <button
-          className="button button-secondary"
-          onClick={() => setPage(totalPages - 1)}
-          disabled={page >= totalPages - 1}
-        >
-          Last
-        </button>
-
-        <select
-          className="form-select pagination-size"
-          value={pageSize}
-          onChange={(e) => {
-            setPageSize(parseInt(e.target.value));
-            setPage(0);
-          }}
-        >
-          <option value="10">10 per page</option>
-          <option value="20">20 per page</option>
-          <option value="50">50 per page</option>
-          <option value="100">100 per page</option>
-        </select>
-      </div>
+      <Pagination
+        currentPage={page}
+        pageSize={pageSize}
+        totalItems={transactions.length}
+        onPageChange={setPage}
+        onPageSizeChange={setPageSize}
+      />
     </div>
   );
 }

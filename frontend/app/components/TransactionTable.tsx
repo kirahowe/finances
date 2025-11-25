@@ -108,6 +108,12 @@ export function TransactionTable({
           <button
             className="category-button"
             onClick={() => setEditingTransactionId(transaction['db/id'])}
+            onKeyDown={(e) => {
+              if (e.key === 'Enter') {
+                e.preventDefault();
+                setEditingTransactionId(transaction['db/id']);
+              }
+            }}
           >
             {categoryRef?.['category/name'] || 'Uncategorized'}
           </button>

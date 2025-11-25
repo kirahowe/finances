@@ -253,4 +253,46 @@ describe('CategoryDropdown', () => {
     const firstFilteredOption = screen.getByText('Groceries').closest('li');
     expect(firstFilteredOption).toHaveClass('highlighted');
   });
+
+  it('shows "Uncategorized" as placeholder when no category is selected', () => {
+    render(
+      <CategoryDropdown
+        categories={mockCategories}
+        selectedCategoryId={null}
+        onSelect={vi.fn()}
+        onClose={vi.fn()}
+      />
+    );
+
+    const input = screen.getByRole('textbox');
+    expect(input).toHaveAttribute('placeholder', 'Uncategorized');
+  });
+
+  it('shows selected category name as placeholder', () => {
+    render(
+      <CategoryDropdown
+        categories={mockCategories}
+        selectedCategoryId={2}
+        onSelect={vi.fn()}
+        onClose={vi.fn()}
+      />
+    );
+
+    const input = screen.getByRole('textbox');
+    expect(input).toHaveAttribute('placeholder', 'Gas');
+  });
+
+  it('shows "Uncategorized" as placeholder when selected category is not found', () => {
+    render(
+      <CategoryDropdown
+        categories={mockCategories}
+        selectedCategoryId={999}
+        onSelect={vi.fn()}
+        onClose={vi.fn()}
+      />
+    );
+
+    const input = screen.getByRole('textbox');
+    expect(input).toHaveAttribute('placeholder', 'Uncategorized');
+  });
 });

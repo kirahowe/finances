@@ -148,6 +148,12 @@ export function OptimisticTransactionTable({
           <button
             className="category-button"
             onClick={() => setEditingTransactionId(transaction['db/id'])}
+            onKeyDown={(e) => {
+              if (e.key === 'Enter') {
+                e.preventDefault();
+                setEditingTransactionId(transaction['db/id']);
+              }
+            }}
             disabled={isUpdating}
           >
             {optimisticCategory.name}

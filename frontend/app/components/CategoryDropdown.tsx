@@ -131,6 +131,11 @@ export function CategoryDropdown({
     onSelect(categoryId);
   };
 
+  // Find the selected category name for the placeholder
+  const selectedCategoryName = selectedCategoryId === null
+    ? 'Uncategorized'
+    : categories.find(cat => cat['db/id'] === selectedCategoryId)?.['category/name'] || 'Uncategorized';
+
   return (
     <div className="category-dropdown" ref={dropdownRef}>
       <input
@@ -140,7 +145,7 @@ export function CategoryDropdown({
         value={filter}
         onChange={(e) => setFilter(e.target.value)}
         onKeyDown={handleKeyDown}
-        placeholder="Filter categories..."
+        placeholder={selectedCategoryName}
       />
       <ul className="category-dropdown-list">
         {options.map((option, index) => (
