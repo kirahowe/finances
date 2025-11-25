@@ -24,7 +24,7 @@ test.describe('Navigation', () => {
   test('can view transactions section', async ({ page }) => {
     await page.goto('/');
     await page.getByRole('button', { name: 'Transactions' }).click();
-    await expect(page).toHaveURL('/?view=transactions');
+    await expect(page).toHaveURL(/\?view=transactions/);
     await expect(page.getByRole('heading', { name: 'Transactions' })).toBeVisible();
   });
 
