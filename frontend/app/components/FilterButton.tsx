@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useState, useRef } from 'react';
 import { FilterDropdown } from './FilterDropdown';
 import type { FilterOption } from '../lib/filterOptions';
 import type { FilterValue } from '../lib/filterState';
@@ -19,6 +19,7 @@ export function FilterButton({
   onClear,
 }: FilterButtonProps) {
   const [isOpen, setIsOpen] = useState(false);
+  const buttonRef = useRef<HTMLButtonElement>(null);
 
   const selectedCount = selectedValues.length;
   const buttonText = selectedCount === 0
@@ -27,12 +28,25 @@ export function FilterButton({
     ? `${label}: 1 selected`
     : `${label}: ${selectedCount} selected`;
 
+  const handleClose = () => {
+    setIsOpen(false);
+    // Return focus to button when dropdown closes
+    buttonRef.current?.focus();
+  };
+
   return (
     <div className="filter-button-container">
       <button
+        ref={buttonRef}
         type="button"
         className={`button button-secondary filter-button ${selectedCount > 0 ? 'filter-button-active' : ''}`}
         onClick={() => setIsOpen(!isOpen)}
+        onKeyDown={(e) => {
+          if (e.key === 'Enter') {
+            e.preventDefault();
+            setIsOpen(!isOpen);
+          }
+        }}
       >
         {buttonText}
         <span className="filter-button-arrow">{isOpen ? '▲' : '▼'}</span>
@@ -60,9 +74,9 @@ export function FilterButton({
           onToggle={onToggle}
           onClear={() => {
             onClear();
-            setIsOpen(false);
+            handleClose();
           }}
-          onClose={() => setIsOpen(false)}
+          onClose={handleClose}
         />
       )}
     </div>

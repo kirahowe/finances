@@ -20,8 +20,10 @@ export function FilterDropdown({
   onClose,
 }: FilterDropdownProps) {
   const [searchQuery, setSearchQuery] = useState('');
+  const [highlightedIndex, setHighlightedIndex] = useState(-1);
   const inputRef = useRef<HTMLInputElement>(null);
   const dropdownRef = useRef<HTMLDivElement>(null);
+  const listRef = useRef<HTMLUListElement>(null);
 
   const filteredOptions = filterOptionsByQuery(options, searchQuery);
   const selectedSet = new Set(selectedValues);
@@ -30,6 +32,24 @@ export function FilterDropdown({
   useEffect(() => {
     inputRef.current?.focus();
   }, []);
+
+  // Reset highlighted index when filtered options change
+  useEffect(() => {
+    setHighlightedIndex(-1);
+  }, [searchQuery]);
+
+  // Scroll highlighted item into view
+  useEffect(() => {
+    if (highlightedIndex >= 0 && highlightedIndex < filteredOptions.length) {
+      const highlightedElement = listRef.current?.querySelector(
+        `li[data-index="${highlightedIndex}"]`
+      ) as HTMLElement | null;
+
+      if (highlightedElement && typeof highlightedElement.scrollIntoView === 'function') {
+        highlightedElement.scrollIntoView({ block: 'nearest' });
+      }
+    }
+  }, [highlightedIndex, filteredOptions.length]);
 
   // Handle click outside
   useEffect(() => {
@@ -52,11 +72,32 @@ export function FilterDropdown({
     if (e.key === 'Escape') {
       e.preventDefault();
       onClose();
+      return;
+    }
+
+    if (e.key === 'ArrowDown') {
+      e.preventDefault();
+      setHighlightedIndex(prev =>
+        prev < filteredOptions.length - 1 ? prev + 1 : prev
+      );
+      return;
+    }
+
+    if (e.key === 'ArrowUp') {
+      e.preventDefault();
+      setHighlightedIndex(prev => (prev > 0 ? prev - 1 : prev));
+      return;
+    }
+
+    if (e.key === 'Enter' && highlightedIndex >= 0 && highlightedIndex < filteredOptions.length) {
+      e.preventDefault();
+      onToggle(filteredOptions[highlightedIndex].value);
+      return;
     }
   };
 
   return (
-    <div className="filter-dropdown" ref={dropdownRef}>
+    <div className="filter-dropdown" ref={dropdownRef} onKeyDown={handleKeyDown}>
       <div className="filter-dropdown-header">
         <input
           ref={inputRef}
@@ -64,26 +105,29 @@ export function FilterDropdown({
           className="filter-dropdown-search"
           value={searchQuery}
           onChange={(e) => setSearchQuery(e.target.value)}
-          onKeyDown={handleKeyDown}
           placeholder={`Search ${label.toLowerCase()}...`}
         />
       </div>
 
-      <ul className="filter-dropdown-list">
-        {filteredOptions.map((option) => {
+      <ul className="filter-dropdown-list" ref={listRef}>
+        {filteredOptions.map((option, index) => {
           const isSelected = selectedSet.has(option.value);
+          const isHighlighted = index === highlightedIndex;
           return (
             <li
               key={String(option.value)}
-              className="filter-dropdown-item"
+              data-index={index}
+              className={`filter-dropdown-item ${isHighlighted ? 'highlighted' : ''}`}
               onClick={() => onToggle(option.value)}
+              onMouseEnter={() => setHighlightedIndex(index)}
             >
-              <label className="filter-dropdown-checkbox-label">
+              <div className="filter-dropdown-checkbox-label">
                 <input
                   type="checkbox"
                   checked={isSelected}
                   onChange={() => {}} // Handled by onClick on li
                   className="filter-dropdown-checkbox"
+                  tabIndex={-1}
                 />
                 <span className="filter-dropdown-label-text">
                   {option.label}
@@ -91,7 +135,7 @@ export function FilterDropdown({
                 {option.count !== undefined && (
                   <span className="filter-dropdown-count">{option.count}</span>
                 )}
-              </label>
+              </div>
             </li>
           );
         })}
