@@ -1,0 +1,6 @@
+{:min-bb-version "1.0.0"
+ :tasks
+ {;; Secrets management task
+  secrets {:doc "Manage encrypted secrets using age encryption"
+           :task (do
+                   (load-file "scripts/secrets.clj"))}}}

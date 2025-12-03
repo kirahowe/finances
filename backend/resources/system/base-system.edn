@@ -7,6 +7,19 @@
  ;; HTTP server configuration
  :finance-aggregator.system/http-port 8080
 
+ ;; Secrets configuration (convention over configuration)
+ :finance-aggregator.system/secrets-key-file "~/.config/finance-aggregator/key.txt"
+ :finance-aggregator.system/secrets-file "resources/secrets.edn.age"
+
+ ;; Secrets component - loads encrypted secrets at startup
+ :finance-aggregator.system/secrets
+ {:key-file #ig/ref :finance-aggregator.system/secrets-key-file
+  :secrets-file #ig/ref :finance-aggregator.system/secrets-file}
+
+ ;; Plaid configuration - loaded from secrets
+ :finance-aggregator.plaid/config
+ {:secrets #ig/ref :finance-aggregator.system/secrets}
+
  ;; Database component
  :finance-aggregator.db/connection
  {:db-path #ig/ref :finance-aggregator.system/db-path}
