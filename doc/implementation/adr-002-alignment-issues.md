@@ -199,8 +199,8 @@ After fixing issues, ensure:
 **Test command**:
 ```bash
 cd frontend
-npm test                    # Unit & integration tests
-npm run test:e2e           # E2E tests
+pnpm test                  # Unit & integration tests
+pnpm run test:e2e          # E2E tests
 ```
 
 ---
