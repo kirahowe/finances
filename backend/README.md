@@ -71,9 +71,10 @@ backend/
 │   ├── db/
 │   │   ├── core.clj                # Database connection management
 │   │   ├── categories.clj          # Category CRUD operations
-│   │   └── transactions.clj        # Transaction operations
+│   │   ├── transactions.clj        # Transaction operations
+│   │   └── credentials.clj         # Encrypted credential storage (Phase 2)
 │   ├── db.clj                      # Legacy database operations
-│   ├── server.clj                  # Full API handler (routes & logic)
+│   ├── server.clj                  # Full API handler (routes & logic + Plaid endpoints)
 │   ├── http/
 │   │   └── server.clj              # HTTP server component (lifecycle)
 │   ├── plaid/
@@ -82,7 +83,8 @@ backend/
 │   │   ├── client.clj              # SimpleFIN API client (legacy)
 │   │   └── data.clj                # SimpleFIN data transformations
 │   ├── lib/
-│   │   └── secrets.clj             # Secrets management library
+│   │   ├── secrets.clj             # Secrets management library
+│   │   └── encryption.clj          # AES-256-GCM encryption (Phase 2)
 │   ├── data/
 │   │   ├── schema.clj              # Datalevin schema with user scoping
 │   │   └── cleaning.clj            # Data normalization
@@ -166,18 +168,18 @@ See [SECRETS.md](./SECRETS.md) for comprehensive documentation.
 
 ## Key Features
 
-### Plaid Integration (Phase 1 Complete)
+### Plaid Integration (Phases 1-2 Complete)
 
 Connect to 12,000+ financial institutions via Plaid API:
-- ✅ Core API client functions (`plaid/client.clj`)
-- ✅ Link token generation for frontend
-- ✅ Public token exchange for access tokens
-- ✅ Account and transaction fetching
-- 🚧 Data transformation layer (Phase 2)
-- 🚧 Service orchestration (Phase 2)
-- 🚧 API endpoints (Phase 4)
+- ✅ **Phase 1**: Core API client functions (`plaid/client.clj`)
+- ✅ **Phase 2**: Encryption & credentials (`lib/encryption.clj`, `db/credentials.clj`)
+- ✅ **Phase 2**: API endpoints (4 endpoints in `server.clj`)
+- ✅ **Phase 2**: Comprehensive tests (20 tests passing)
+- 🚧 **Phase 3**: Frontend Plaid Link component (in progress)
+- 🚧 **Phase 4**: Data transformation layer
+- 🚧 **Phase 5**: Service orchestration & persistence
 
-**Current Status**: Phase 1 foundation complete, ready for Phase 2 implementation.
+**Current Status**: Phase 2 complete with working API endpoints. Ready for Phase 3 (frontend UI).
 
 See:
 - [ADR-004: Plaid Integration](../doc/adr/adr-004-plaid-integration.md) - Full integration plan
@@ -215,13 +217,18 @@ DELETE /api/categories/:id                     Delete category
 POST   /api/categories/batch-sort              Batch update sort orders
 PUT    /api/transactions/:id/category          Update transaction category
 POST   /api/query                              Execute custom Datalog query
+
+# Plaid Integration (Phase 2 - Complete)
+POST   /api/plaid/create-link-token            Create Plaid Link token
+POST   /api/plaid/exchange-token               Exchange public token & store credential
+GET    /api/plaid/accounts                     Fetch accounts (uses stored credential)
+POST   /api/plaid/transactions                 Fetch transactions (uses stored credential)
 ```
 
-**Planned** (Plaid integration - Phase 4):
+**Planned** (Plaid integration - Phase 5):
 ```
-POST   /api/plaid/create-link-token            Create Plaid Link token
-POST   /api/plaid/exchange-token               Exchange public token
-POST   /api/plaid/sync                         Sync transactions from Plaid
+POST   /api/plaid/sync-accounts                Sync accounts to database
+POST   /api/plaid/sync-transactions            Sync transactions to database
 ```
 
 See `src/finance_aggregator/server.clj` for full implementation.

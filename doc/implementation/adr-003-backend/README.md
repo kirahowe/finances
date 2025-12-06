@@ -45,13 +45,14 @@ Files are named to clearly indicate:
 
 See: [phase1-implementation-complete-2025-11-25.md](./phase1-implementation-complete-2025-11-25.md)
 
-### Phase 2: Data Access Layer (Planned)
-- User-scoped queries (`db/queries.clj`)
-- User-scoped transactions (`db/transactions.clj`)
-- Domain layer with pure functions
-- Credential encryption (`credentials.clj`)
-- **Plaid data transformations** (`plaid/data.clj`)
-- **Plaid service orchestration** (`plaid/service.clj`)
+### Phase 2: Data Access Layer (Partially Complete)
+- User-scoped queries (`db/queries.clj`) - Planned
+- User-scoped transactions (`db/transactions.clj`) - Planned
+- Domain layer with pure functions - Planned
+- ✅ **Credential encryption** (`lib/encryption.clj`, `db/credentials.clj`) - Complete
+- ✅ **Plaid API endpoints** (`server.clj`) - Complete (4 endpoints added)
+- **Plaid data transformations** (`plaid/data.clj`) - Planned (Phase 4)
+- **Plaid service orchestration** (`plaid/service.clj`) - Planned (Phase 5)
 
 ### Phase 3: Application Layer (Planned)
 - Reitit routing

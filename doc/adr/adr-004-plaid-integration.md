@@ -580,39 +580,54 @@ Start with **Option 1** (side-by-side):
 
 ## Implementation Checklist
 
-- [ ] Phase 1: Foundation
-  - [ ] Add Plaid dependency to deps.edn
-  - [ ] Get Plaid Sandbox credentials
-  - [ ] Create Plaid config component
-  - [ ] Create plaid/client.clj with core functions
-  - [ ] Write unit tests for client
+**Note:** Phases were reorganized to prioritize UI testing (see implementation plan).
 
-- [ ] Phase 2: Data Transformation
+- [x] **Phase 1: Foundation** (Completed 2025-11-30)
+  - [x] Add Plaid dependency to deps.edn
+  - [x] Get Plaid Sandbox credentials
+  - [x] Create Plaid config component
+  - [x] Create plaid/client.clj with core functions
+  - [x] Write unit tests for client
+
+- [x] **Phase 2: Minimal Backend Endpoints** (Completed 2025-12-04)
+  - [x] Create lib/encryption.clj with AES-256-GCM
+  - [x] Create db/credentials.clj for credential storage
+  - [x] Add POST /api/plaid/create-link-token endpoint
+  - [x] Add POST /api/plaid/exchange-token endpoint
+  - [x] Add GET /api/plaid/accounts endpoint
+  - [x] Add POST /api/plaid/transactions endpoint
+  - [x] Write comprehensive unit tests (20 tests passing)
+  - [x] Hardcode "test-user" for single-user testing
+
+- [ ] **Phase 3: Frontend Plaid Link Component** (In Progress)
+  - [ ] Create frontend/app/routes/plaid-test.tsx
+  - [ ] Load Plaid Link SDK from CDN
+  - [ ] Initialize Plaid Link with link_token
+  - [ ] Handle OAuth success callback
+  - [ ] Display raw JSON responses
+  - [ ] Add API client functions to api.ts
+  - [ ] Test full OAuth flow manually in browser
+
+- [ ] **Phase 4: Data Transformation Layer**
   - [ ] Create plaid/data.clj with transformations
   - [ ] Write comprehensive unit tests
   - [ ] Test with Plaid sample data
 
-- [ ] Phase 3: Service Orchestration
+- [ ] **Phase 5: Service Orchestration & Persistence**
   - [ ] Create plaid/service.clj
-  - [ ] Integrate credential encryption
+  - [ ] Update endpoints to persist data
   - [ ] Write integration tests with Sandbox
 
-- [ ] Phase 4: API Endpoints
-  - [ ] Add /api/plaid/create-link-token
-  - [ ] Add /api/plaid/exchange-token
-  - [ ] Add /api/plaid/sync
-  - [ ] Add request validation
-  - [ ] Test in REPL
+- [ ] **Phase 6: Frontend Integration & Polish**
+  - [ ] Create PlaidLinkButton component
+  - [ ] Integrate into main dashboard
+  - [ ] Improve test UI
 
-- [ ] Phase 5: Frontend Integration
-  - [ ] Create plaid-link.tsx component
-  - [ ] Implement Plaid Link SDK
-  - [ ] Handle success callback
-  - [ ] Test full OAuth flow
-
-- [ ] Phase 6: Production Hardening
-  - [ ] Add error handling
-  - [ ] Add rate limiting
+- [ ] **Phase 7: Production Hardening**
+  - [ ] Remove hardcoded "test-user" (multi-user support)
+  - [ ] Add request validation with Malli
+  - [ ] Add error handling and retry logic
+  - [ ] Add rate limiting awareness
   - [ ] Add pagination support
   - [ ] Switch to Development environment
   - [ ] Deploy to Production

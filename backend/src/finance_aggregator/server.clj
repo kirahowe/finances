@@ -5,7 +5,10 @@
    [datalevin.core :as d]
    [finance-aggregator.db :as db]
    [finance-aggregator.db.categories :as categories]
-   [finance-aggregator.db.transactions :as transactions]))
+   [finance-aggregator.db.transactions :as transactions]
+   [finance-aggregator.plaid.client :as plaid]
+   [finance-aggregator.db.credentials :as credentials]
+   [finance-aggregator.lib.secrets :as secrets]))
 
 (defn json-response [data]
   "Create a JSON response"
@@ -63,6 +66,129 @@
                              :transactions transaction-count}}))
     (catch Exception e
       {:status 500
+       :headers {"Content-Type" "application/json"
+                 "Access-Control-Allow-Origin" "*"}
+       :body (json/write-json-str {:success false :error (.getMessage e)})})))
+
+;;
+;; Plaid Endpoint Handlers (Phase 2)
+;; For Phase 2/3: Load secrets and plaid-config directly in handlers
+;; TODO Phase 5: Refactor to use dependency injection via component system
+;;
+
+(def ^:private hardcoded-user-id
+  "Hardcoded user ID for Phase 2/3 testing. Will be removed in Phase 7."
+  "test-user")
+
+(defn- load-secrets-and-config
+  "Load secrets and plaid config. Returns map with :secrets and :plaid-config.
+   Throws exception if secrets cannot be loaded."
+  []
+  (try
+    (let [secrets-data (secrets/load-secrets)
+          plaid-config (secrets/get-secret secrets-data :plaid)]
+      (when-not plaid-config
+        (throw (ex-info "Plaid configuration not found in secrets"
+                        {:hint "Run 'bb secrets edit' to add Plaid credentials"})))
+      {:secrets secrets-data
+       :plaid-config plaid-config})
+    (catch Exception e
+      (throw (ex-info "Failed to load secrets for Plaid integration"
+                      {:error (.getMessage e)}
+                      e)))))
+
+(defn- plaid-create-link-token-handler []
+  "POST /api/plaid/create-link-token
+   Generate link_token for Plaid Link frontend initialization.
+   Uses hardcoded user-id for Phase 2/3."
+  (try
+    (let [{:keys [plaid-config]} (load-secrets-and-config)
+          link-token (plaid/create-link-token plaid-config hardcoded-user-id)]
+      (json-response {:success true
+                      :data {:linkToken link-token}}))
+    (catch Exception e
+      {:status 500
+       :headers {"Content-Type" "application/json"
+                 "Access-Control-Allow-Origin" "*"}
+       :body (json/write-json-str {:success false :error (.getMessage e)})})))
+
+(defn- plaid-exchange-token-handler [req]
+  "POST /api/plaid/exchange-token
+   Exchange public_token for access_token and store encrypted credential.
+   Request body: {:publicToken string}
+   Returns raw Plaid response with access_token and item_id."
+  (try
+    (let [body (slurp (:body req))
+          data (read-json body)
+          public-token (:publicToken data)
+          {:keys [secrets plaid-config]} (load-secrets-and-config)]
+
+      (when-not public-token
+        (throw (ex-info "publicToken is required" {:body data})))
+
+      ;; Exchange public token for access token
+      (let [result (plaid/exchange-public-token plaid-config public-token)
+            access-token (:access_token result)]
+
+        ;; Store encrypted credential in database
+        (credentials/store-credential! db/conn secrets :plaid access-token)
+
+        ;; Return raw Plaid response
+        (json-response {:success true :data result})))
+    (catch Exception e
+      {:status 400
+       :headers {"Content-Type" "application/json"
+                 "Access-Control-Allow-Origin" "*"}
+       :body (json/write-json-str {:success false :error (.getMessage e)})})))
+
+(defn- plaid-get-accounts-handler []
+  "GET /api/plaid/accounts
+   Fetch accounts using stored credential.
+   Returns raw Plaid accounts JSON."
+  (try
+    (let [{:keys [secrets plaid-config]} (load-secrets-and-config)
+          access-token (credentials/get-credential db/conn secrets :plaid)]
+
+      (when-not access-token
+        (throw (ex-info "No Plaid credential found. Please connect your bank account first."
+                        {:hint "Use POST /api/plaid/exchange-token to link your account"})))
+
+      ;; Fetch accounts from Plaid
+      (let [accounts (plaid/fetch-accounts plaid-config access-token)]
+        (json-response {:success true :data accounts})))
+    (catch Exception e
+      {:status 400
+       :headers {"Content-Type" "application/json"
+                 "Access-Control-Allow-Origin" "*"}
+       :body (json/write-json-str {:success false :error (.getMessage e)})})))
+
+(defn- plaid-get-transactions-handler [req]
+  "POST /api/plaid/transactions
+   Fetch transactions using stored credential.
+   Request body: {:startDate string, :endDate string} (YYYY-MM-DD format)
+   Returns raw Plaid transactions JSON."
+  (try
+    (let [body (slurp (:body req))
+          data (read-json body)
+          start-date (:startDate data)
+          end-date (:endDate data)
+          {:keys [secrets plaid-config]} (load-secrets-and-config)
+          access-token (credentials/get-credential db/conn secrets :plaid)]
+
+      (when-not access-token
+        (throw (ex-info "No Plaid credential found. Please connect your bank account first."
+                        {:hint "Use POST /api/plaid/exchange-token to link your account"})))
+
+      (when-not (and start-date end-date)
+        (throw (ex-info "startDate and endDate are required"
+                        {:body data
+                         :hint "Format: YYYY-MM-DD"})))
+
+      ;; Fetch transactions from Plaid
+      (let [transactions (plaid/fetch-transactions plaid-config access-token start-date end-date)]
+        (json-response {:success true :data transactions})))
+    (catch Exception e
+      {:status 400
        :headers {"Content-Type" "application/json"
                  "Access-Control-Allow-Origin" "*"}
        :body (json/write-json-str {:success false :error (.getMessage e)})})))
@@ -214,6 +340,19 @@
            :headers {"Content-Type" "application/json"
                      "Access-Control-Allow-Origin" "*"}
            :body (json/write-json-str {:success false :error (.getMessage e)})}))
+
+      ;; Plaid endpoints (Phase 2)
+      (and (= method :post) (= uri "/api/plaid/create-link-token"))
+      (plaid-create-link-token-handler)
+
+      (and (= method :post) (= uri "/api/plaid/exchange-token"))
+      (plaid-exchange-token-handler req)
+
+      (and (= method :get) (= uri "/api/plaid/accounts"))
+      (plaid-get-accounts-handler)
+
+      (and (= method :post) (= uri "/api/plaid/transactions"))
+      (plaid-get-transactions-handler req)
 
       ;; Default 404
       :else

@@ -169,16 +169,19 @@ See [REPL Quick Reference](./doc/implementation/adr-003-backend/repl-quick-refer
 - Transaction table with filtering
 - Secrets management with age encryption
 - REPL-driven development workflow
-- Plaid integration Phase 1 (client functions)
+- **Plaid Integration Phase 1** - API client functions
+- **Plaid Integration Phase 2** - Encryption, credentials, API endpoints
 
 ### 🚧 In Progress
-- Plaid integration Phase 2 (data transformation, service layer)
+- **Plaid Integration Phase 3** - Frontend Plaid Link component
 - User authentication and multi-user support
-- Automated transaction categorization
 
 ### 📋 Planned
-- Plaid Link UI integration (Phase 5)
-- Transaction sync from Plaid
+- Plaid data transformation layer (Phase 4)
+- Plaid service orchestration & persistence (Phase 5)
+- Dashboard integration (Phase 6)
+- Production hardening - multi-user, validation (Phase 7)
+- Automated transaction categorization
 - Spending analytics dashboard
 - Budget tracking
 - Mobile-responsive design improvements

@@ -52,14 +52,25 @@ bb secrets keygen
 bb secrets new
 ```
 
-In your editor, add your Plaid API credentials:
+In your editor, add your Plaid API credentials and a database encryption key:
 
 ```clojure
 {:plaid {:client-id "your_actual_client_id"
          :secret "your_actual_secret"
          :environment :sandbox}
 
- :database {:encryption-key nil}}
+ :database {:encryption-key "GENERATE_ME"}}  ; See below to generate
+```
+
+**To generate a secure encryption key:**
+```bash
+# Start a Clojure REPL
+cd backend && clojure -M:repl
+
+# Generate and copy the key
+(require '[finance-aggregator.lib.encryption :as enc])
+(println (enc/generate-encryption-key))
+# Copy the output and paste it as your :encryption-key value
 ```
 
 Get your Plaid credentials from: https://dashboard.plaid.com/team/keys

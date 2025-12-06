@@ -1,8 +1,23 @@
 # Plaid Integration Testing Guide
 
-## Phase 1 Implementation Complete
+## Implementation Status
 
-Phase 1 of the Plaid integration has been implemented following TDD practices:
+### Phase 1: Foundation ✅ Complete
+- Plaid Java SDK (v25.0.0) integrated
+- Pure API client functions
+- Plaid config component with secrets integration
+- Unit tests with Sandbox
+
+### Phase 2: Minimal Backend Endpoints ✅ Complete
+- **Encryption** (`lib/encryption.clj`) - AES-256-GCM for credential storage
+- **Credential Storage** (`db/credentials.clj`) - Encrypted Plaid access tokens in database
+- **API Endpoints** (`server.clj`):
+  - `POST /api/plaid/create-link-token` - Generate link_token for frontend
+  - `POST /api/plaid/exchange-token` - Exchange public_token, store encrypted access_token
+  - `GET /api/plaid/accounts` - Fetch accounts using stored credential
+  - `POST /api/plaid/transactions` - Fetch transactions for date range
+- **Tests**: 20 tests passing (encryption + credentials + client)
+- **Hardcoded User**: Uses "test-user" for single-user testing
 
 ### Completed Components
 
@@ -12,9 +27,12 @@ Phase 1 of the Plaid integration has been implemented following TDD practices:
    - `exchange-public-token` - Exchange public token for access token
    - `fetch-accounts` - Retrieve account list
    - `fetch-transactions` - Retrieve transactions for date range
-3. **Plaid Config Component** - Added to `system.clj` with lifecycle management
-4. **System Configuration** - Added Plaid configuration to `base-system.edn`
-5. **Unit Tests** - Test stubs created in `test/finance_aggregator/plaid/client_test.clj`
+3. **Encryption Utilities** - AES-256-GCM encryption in `lib/encryption.clj`
+4. **Credential Management** - Secure storage in `db/credentials.clj`
+5. **API Endpoints** - HTTP handlers in `server.clj`
+6. **Plaid Config Component** - Integrated with secrets system
+7. **System Configuration** - Plaid configuration in `base-system.edn`
+8. **Comprehensive Tests** - Unit tests for all components
 
 ### Testing in REPL with Sandbox Credentials
 
@@ -173,34 +191,66 @@ The implementation uses the Plaid Java SDK v25.0.0:
   (.getLinkToken result))
 ```
 
-### Next Steps (Phase 2)
+### Testing API Endpoints
 
-Phase 2 will implement:
+You can test the new Phase 2 endpoints using curl:
 
-1. **Data Transformation** (`plaid/data.clj`)
-   - `parse-institution` - Transform Plaid institution → Datalevin schema
-   - `parse-account` - Transform Plaid account → Datalevin schema
-   - `parse-transaction` - Transform Plaid transaction → Datalevin schema
+```bash
+# 1. Create link token
+curl -X POST http://localhost:8080/api/plaid/create-link-token
+# Returns: {"success": true, "data": {"linkToken": "link-sandbox-..."}}
 
-2. **Service Orchestration** (`plaid/service.clj`)
-   - `link-user-account!` - Exchange token + store credential
-   - `sync-transactions!` - Fetch, transform, persist
+# 2. Exchange public token (after completing Plaid Link flow)
+curl -X POST http://localhost:8080/api/plaid/exchange-token \
+  -H "Content-Type: application/json" \
+  -d '{"publicToken": "public-sandbox-..."}'
+# Returns: {"success": true, "data": {"access_token": "...", "item_id": "..."}}
+# Also stores encrypted credential in database
 
-3. **Credential Encryption** (`credentials.clj`)
-   - `encrypt-credential` - AES-256-GCM encryption
-   - `decrypt-credential` - Decryption
-   - `store-credential!` - Save encrypted credential to DB
+# 3. Fetch accounts (uses stored credential)
+curl http://localhost:8080/api/plaid/accounts
+# Returns: {"success": true, "data": [{account data}]}
 
-See ADR-004 for complete implementation plan.
+# 4. Fetch transactions (uses stored credential)
+curl -X POST http://localhost:8080/api/plaid/transactions \
+  -H "Content-Type: application/json" \
+  -d '{"startDate": "2025-01-01", "endDate": "2025-11-30"}'
+# Returns: {"success": true, "data": [{transaction data}]}
+```
+
+### Next Steps (Phase 3+)
+
+Upcoming phases:
+
+1. **Phase 3: Frontend Plaid Link** - Minimal UI for manual testing at `/plaid-test`
+2. **Phase 4: Data Transformation** - Transform Plaid JSON to Datalevin schema
+3. **Phase 5: Service Orchestration** - Persist data to database
+4. **Phase 6: Dashboard Integration** - Add to main UI
+5. **Phase 7: Production Hardening** - Multi-user, validation, error handling
+
+See ADR-004 and the implementation plan for details.
 
 ### File Locations
 
-- Implementation: `backend/src/finance_aggregator/plaid/client.clj`
-- Tests: `backend/test/finance_aggregator/plaid/client_test.clj`
-- System config: `backend/src/finance_aggregator/system.clj`
-- Base config: `backend/resources/system/base-system.edn`
-- Dependencies: `backend/deps.edn`
-- Design doc: `doc/adr/adr-004-plaid-integration.md`
+**Phase 1 - Plaid Client:**
+- `backend/src/finance_aggregator/plaid/client.clj` - Pure API functions
+- `backend/test/finance_aggregator/plaid/client_test.clj` - Client tests
+
+**Phase 2 - Encryption & Endpoints:**
+- `backend/src/finance_aggregator/lib/encryption.clj` - AES-256-GCM encryption
+- `backend/src/finance_aggregator/db/credentials.clj` - Credential storage
+- `backend/src/finance_aggregator/server.clj` - API endpoints (Plaid section)
+- `backend/test/finance_aggregator/lib/encryption_test.clj` - Encryption tests
+- `backend/test/finance_aggregator/db/credentials_test.clj` - Credentials tests
+
+**Configuration:**
+- `backend/src/finance_aggregator/system.clj` - Plaid config component
+- `backend/resources/system/base-system.edn` - System configuration
+- `backend/deps.edn` - Plaid Java SDK dependency
+
+**Documentation:**
+- `doc/adr/adr-004-plaid-integration.md` - Architecture decision record
+- Implementation plan: `/Users/kira/.claude/plans/tender-zooming-puffin.md`
 
 ### Troubleshooting
 
