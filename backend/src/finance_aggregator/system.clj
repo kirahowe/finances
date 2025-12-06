@@ -5,6 +5,7 @@
   (:require
    [finance-aggregator.db.core :as db]
    [finance-aggregator.http.server :as http]
+   [finance-aggregator.http.router :as router]
    [finance-aggregator.plaid.client :as plaid]
    [finance-aggregator.lib.secrets :as secrets]
    [integrant.core :as ig]))
@@ -60,16 +61,39 @@
     (db/stop-db! conn)))
 
 ;;
+;; HTTP Router Component
+;;
+
+(defmethod ig/init-key :finance-aggregator.http/router
+  [_ {:keys [db secrets plaid-config] :as config}]
+  (when-not db
+    (throw (ex-info "Database component is required for router" {:config config})))
+  (when-not secrets
+    (throw (ex-info "Secrets component is required for router" {:config config})))
+  (when-not plaid-config
+    (throw (ex-info "Plaid config component is required for router" {:config config})))
+  (println "Creating HTTP router with dependencies")
+  (let [deps {:db-conn (:conn db)
+              :secrets secrets
+              :plaid-config plaid-config}]
+    (router/create-handler deps)))
+
+(defmethod ig/halt-key! :finance-aggregator.http/router
+  [_ _component]
+  ;; Router is stateless, nothing to clean up
+  nil)
+
+;;
 ;; HTTP Server Component
 ;;
 
 (defmethod ig/init-key :finance-aggregator.http/server
-  [_ {:keys [port db] :as config}]
+  [_ {:keys [port router] :as config}]
   (when-not port
     (throw (ex-info "HTTP port is required" {:config config})))
-  (when-not db
-    (throw (ex-info "Database component is required" {:config config})))
-  (http/start-server! port db))
+  (when-not router
+    (throw (ex-info "Router component is required" {:config config})))
+  (http/start-server! port router))
 
 (defmethod ig/halt-key! :finance-aggregator.http/server
   [_ component]

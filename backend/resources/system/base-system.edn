@@ -24,7 +24,13 @@
  :finance-aggregator.db/connection
  {:db-path #ig/ref :finance-aggregator.system/db-path}
 
+ ;; HTTP router component
+ :finance-aggregator.http/router
+ {:db #ig/ref :finance-aggregator.db/connection
+  :secrets #ig/ref :finance-aggregator.system/secrets
+  :plaid-config #ig/ref :finance-aggregator.plaid/config}
+
  ;; HTTP server component
  :finance-aggregator.http/server
  {:port #ig/ref :finance-aggregator.system/http-port
-  :db #ig/ref :finance-aggregator.db/connection}}
+  :router #ig/ref :finance-aggregator.http/router}}
