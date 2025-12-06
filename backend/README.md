@@ -69,18 +69,24 @@ backend/
 │   ├── system.clj                  # Integrant component definitions
 │   ├── sys.clj                     # System lifecycle utilities
 │   ├── db/
-│   │   ├── core.clj                # Database operations
-│   │   ├── categories.clj          # Category queries
-│   │   └── transactions.clj        # Transaction queries
+│   │   ├── core.clj                # Database connection management
+│   │   ├── categories.clj          # Category CRUD operations
+│   │   └── transactions.clj        # Transaction operations
+│   ├── db.clj                      # Legacy database operations
+│   ├── server.clj                  # Full API handler (routes & logic)
 │   ├── http/
-│   │   └── server.clj              # HTTP server component
+│   │   └── server.clj              # HTTP server component (lifecycle)
 │   ├── plaid/
-│   │   └── client.clj              # Plaid API integration
+│   │   └── client.clj              # Plaid API client (Phase 1 complete)
+│   ├── simplefin/
+│   │   ├── client.clj              # SimpleFIN API client (legacy)
+│   │   └── data.clj                # SimpleFIN data transformations
 │   ├── lib/
 │   │   └── secrets.clj             # Secrets management library
-│   └── data/
-│       ├── schema.clj              # Datalevin schema
-│       └── cleaning.clj            # Data normalization
+│   ├── data/
+│   │   ├── schema.clj              # Datalevin schema with user scoping
+│   │   └── cleaning.clj            # Data normalization
+│   └── utils.clj                   # Utility functions
 ├── env/dev/src/
 │   ├── user.clj                    # REPL entry point
 │   └── dev.clj                     # Dev tools and helpers
@@ -91,7 +97,8 @@ backend/
 │   ├── secrets.edn.age             # Encrypted secrets (committed)
 │   └── secrets.edn.example         # Secrets template
 ├── test/                           # Test suite
-└── SECRETS.md                      # Secrets management guide
+├── SECRETS.md                      # Secrets management guide
+└── PLAID_TESTING.md                # Plaid integration testing guide
 ```
 
 ## Development Workflow
@@ -159,15 +166,22 @@ See [SECRETS.md](./SECRETS.md) for comprehensive documentation.
 
 ## Key Features
 
-### Plaid Integration
+### Plaid Integration (Phase 1 Complete)
 
 Connect to 12,000+ financial institutions via Plaid API:
-- Account connection and authentication
-- Transaction sync
-- Balance tracking
-- Multi-user support
+- ✅ Core API client functions (`plaid/client.clj`)
+- ✅ Link token generation for frontend
+- ✅ Public token exchange for access tokens
+- ✅ Account and transaction fetching
+- 🚧 Data transformation layer (Phase 2)
+- 🚧 Service orchestration (Phase 2)
+- 🚧 API endpoints (Phase 4)
 
-See [ADR-004: Plaid Integration](../doc/adr/adr-004-plaid-integration.md)
+**Current Status**: Phase 1 foundation complete, ready for Phase 2 implementation.
+
+See:
+- [ADR-004: Plaid Integration](../doc/adr/adr-004-plaid-integration.md) - Full integration plan
+- [PLAID_TESTING.md](./PLAID_TESTING.md) - Testing guide with Sandbox setup
 
 ### Secure Secrets Management
 
@@ -187,14 +201,30 @@ Datalevin provides a Datalog database with:
 
 ## API Endpoints
 
+**Currently Available** (via `server.clj`):
 ```
-GET    /health              Health check
-GET    /api/transactions    List transactions
-POST   /api/plaid/link      Create Plaid Link token
-POST   /api/plaid/exchange  Exchange public token
+GET    /health                                 Health check
+GET    /api/stats                              Database statistics
+GET    /api/transactions                       List all transactions
+GET    /api/accounts                           List all accounts
+GET    /api/institutions                       List all institutions
+GET    /api/categories                         List all categories
+POST   /api/categories                         Create category
+PUT    /api/categories/:id                     Update category
+DELETE /api/categories/:id                     Delete category
+POST   /api/categories/batch-sort              Batch update sort orders
+PUT    /api/transactions/:id/category          Update transaction category
+POST   /api/query                              Execute custom Datalog query
 ```
 
-See `src/finance_aggregator/http/server.clj` for full API documentation.
+**Planned** (Plaid integration - Phase 4):
+```
+POST   /api/plaid/create-link-token            Create Plaid Link token
+POST   /api/plaid/exchange-token               Exchange public token
+POST   /api/plaid/sync                         Sync transactions from Plaid
+```
+
+See `src/finance_aggregator/server.clj` for full implementation.
 
 ## Configuration
 

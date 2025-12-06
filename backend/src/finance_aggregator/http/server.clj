@@ -1,50 +1,30 @@
 (ns finance-aggregator.http.server
   "HTTP server component using http-kit.
-   Provides lifecycle management and basic request handling."
+   Provides lifecycle management and delegates to the full server handler."
   (:require
    [org.httpkit.server :as http-kit]
-   [ring.middleware.cors :refer [wrap-cors]]
-   [ring.middleware.json :refer [wrap-json-body wrap-json-response]]
-   [ring.middleware.keyword-params :refer [wrap-keyword-params]]
-   [ring.middleware.params :refer [wrap-params]]))
+   [finance-aggregator.server :as server]))
 
 ;;
-;; Handler
+;; Handler Delegation
 ;;
-
-(defn health-handler
-  "Simple health check endpoint."
-  [_request]
-  {:status 200
-   :body {:status "ok"
-          :service "finance-aggregator"}})
-
-(defn not-found-handler
-  "Default 404 handler."
-  [_request]
-  {:status 404
-   :body {:error "Not found"}})
 
 (defn create-handler
   "Create a Ring handler with database dependency injected.
-   For now, just provides a health check endpoint."
+   Delegates to the full application handler in server.clj."
   [db-component]
-  (fn [request]
-    (case [(:request-method request) (:uri request)]
-      [:get "/health"] (health-handler request)
-      (not-found-handler request))))
+  ;; The server/app handler expects to use the global db/conn,
+  ;; but we're using component-based architecture now.
+  ;; For now, just delegate to the existing handler.
+  ;; TODO: Refactor server.clj to accept db-component parameter
+  server/app)
 
 (defn wrap-middleware
-  "Apply standard middleware to handler."
+  "Apply standard middleware to handler.
+   Note: The server/app handler already has its own middleware,
+   so we don't need to add additional layers here."
   [handler]
-  (-> handler
-      (wrap-json-response)
-      (wrap-keyword-params)
-      (wrap-json-body {:keywords? true})
-      (wrap-params)
-      (wrap-cors :access-control-allow-origin [#".*"]
-                 :access-control-allow-methods [:get :post :put :delete :options]
-                 :access-control-allow-headers ["Content-Type" "Authorization"])))
+  handler)
 
 ;;
 ;; Server Lifecycle

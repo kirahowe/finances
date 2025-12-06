@@ -33,7 +33,10 @@
         integrant/integrant {:mvn/version "0.13.1"}
 
         ;; Routing
-        metosin/reitit {:mvn/version "0.7.2"}}
+        metosin/reitit {:mvn/version "0.7.2"}
+
+        ;; Plaid API
+        com.plaid/plaid-java {:mvn/version "25.0.0"}}
  :aliases
  {:test {:extra-paths ["test"]
          :extra-deps {lambdaisland/kaocha {:mvn/version "1.91.1392"}

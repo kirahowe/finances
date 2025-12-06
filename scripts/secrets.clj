@@ -283,8 +283,11 @@
         ;; Open editor
         (println)
         (print-info "Opening editor...")
-        (let [{:keys [exit]} (shell/sh editor temp-file)]
-          (when-not (zero? exit)
+        (let [pb (ProcessBuilder. (into-array String [editor temp-file]))
+              _ (.inheritIO pb)
+              process (.start pb)
+              exit-code (.waitFor process)]
+          (when-not (zero? exit-code)
             (print-error "Editor exited with error")
             (System/exit 1)))
 
@@ -294,12 +297,20 @@
         (if (encrypt-file temp-file secrets-file)
           (do
             (println)
-            (print-success "Secrets created and encrypted:" secrets-file)
+            (print-success "✓ Secrets created successfully!")
+            (println)
+            (println "Encrypted file location:")
+            (println (str "  " secrets-file))
+            (println)
+            (println "Key file location:")
+            (println (str "  " (:key-file config)))
             (println)
             (println "Next steps:")
-            (println (str "  1. Commit the encrypted file:  git add " secrets-file))
-            (println "  2. To add team members, re-encrypt with their public keys")
-            (println "  3. Update your backend config to load secrets"))
+            (println (str "  1. Commit encrypted file:    git add " secrets-file))
+            (println "  2. Edit again if needed:     bb secrets edit")
+            (println "  3. Share your public key:    bb secrets show-key")
+            (println)
+            (print-warning "IMPORTANT: Never commit the plaintext .edn file or your key.txt!"))
           (System/exit 1))
 
         (finally
@@ -331,8 +342,11 @@
           ;; Open editor
           (println)
           (print-info "Opening editor...")
-          (let [{:keys [exit]} (shell/sh editor temp-file)]
-            (when-not (zero? exit)
+          (let [pb (ProcessBuilder. (into-array String [editor temp-file]))
+                _ (.inheritIO pb)
+                process (.start pb)
+                exit-code (.waitFor process)]
+            (when-not (zero? exit-code)
               (print-error "Editor exited with error")
               (System/exit 1)))
 
@@ -348,14 +362,17 @@
                 (if (encrypt-file temp-file secrets-file)
                   (do
                     (println)
-                    (print-success "Secrets updated:" secrets-file))
+                    (print-success "✓ Secrets updated successfully!")
+                    (println)
+                    (println "Encrypted file location:")
+                    (println (str "  " secrets-file)))
                   (System/exit 1))))))
 
         (finally
           (secure-delete temp-file))))
 
     (println)
-    (print-success "Plaintext securely deleted")))
+    (print-success "✓ Plaintext securely deleted")))
 
 (defn encrypt-command [file-path]
   "Encrypt a plaintext file."

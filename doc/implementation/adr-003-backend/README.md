@@ -41,25 +41,30 @@ Files are named to clearly indicate:
 - Enhanced database schema with user scoping
 - HTTP server component
 - Dev environment with REPL tooling
+- **Plaid integration foundation** (client functions, config component)
 
 See: [phase1-implementation-complete-2025-11-25.md](./phase1-implementation-complete-2025-11-25.md)
 
-### Phase 2: Data Access Layer (Next)
+### Phase 2: Data Access Layer (Planned)
 - User-scoped queries (`db/queries.clj`)
 - User-scoped transactions (`db/transactions.clj`)
 - Domain layer with pure functions
-- Credential encryption
+- Credential encryption (`credentials.clj`)
+- **Plaid data transformations** (`plaid/data.clj`)
+- **Plaid service orchestration** (`plaid/service.clj`)
 
 ### Phase 3: Application Layer (Planned)
 - Reitit routing
-- API handlers
+- API handlers refactoring
 - Request validation with Malli
 - Authentication middleware
+- **Plaid API endpoints** in refactored handler structure
 
 ## Related Documentation
 
 - **ADR-003**: [../../adr/adr-003-clojure-backend-architecture.md](../../adr/adr-003-clojure-backend-architecture.md)
-- **REPL Cheat Sheet**: [../../../backend/REPL-CHEATSHEET.md](../../../backend/REPL-CHEATSHEET.md)
+- **ADR-004**: [../../adr/adr-004-plaid-integration.md](../../adr/adr-004-plaid-integration.md)
+- **Backend README**: [../../../backend/README.md](../../../backend/README.md)
 
 ## Quick Start
 
