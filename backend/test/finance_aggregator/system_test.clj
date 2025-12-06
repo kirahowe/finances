@@ -5,6 +5,7 @@
    [datalevin.core :as d]
    [finance-aggregator.db.core :as db]
    [finance-aggregator.sys :as sys]
+   [finance-aggregator.system] ;; Load Integrant component definitions
    [integrant.core :as ig]))
 
 (def test-db-path (str "data/test-system-" (System/currentTimeMillis) ".db"))
@@ -62,7 +63,8 @@
     (let [config (sys/load-configs ["system/base-system.edn" "system/dev.edn"])
           config (assoc config :finance-aggregator.system/db-path test-db-path)
           config (assoc config :finance-aggregator.system/http-port 8082)
-          system (sys/start-system! (sys/prep-config config))]
+          config (sys/prep-config config)
+          system (ig/init config)]
 
       (is (some? system) "System initialized")
       (is (contains? system :finance-aggregator.db/connection) "Has database component")
@@ -85,7 +87,7 @@
           (is (= "Test Institution" result) "Can query transacted data")))
 
       ;; Stop the system
-      (sys/stop-system! system)
+      (ig/halt! system)
 
       ;; Verify database cleanup
       (db/delete-database! test-db-path))))
