@@ -2,6 +2,8 @@
   "Pure Plaid API client functions using Plaid Java SDK.
    All functions are pure - they take configuration and parameters,
    call the Plaid API, and return data. No side effects or component dependencies."
+  (:require
+   [finance-aggregator.plaid.types :as types])
   (:import
    [com.plaid.client ApiClient]
    [com.plaid.client.model CountryCode LinkTokenCreateRequest
@@ -9,15 +11,6 @@
     AccountsGetRequest TransactionsGetRequest]
    [com.plaid.client.request PlaidApi]
    [java.util HashMap]))
-
-(defn- environment-keyword->plaid-adapter
-  "Convert environment keyword to Plaid adapter string."
-  [env-kw]
-  (case env-kw
-    :sandbox "https://sandbox.plaid.com"
-    :development "https://development.plaid.com"
-    :production "https://production.plaid.com"
-    (throw (ex-info "Invalid Plaid environment" {:environment env-kw}))))
 
 (defn- create-api-client
   "Create a Plaid API client from configuration.
@@ -27,35 +20,70 @@
                    (.put "clientId" client-id)
                    (.put "secret" secret))
         api-client (ApiClient. api-keys)
-        plaid-adapter (environment-keyword->plaid-adapter environment)]
+        ;; environment can be a keyword or already a URL string from #plaid/environment
+        plaid-adapter (if (keyword? environment)
+                        (or (types/environments environment)
+                            (throw (ex-info "Invalid Plaid environment" {:environment environment})))
+                        environment)]
     (.setPlaidAdapter api-client plaid-adapter)
     api-client))
 
+(defn- ensure-enum
+  "Ensure value is the expected enum type, converting if needed.
+   value: Already an enum value (from EDN reader) or keyword/string to convert
+   lookup-map: Map from keyword/string to enum value
+   type-name: String name for error messages"
+  [value lookup-map type-name]
+  (cond
+    ;; Already an enum value (from EDN reader)
+    (instance? Enum value) value
+    ;; Keyword or string - look up in map
+    :else (or (lookup-map (keyword value))
+              (lookup-map (str value))
+              (throw (ex-info (str "Unknown " type-name ": " value)
+                              {:value value
+                               :valid-values (keys lookup-map)})))))
+
 (defn create-link-token
   "Generate link token for Plaid Link frontend initialization.
-   plaid-config: map with :client-id, :secret, :environment
+
+   plaid-config: map with:
+     - :client-id, :secret, :environment (credentials)
+     - :client-name (string, displayed in Plaid Link)
+     - :country-codes (vector of CountryCode enums or strings)
+     - :language (string, e.g. \"en\")
+     - :products (vector of Products enums or keywords)
+
    user-id: string identifying the user
    Returns: link_token string"
   [plaid-config user-id]
-  (try
-    (let [api-client (create-api-client plaid-config)
-          plaid-api (.createService api-client PlaidApi)
-          user (-> (LinkTokenCreateRequestUser.)
-                   (.clientUserId user-id))
-          request (-> (LinkTokenCreateRequest.)
-                      (.user user)
-                      (.clientName "Finance Aggregator")
-                      (.products [Products/TRANSACTIONS])
-                      (.countryCodes [CountryCode/US])
-                      (.language "en"))
-          response (.linkTokenCreate plaid-api request)
-          result (.body (.execute response))]
-      (.getLinkToken result))
-    (catch Exception e
-      (throw (ex-info "Failed to create link token"
-                      {:user-id user-id
-                       :error (.getMessage e)}
-                      e)))))
+  (let [{:keys [client-name country-codes language products]
+         :or {client-name "Finance App"
+              country-codes [CountryCode/US]
+              language "en"
+              products [Products/TRANSACTIONS]}} plaid-config]
+    (try
+      (let [api-client (create-api-client plaid-config)
+            plaid-api (.createService api-client PlaidApi)
+            user (-> (LinkTokenCreateRequestUser.)
+                     (.clientUserId user-id))
+            ;; Ensure values are proper enum types
+            product-enums (mapv #(ensure-enum % types/products "product") products)
+            country-enums (mapv #(ensure-enum % types/country-codes "country code") country-codes)
+            request (-> (LinkTokenCreateRequest.)
+                        (.user user)
+                        (.clientName client-name)
+                        (.products product-enums)
+                        (.countryCodes country-enums)
+                        (.language language))
+            response (.linkTokenCreate plaid-api request)
+            result (.body (.execute response))]
+        (.getLinkToken result))
+      (catch Exception e
+        (throw (ex-info "Failed to create link token"
+                        {:user-id user-id
+                         :error (.getMessage e)}
+                        e))))))
 
 (defn exchange-public-token
   "Exchange public_token for access_token.

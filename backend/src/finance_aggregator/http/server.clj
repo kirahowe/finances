@@ -2,6 +2,7 @@
   "HTTP server component using http-kit.
    Provides lifecycle management for the HTTP server."
   (:require
+   [finance-aggregator.lib.log :as log]
    [org.httpkit.server :as http-kit]))
 
 ;;
@@ -18,13 +19,13 @@
    Returns:
      Map with :server and :stop-fn"
   [port router-handler]
-  (println (str "Starting HTTP server on port " port "..."))
+  (log/info "Starting HTTP server" {:port port})
   (let [server (http-kit/run-server router-handler {:port port})]
-    (println "HTTP server started successfully")
+    (log/info "HTTP server started successfully" {:port port})
     {:server server
      :stop-fn (fn []
-                (println "Stopping HTTP server...")
+                (log/info "Stopping HTTP server" {:port port})
                 (server :timeout 100)
-                (println "HTTP server stopped")
+                (log/info "HTTP server stopped")
                 nil)
      :port port}))

@@ -7,6 +7,7 @@
    - Middleware (CORS, JSON, exception handling)"
   (:require
    [reitit.ring :as ring]
+   [reitit.ring.middleware.parameters :as parameters]
    [finance-aggregator.http.routes.api :as api]
    [finance-aggregator.http.routes.static :as static]
    [finance-aggregator.http.middleware :as middleware]
@@ -24,9 +25,7 @@
   (ring/router
    [(api/api-routes deps)
     (static/static-routes)]
-   {:data {:middleware [middleware/wrap-cors
-                        middleware/wrap-json
-                        errors/wrap-exception-handling]}
+   {;; Middleware is applied in create-handler, not here
     ;; Allow specific routes before parameterized routes
     :conflicts nil}))
 
@@ -34,17 +33,21 @@
   "Create Ring handler from router with default handler for 404s.
 
    Args:
-     deps - Dependencies map with :db-conn, :secrets, :plaid-config
+     deps - Dependencies map with :db-conn, :secrets, :plaid-config, :cors-config
 
    Returns:
      Ring handler function"
-  [deps]
-  (ring/ring-handler
-   (create-router deps)
-   (ring/create-default-handler
-    {:not-found (constantly {:status 404
-                             :headers {"Content-Type" "application/json"}
-                             :body "{\"error\":\"Not found\"}"})})
-   {:middleware [middleware/wrap-cors
-                 middleware/wrap-json
-                 errors/wrap-exception-handling]}))
+  [{:keys [cors-config] :as deps}]
+  (-> (ring/ring-handler
+       (create-router deps)
+       (ring/create-default-handler
+        {:not-found (constantly {:status 404
+                                 :headers {"Content-Type" "application/json"}
+                                 :body "{\"error\":\"Not found\"}"})}))
+      ;; Apply global middleware in correct order (innermost to outermost)
+      ;; 1. Exception handling catches errors first
+      errors/wrap-exception-handling
+      ;; 2. JSON parsing/serialization
+      middleware/wrap-json
+      ;; 3. CORS wraps everything (outermost) so errors also get CORS headers
+      (middleware/wrap-cors cors-config)))

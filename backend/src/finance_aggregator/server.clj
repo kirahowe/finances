@@ -197,13 +197,16 @@
   "Main request handler"
   (let [uri (:uri req)
         method (:request-method req)]
+    (println "Request:" method uri) ;; Debug logging
     (cond
       ;; CORS preflight
       (= method :options)
-      {:status 200
-       :headers {"Access-Control-Allow-Origin" "*"
-                 "Access-Control-Allow-Methods" "GET, POST, OPTIONS"
-                 "Access-Control-Allow-Headers" "Content-Type"}}
+      (do
+        (println "Handling OPTIONS request for:" uri) ;; Debug logging
+        {:status 200
+         :headers {"Access-Control-Allow-Origin" "*"
+                   "Access-Control-Allow-Methods" "GET, POST, PUT, DELETE, OPTIONS"
+                   "Access-Control-Allow-Headers" "Content-Type"}})
 
       ;; Stats endpoint
       (= uri "/api/stats")

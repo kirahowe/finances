@@ -54,11 +54,26 @@ const StatsSchema = z.object({
   transactions: z.number(),
 });
 
+// Plaid schemas
+const PlaidLinkTokenSchema = z.object({
+  linkToken: z.string(),
+});
+
+const PlaidExchangeResponseSchema = z.object({
+  access_token: z.string(),
+  item_id: z.string(),
+});
+
+const PlaidAccountSchema = z.unknown(); // Keep it flexible for raw Plaid response
+const PlaidTransactionSchema = z.unknown(); // Keep it flexible for raw Plaid response
+
 // Type exports
 export type Category = z.infer<typeof CategorySchema>;
 export type Transaction = z.infer<typeof TransactionSchema>;
 export type Account = z.infer<typeof AccountSchema>;
 export type Stats = z.infer<typeof StatsSchema>;
+export type PlaidLinkToken = z.infer<typeof PlaidLinkTokenSchema>;
+export type PlaidExchangeResponse = z.infer<typeof PlaidExchangeResponseSchema>;
 
 // API Response wrapper
 const ApiResponseSchema = <T extends z.ZodTypeAny>(dataSchema: T) =>
@@ -147,6 +162,69 @@ export const api = {
     });
     const json = await response.json();
     const result = ApiResponseSchema(z.array(CategorySchema)).parse(json);
+    return result.data;
+  },
+
+  // Plaid API functions
+  async createPlaidLinkToken(): Promise<PlaidLinkToken> {
+    const response = await fetch(`${API_BASE}/api/plaid/create-link-token`, {
+      method: 'POST',
+    });
+    const json = await response.json();
+
+    // Check for error response
+    if (!response.ok || !json.success) {
+      throw new Error(json.error || `HTTP ${response.status}: ${response.statusText}`);
+    }
+
+    const result = ApiResponseSchema(PlaidLinkTokenSchema).parse(json);
+    return result.data;
+  },
+
+  async exchangePlaidToken(publicToken: string): Promise<PlaidExchangeResponse> {
+    const response = await fetch(`${API_BASE}/api/plaid/exchange-token`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ publicToken }),
+    });
+    const json = await response.json();
+
+    // Check for error response
+    if (!response.ok || !json.success) {
+      throw new Error(json.error || `HTTP ${response.status}: ${response.statusText}`);
+    }
+
+    const result = ApiResponseSchema(PlaidExchangeResponseSchema).parse(json);
+    return result.data;
+  },
+
+  async getPlaidAccounts(): Promise<unknown> {
+    const response = await fetch(`${API_BASE}/api/plaid/accounts`);
+    const json = await response.json();
+
+    // Check for error response
+    if (!response.ok || !json.success) {
+      throw new Error(json.error || `HTTP ${response.status}: ${response.statusText}`);
+    }
+
+    const result = ApiResponseSchema(z.array(PlaidAccountSchema)).parse(json);
+    return result.data;
+  },
+
+  async getPlaidTransactions(startDate: string, endDate: string): Promise<unknown> {
+    const response = await fetch(`${API_BASE}/api/plaid/transactions`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ startDate, endDate }),
+    });
+    const json = await response.json();
+
+    // Check for error response
+    if (!response.ok || !json.success) {
+      throw new Error(json.error || `HTTP ${response.status}: ${response.statusText}`);
+    }
+
+    const result = ApiResponseSchema(z.array(PlaidTransactionSchema)).parse(json);
     return result.data;
   },
 };

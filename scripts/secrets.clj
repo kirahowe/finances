@@ -2,23 +2,26 @@
 ;; secrets - Manage encrypted secrets for finance-aggregator using age
 ;;
 ;; Usage:
-;;   bb secrets edit              Edit encrypted secrets file
-;;   bb secrets new               Create new secrets file from template
-;;   bb secrets keygen [FILE]     Generate new age encryption key
-;;   bb secrets show-key          Display your public key
-;;   bb secrets encrypt FILE      Encrypt a plaintext file
-;;   bb secrets decrypt FILE      Decrypt an encrypted file
-;;   bb secrets help              Show this help message
+;;   bb secrets keygen <env>        Generate new age encryption key for environment
+;;   bb secrets new <env>           Create new secrets file from template
+;;   bb secrets edit <env>          Edit encrypted secrets file
+;;   bb secrets show-key            Display public keys for all environments
+;;   bb secrets encrypt FILE        Encrypt a plaintext file (uses dev key)
+;;   bb secrets decrypt FILE        Decrypt an encrypted file (uses dev key)
+;;   bb secrets help                Show this help message
 ;;
-;; Configuration:
-;;   Key file:     ~/.config/finance-aggregator/key.txt (convention)
-;;   Secrets file: backend/resources/secrets.edn.age
-;;   Editor:       $VISUAL, $EDITOR, or vim (in that order)
+;; Environments: dev, test, prod
+;;
+;; Configuration is read from:
+;;   - backend/env/dev/resources/config.edn
+;;   - backend/env/test/resources/config.edn
+;;   - backend/env/prod/resources/config.edn
 ;;
 
 (require '[clojure.java.shell :as shell]
          '[clojure.string :as str]
-         '[clojure.java.io :as io])
+         '[clojure.java.io :as io]
+         '[clojure.edn :as edn])
 
 (def ^:const colors
   {:red "\033[0;31m"
@@ -43,32 +46,127 @@
 (defn print-info [& args]
   (println (colorize :blue (str/join " " args))))
 
-(defn expand-home [path]
+(defn expand-home
   "Expand ~ to user's home directory in file paths."
-  (if (str/starts-with? path "~")
-    (str/replace-first path "~" (System/getProperty "user.home"))
-    path))
+  [path]
+  (when (string? path)
+    (if (str/starts-with? path "~")
+      (str/replace-first path "~" (System/getProperty "user.home"))
+      path)))
+
+;; =============================================================================
+;; Configuration - Read from env-specific config files
+;; =============================================================================
+
+(defn read-system-config
+  "Read a system config EDN file and extract secrets paths.
+   Uses a permissive reader that ignores unknown tags."
+  [file-path]
+  (when (.exists (io/file file-path))
+    (let [config (edn/read-string {:default (fn [_tag value] value)}
+                                  (slurp file-path))]
+      {:key-file (:finance-aggregator.system/secrets-key-file config)
+       :secrets-file (:finance-aggregator.system/secrets-file config)})))
+
+(defn merge-configs
+  "Merge base config with env-specific config (env overrides base).
+   Only non-nil values from env-config override base."
+  [base env-config]
+  (merge base (into {} (remove (fn [[_ v]] (nil? v)) env-config))))
 
 (def config
   (let [home (System/getProperty "user.home")
-        project-root (System/getProperty "user.dir")]
-    {:key-file (str home "/.config/finance-aggregator/key.txt")
-     :secrets-file (str project-root "/backend/resources/secrets.edn.age")
-     :template-file (str project-root "/backend/resources/secrets.edn.example")
+        project-root (System/getProperty "user.dir")
+        backend-root (str project-root "/backend")
+        backend-env (str backend-root "/env")
+        ;; Read base config that all envs inherit from
+        base-config (read-system-config (str backend-root "/resources/system/base-system.edn"))
+        ;; Read and merge env-specific configs with base
+        dev-config (merge-configs base-config (read-system-config (str backend-env "/dev/resources/config.edn")))
+        test-config (merge-configs base-config (read-system-config (str backend-env "/test/resources/config.edn")))
+        prod-config (merge-configs base-config (read-system-config (str backend-env "/prod/resources/config.edn")))
+        ;; Resolve secrets file path relative to backend/
+        resolve-secrets-file (fn [path]
+                               (let [expanded (expand-home path)]
+                                 (when expanded
+                                   (if (str/starts-with? expanded "/")
+                                     expanded
+                                     (str backend-root "/" expanded)))))]
+    {:key-files {:dev  (expand-home (:key-file dev-config))
+                 :test (expand-home (:key-file test-config))
+                 :prod (expand-home (:key-file prod-config))}
+     :project-root project-root
+     :backend-root backend-root
+     :secrets-files {:dev (resolve-secrets-file (:secrets-file dev-config))
+                     :test (resolve-secrets-file (:secrets-file test-config))
+                     :prod (resolve-secrets-file (:secrets-file prod-config))}
+     :template-files {:dev (str backend-env "/dev/resources/secrets.edn.example")
+                      :test (str backend-env "/test/resources/secrets.edn.example")
+                      :prod (str backend-env "/prod/resources/secrets.edn.example")}
      :editor (or (System/getenv "VISUAL")
                  (System/getenv "EDITOR")
-                 "vim")
-     :project-root project-root}))
+                 "vim")}))
 
-(defn age-installed? []
+;; =============================================================================
+;; Environment Parsing
+;; =============================================================================
+
+(def ^:private env-aliases
+  "Map of environment argument strings to canonical keywords."
+  {"dev"         :dev
+   "development" :dev
+   "test"        :test
+   "prod"        :prod
+   "production"  :prod})
+
+(defn parse-env
+  "Parse environment argument to keyword."
+  [arg]
+  (cond
+    (nil? arg)
+    (do
+      (print-error "Missing environment argument")
+      (println "Valid environments: dev, test, prod")
+      (System/exit 1))
+
+    (env-aliases arg)
+    (env-aliases arg)
+
+    :else
+    (do
+      (print-error "Unknown environment:" arg)
+      (println "Valid environments: dev, test, prod")
+      (System/exit 1))))
+
+(defn get-key-file
+  "Get the key file path for an environment."
+  [env-key]
+  (get-in config [:key-files env-key]))
+
+(defn get-secrets-file
+  "Get the secrets file path for an environment."
+  [env-key]
+  (get-in config [:secrets-files env-key]))
+
+(defn get-template-file
+  "Get the template file path for an environment."
+  [env-key]
+  (get-in config [:template-files env-key]))
+
+;; =============================================================================
+;; Prerequisites
+;; =============================================================================
+
+(defn age-installed?
   "Check if age encryption tool is installed."
+  []
   (try
     (let [{:keys [exit]} (shell/sh "which" "age")]
       (zero? exit))
     (catch Exception _
       false)))
 
-(defn ensure-age-installed
+(defn ensure-age-installed!
   "Check that age is installed, print helpful message if not."
   []
   (when-not (age-installed?)
@@ -78,136 +176,76 @@
     (println "  macOS:  brew install age")
     (println "  Linux:  apt install age")
     (println "  Other:  https://github.com/FiloSottile/age")
-    (println)
-    (println "After installing age, try your command again.")
     (System/exit 1)))
 
-(defn ensure-key-file-exists
+(defn ensure-key-file-exists!
   "Check if key file exists, provide helpful message if not."
-  []
-  (let [{:keys [key-file]} config]
-    (when-not (.exists (io/file key-file))
-      (print-error "Age identity file (private key) not found:" key-file)
+  [env-key]
+  (let [key-file (get-key-file env-key)]
+    (when-not (and key-file (.exists (io/file key-file)))
+      (print-error "Age identity file (private key) not found:" (or key-file "(not configured)"))
       (println)
-      (println "To set up secrets:")
-      (println (str "  1. Generate a key:           bb secrets keygen"))
-      (println "  2. Create secrets:           bb secrets new")
-      (println)
-      (println "For a custom key location, use:")
-      (println "  bb secrets keygen /path/to/your/key.txt")
+      (println "To set up secrets for" (name env-key) "environment:")
+      (println (str "  1. Generate a key:  bb secrets keygen " (name env-key)))
+      (println (str "  2. Create secrets:  bb secrets new " (name env-key)))
       (System/exit 1))))
 
-(defn secure-delete [file-path]
+;; =============================================================================
+;; Utilities
+;; =============================================================================
+
+(defn secure-delete!
   "Securely delete a file (best effort)."
+  [file-path]
   (let [file (io/file file-path)]
     (when (.exists file)
       (if (= "Mac OS X" (System/getProperty "os.name"))
-        ;; macOS - use rm -P
         (shell/sh "rm" "-P" file-path)
-        ;; Try shred on Linux, fall back to rm
         (if (zero? (:exit (shell/sh "which" "shred")))
           (shell/sh "shred" "-u" file-path)
           (.delete file))))))
 
-(defn read-public-key []
+(defn read-public-key
   "Extract public key from age identity file."
-  (let [{:keys [key-file]} config
-        content (slurp key-file)
-        lines (str/split-lines content)]
-    (->> lines
-         (filter #(str/includes? % "public key:"))
-         first
-         (#(when % (second (str/split % #"public key:\s*")))))))
+  [env-key]
+  (let [key-file (get-key-file env-key)]
+    (when (and key-file (.exists (io/file key-file)))
+      (some->> (slurp key-file)
+               str/split-lines
+               (filter #(str/includes? % "public key:"))
+               first
+               (re-find #"public key:\s*(.+)")
+               second))))
 
-(defn generate-age-key
-  "Generate a new age encryption key."
-  ([]
-   (generate-age-key (:key-file config)))
-  ([output-file]
-   (ensure-age-installed)
-   (let [expanded-path (expand-home output-file)
-         file (io/file expanded-path)
-         parent-dir (.getParentFile file)]
-     ;; Check if file already exists
-     (when (.exists file)
-       (print-warning "Key file already exists:" expanded-path)
-       (print "Overwrite? This will make existing secrets unreadable! (y/N) ")
-       (flush)
-       (let [response (str/lower-case (or (read-line) ""))]
-         (when-not (= response "y")
-           (println "Aborted.")
-           (System/exit 0))))
-
-     ;; Create parent directory if needed
-     (when parent-dir
-       (.mkdirs parent-dir))
-
-     ;; Generate key
-     (print-info "Generating age encryption key...")
-     (let [{:keys [exit out err]} (shell/sh "age-keygen" "-o" expanded-path)]
-       (if (zero? exit)
-         (do
-           (println)
-           (print-success "Age key generated successfully!")
-           (println)
-           (println "Key location:" expanded-path)
-           (println)
-           (println "IMPORTANT:")
-           (println "  - Back up this key securely (password manager, encrypted backup)")
-           (println "  - Without it, you cannot decrypt your secrets")
-           (println "  - Never commit this key to git")
-           (println)
-           (when-let [pub-key (read-public-key)]
-             (println "Your public key (share with team):")
-             (println "  " pub-key))
-           (println)
-           (println "Next steps:")
-           (println "  1. Create secrets:  bb secrets new")
-           (println "  2. Edit secrets:    bb secrets edit"))
-         (do
-           (print-error "Failed to generate key:" err)
-           (System/exit 1)))))))
-
-(defn show-public-key []
-  "Display the user's public key."
-  (ensure-age-installed)
-  (ensure-key-file-exists)
-  (if-let [public-key (read-public-key)]
-    (do
-      (println)
-      (print-success "Your public key (share this with team members):")
-      (println)
-      (println "  " public-key)
-      (println)
-      (println "Team members can add you as a recipient when re-encrypting secrets."))
-    (do
-      (print-error "Could not extract public key from" (:key-file config))
-      (System/exit 1))))
-
-(defn create-temp-file []
+(defn create-temp-file
   "Create a temporary file with secure permissions."
+  []
   (let [temp (java.io.File/createTempFile "secrets-" ".edn")]
-    (.setReadable temp false false)  ; Remove read for others
-    (.setReadable temp true true)    ; Add read for owner
-    (.setWritable temp false false)  ; Remove write for others
-    (.setWritable temp true true)    ; Add write for owner
+    (.setReadable temp false false)
+    (.setReadable temp true true)
+    (.setWritable temp false false)
+    (.setWritable temp true true)
     (.getAbsolutePath temp)))
 
-(defn encrypt-file [input-file output-file]
+(defn encrypt-file!
   "Encrypt a file using age."
-  (let [{:keys [key-file]} config
-        {:keys [exit err]} (shell/sh "age" "-e" "-i" key-file
-                                     "-o" output-file
-                                     input-file)]
+  [env-key input-file output-file]
+  (let [key-file (get-key-file env-key)
+        {:keys [exit err]} (shell/sh "age" "-e" "-i" key-file "-o" output-file input-file)]
     (if (zero? exit)
-      true
+      (do
+        (println "Key file:" key-file)
+        (when-let [pub-key (read-public-key env-key)]
+          (println "Public key:" pub-key))
+        true)
       (do
         (print-error "Failed to encrypt file:" err)
         false))))
 
-(defn decrypt-file [input-file output-file]
+(defn decrypt-file!
   "Decrypt a file using age."
-  (let [{:keys [key-file]} config
+  [env-key input-file output-file]
+  (let [key-file (get-key-file env-key)
         {:keys [exit err out]} (shell/sh "age" "-d" "-i" key-file input-file)]
     (if (zero? exit)
       (do
@@ -219,70 +257,138 @@
         (println "Possible causes:")
         (println "  - You're not a recipient of this file")
         (println "  - The file is corrupted")
-        (println)
-        (if-let [pub-key (read-public-key)]
-          (do
-            (println "Your public key:")
-            (println "  " pub-key)
-            (println)
-            (println "Ask a team member to add you as a recipient and re-encrypt."))
-          (println "Use 'bb secrets show-key' to see your public key."))
+        (when-let [pub-key (read-public-key env-key)]
+          (println)
+          (println "Your public key:")
+          (println "  " pub-key))
         false))))
 
-(defn file-checksum [file-path]
+(defn file-checksum
   "Calculate SHA-256 checksum of a file."
+  [file-path]
   (let [{:keys [out]} (shell/sh "shasum" "-a" "256" file-path)]
     (first (str/split out #"\s+"))))
 
-(defn create-new-secrets []
+(defn confirm!
+  "Prompt user for confirmation. Returns true if confirmed, exits if not."
+  [message]
+  (print (str message " (y/N) "))
+  (flush)
+  (if (= "y" (str/lower-case (or (read-line) "")))
+    true
+    (do (println "Aborted.")
+        (System/exit 0))))
+
+;; =============================================================================
+;; Commands
+;; =============================================================================
+
+(defn get-template-content
+  "Get template content for an environment. Falls back to dev template if env-specific doesn't exist."
+  [env-key]
+  (let [template-file (get-template-file env-key)
+        dev-template (get-template-file :dev)]
+    (cond
+      (and template-file (.exists (io/file template-file)))
+      (slurp template-file)
+
+      (and dev-template (.exists (io/file dev-template)))
+      (slurp dev-template)
+
+      :else
+      (str/join "\n"
+                [";; Finance Aggregator Secrets Configuration"
+                 ";;"
+                 ";; This file contains sensitive credentials."
+                 ""
+                 "{:plaid {:client-id \"your_client_id_here\""
+                 "         :secret \"your_secret_here\""
+                 "         :environment #plaid/environment :sandbox}"
+                 ""
+                 " :database {:encryption-key nil}}"
+                 ""]))))
+
+(defn keygen!
+  "Generate a new age encryption key for the specified environment."
+  [env]
+  (let [env-key (parse-env env)]
+    (ensure-age-installed!)
+    (let [key-file (get-key-file env-key)]
+      (when-not key-file
+        (print-error "No key file configured for" (name env-key) "environment")
+        (println "Check backend/env/" (name env-key) "/resources/config.edn")
+        (System/exit 1))
+
+      (let [expanded-path (expand-home key-file)
+            file (io/file expanded-path)
+            parent-dir (.getParentFile file)]
+
+        (when (.exists file)
+          (print-warning "Key file already exists:" expanded-path)
+          (confirm! "Overwrite? This will make existing secrets unreadable!"))
+
+        (when parent-dir (.mkdirs parent-dir))
+
+        (print-info "Generating age encryption key for" (name env-key) "...")
+        (let [{:keys [exit err]} (shell/sh "age-keygen" "-o" expanded-path)]
+          (if (zero? exit)
+            (do
+              (println)
+              (print-success "Age key generated successfully!")
+              (println)
+              (println "Key location:" expanded-path)
+              (println)
+              (println "IMPORTANT:")
+              (println "  - Back up this key securely")
+              (println "  - Never commit this key to git")
+              (println)
+              (when-let [pub-key (read-public-key env-key)]
+                (println "Your public key (share with team):")
+                (println "  " pub-key))
+              (println)
+              (println "Next steps:")
+              (println (str "  bb secrets new " (name env-key))))
+            (do
+              (print-error "Failed to generate key:" err)
+              (System/exit 1))))))))
+
+(defn show-key!
+  "Display public keys for all environments."
+  []
+  (ensure-age-installed!)
+  (println)
+  (print-success "Public keys by environment:")
+  (println)
+  (doseq [[env-key key-file] (sort-by (comp str key) (:key-files config))]
+    (if (and key-file (.exists (io/file (expand-home key-file))))
+      (if-let [public-key (read-public-key env-key)]
+        (println (format "  %s: %s" (name env-key) public-key))
+        (println (format "  %s: (could not read key from %s)" (name env-key) key-file)))
+      (println (format "  %s: (key file not found: %s)" (name env-key) (or key-file "not configured"))))))
+
+(defn new-secrets!
   "Create a new secrets file from template."
-  (ensure-age-installed)
-  (ensure-key-file-exists)
-  (let [{:keys [secrets-file template-file editor]} config]
-    ;; Check if encrypted file already exists
+  [env]
+  (let [env-key (parse-env env)
+        secrets-file (get-secrets-file env-key)
+        {:keys [editor]} config]
+    (ensure-age-installed!)
+    (ensure-key-file-exists! env-key)
+
+    (when-not secrets-file
+      (print-error "No secrets file configured for" (name env-key) "environment")
+      (System/exit 1))
+
     (when (.exists (io/file secrets-file))
       (print-warning "Encrypted secrets file already exists:" secrets-file)
-      (print "Overwrite? (y/N) ")
-      (flush)
-      (let [response (str/lower-case (or (read-line) ""))]
-        (when-not (= response "y")
-          (println "Aborted.")
-          (System/exit 0))))
+      (confirm! "Overwrite?"))
 
-    ;; Create temp file
     (let [temp-file (create-temp-file)]
       (try
-        ;; Copy template or create minimal file
-        (if (.exists (io/file template-file))
-          (do
-            (io/copy (io/file template-file) (io/file temp-file))
-            (print-success "Created from template:" template-file))
-          (do
-            (spit temp-file
-                  (str/join "\n"
-                            [";; Finance Aggregator Secrets Configuration"
-                             ";;"
-                             ";; This file contains sensitive credentials. After editing:"
-                             ";; - The plaintext will be securely deleted"
-                             ";; - Only the encrypted version (*.age) should be committed"
-                             ""
-                             "{;; Plaid API credentials (from https://dashboard.plaid.com/)"
-                             " :plaid {:client-id \"your_client_id_here\""
-                             "         :secret \"your_secret_here\""
-                             "         :environment :sandbox} ; or :production"
-                             ""
-                             " ;; Database encryption key (will be generated if not provided)"
-                             " :database {:encryption-key nil}"
-                             ""
-                             " ;; Add other secrets as needed"
-                             " ;; :other-service {:api-key \"...\"}"
-                             " }"
-                             ""]))
-            (print-warning "No template found, created minimal secrets file")))
+        (spit temp-file (get-template-content env-key))
 
-        ;; Open editor
         (println)
-        (print-info "Opening editor...")
+        (print-info "Opening editor for" (name env-key) "secrets...")
         (let [pb (ProcessBuilder. (into-array String [editor temp-file]))
               _ (.inheritIO pb)
               process (.start pb)
@@ -291,57 +397,51 @@
             (print-error "Editor exited with error")
             (System/exit 1)))
 
-        ;; Encrypt
+        (let [parent-dir (.getParentFile (io/file secrets-file))]
+          (when parent-dir (.mkdirs parent-dir)))
+
         (println)
         (print-info "Encrypting...")
-        (if (encrypt-file temp-file secrets-file)
+        (if (encrypt-file! env-key temp-file secrets-file)
           (do
             (println)
-            (print-success "✓ Secrets created successfully!")
+            (print-success "Secrets created successfully!")
             (println)
-            (println "Encrypted file location:")
-            (println (str "  " secrets-file))
-            (println)
-            (println "Key file location:")
-            (println (str "  " (:key-file config)))
-            (println)
-            (println "Next steps:")
-            (println (str "  1. Commit encrypted file:    git add " secrets-file))
-            (println "  2. Edit again if needed:     bb secrets edit")
-            (println "  3. Share your public key:    bb secrets show-key")
-            (println)
-            (print-warning "IMPORTANT: Never commit the plaintext .edn file or your key.txt!"))
+            (println "Encrypted file:" secrets-file))
           (System/exit 1))
 
         (finally
-          (secure-delete temp-file))))))
+          (secure-delete! temp-file))))))
 
-(defn edit-secrets []
+(defn edit-secrets!
   "Edit encrypted secrets file."
-  (ensure-age-installed)
-  (ensure-key-file-exists)
-  (let [{:keys [secrets-file editor]} config]
-    ;; Check if encrypted file exists
+  [env]
+  (let [env-key (parse-env env)
+        secrets-file (get-secrets-file env-key)
+        {:keys [editor]} config]
+    (ensure-age-installed!)
+    (ensure-key-file-exists! env-key)
+
+    (when-not secrets-file
+      (print-error "No secrets file configured for" (name env-key) "environment")
+      (System/exit 1))
+
     (when-not (.exists (io/file secrets-file))
       (print-error "Encrypted secrets file not found:" secrets-file)
       (println)
       (println "To create a new secrets file, run:")
-      (println "  bb secrets new")
+      (println (str "  bb secrets new " (name env-key)))
       (System/exit 1))
 
-    ;; Create temp file
     (let [temp-file (create-temp-file)]
       (try
-        ;; Decrypt
         (print-info "Decrypting" secrets-file "...")
-        (when-not (decrypt-file secrets-file temp-file)
+        (when-not (decrypt-file! env-key secrets-file temp-file)
           (System/exit 1))
 
-        ;; Get checksum before editing
         (let [checksum-before (file-checksum temp-file)]
-          ;; Open editor
           (println)
-          (print-info "Opening editor...")
+          (print-info "Opening editor for" (name env-key) "secrets...")
           (let [pb (ProcessBuilder. (into-array String [editor temp-file]))
                 _ (.inheritIO pb)
                 process (.start pb)
@@ -350,7 +450,6 @@
               (print-error "Editor exited with error")
               (System/exit 1)))
 
-          ;; Check if file was modified
           (let [checksum-after (file-checksum temp-file)]
             (if (= checksum-before checksum-after)
               (do
@@ -359,52 +458,42 @@
               (do
                 (println)
                 (print-info "Re-encrypting...")
-                (if (encrypt-file temp-file secrets-file)
+                (if (encrypt-file! env-key temp-file secrets-file)
                   (do
                     (println)
-                    (print-success "✓ Secrets updated successfully!")
-                    (println)
-                    (println "Encrypted file location:")
-                    (println (str "  " secrets-file)))
+                    (print-success "Secrets updated successfully!"))
                   (System/exit 1))))))
 
         (finally
-          (secure-delete temp-file))))
+          (secure-delete! temp-file))))
 
     (println)
-    (print-success "✓ Plaintext securely deleted")))
+    (print-success "Plaintext securely deleted")))
 
-(defn encrypt-command [file-path]
-  "Encrypt a plaintext file."
-  (ensure-age-installed)
-  (ensure-key-file-exists)
+(defn encrypt-command!
+  "Encrypt a plaintext file (uses dev key)."
+  [file-path]
+  (ensure-age-installed!)
+  (ensure-key-file-exists! :dev)
   (when-not (.exists (io/file file-path))
     (print-error "File not found:" file-path)
     (System/exit 1))
   (let [output-file (str file-path ".age")]
     (when (.exists (io/file output-file))
       (print-warning "Output file already exists:" output-file)
-      (print "Overwrite? (y/N) ")
-      (flush)
-      (let [response (str/lower-case (or (read-line) ""))]
-        (when-not (= response "y")
-          (println "Aborted.")
-          (System/exit 0))))
+      (confirm! "Overwrite?"))
     (print-info "Encrypting" file-path "...")
-    (if (encrypt-file file-path output-file)
+    (if (encrypt-file! :dev file-path output-file)
       (do
         (println)
-        (print-success "Encrypted to:" output-file)
-        (println)
-        (println "To securely delete the plaintext:")
-        (println (str "  rm -P " file-path "  # macOS"))
-        (println (str "  shred -u " file-path "  # Linux")))
+        (print-success "Encrypted to:" output-file))
       (System/exit 1))))
 
-(defn decrypt-command [file-path]
-  "Decrypt an encrypted file."
-  (ensure-age-installed)
-  (ensure-key-file-exists)
+(defn decrypt-command!
+  "Decrypt an encrypted file (uses dev key)."
+  [file-path]
+  (ensure-age-installed!)
+  (ensure-key-file-exists! :dev)
   (when-not (.exists (io/file file-path))
     (print-error "File not found:" file-path)
     (System/exit 1))
@@ -413,14 +502,9 @@
                       (str file-path ".decrypted"))]
     (when (.exists (io/file output-file))
       (print-warning "Output file already exists:" output-file)
-      (print "Overwrite? (y/N) ")
-      (flush)
-      (let [response (str/lower-case (or (read-line) ""))]
-        (when-not (= response "y")
-          (println "Aborted.")
-          (System/exit 0))))
+      (confirm! "Overwrite?"))
     (print-info "Decrypting" file-path "...")
-    (if (decrypt-file file-path output-file)
+    (if (decrypt-file! :dev file-path output-file)
       (do
         (println)
         (print-success "Decrypted to:" output-file)
@@ -428,8 +512,9 @@
         (print-warning "Remember to securely delete this file when done!"))
       (System/exit 1))))
 
-(defn print-help []
+(defn print-help
   "Display help message."
+  []
   (println)
   (println "secrets - Manage encrypted secrets for finance-aggregator")
   (println)
@@ -437,59 +522,56 @@
   (println "  bb secrets COMMAND [ARGS]")
   (println)
   (println "Commands:")
-  (println "  keygen [FILE]     Generate new age encryption key")
-  (println "                    (default: ~/.config/finance-aggregator/key.txt)")
-  (println "  edit              Edit encrypted secrets file")
-  (println "  new               Create new secrets file from template")
-  (println "  show-key          Display your public key")
-  (println "  encrypt FILE      Encrypt a plaintext file")
-  (println "  decrypt FILE      Decrypt an encrypted file")
+  (println "  keygen <env>      Generate new age encryption key for environment")
+  (println "  new <env>         Create new secrets file from template")
+  (println "  edit <env>        Edit encrypted secrets file")
+  (println "  show-key          Display public keys for all environments")
+  (println "  encrypt FILE      Encrypt a plaintext file (uses dev key)")
+  (println "  decrypt FILE      Decrypt an encrypted file (uses dev key)")
   (println "  help              Show this help message")
   (println)
-  (println "Configuration:")
-  (println "  Key location:     ~/.config/finance-aggregator/key.txt (convention)")
-  (println "  Secrets file:     backend/resources/secrets.edn.age")
-  (println "  Editor:           $VISUAL, $EDITOR, or vim (in that order)")
+  (println "Environments: dev, test, prod")
   (println)
-  (println "Setup:")
-  (println "  1. Install age:           brew install age")
-  (println "  2. Generate key:          bb secrets keygen")
-  (println "  3. Create secrets:        bb secrets new")
-  (println "  4. Edit as needed:        bb secrets edit")
+  (println "Configuration is read from env-specific config files:")
+  (println "  backend/env/dev/resources/config.edn")
+  (println "  backend/env/test/resources/config.edn")
+  (println "  backend/env/prod/resources/config.edn")
+  (println)
+  (println "Each environment specifies its own:")
+  (println "  :finance-aggregator.system/secrets-key-file")
+  (println "  :finance-aggregator.system/secrets-file")
   (println)
   (println "Examples:")
-  (println "  bb secrets keygen                        # Generate key in default location")
-  (println "  bb secrets keygen ~/my-project-key.txt   # Generate key in custom location")
-  (println "  bb secrets new                           # Create new secrets")
-  (println "  bb secrets edit                          # Edit existing secrets")
-  (println "  bb secrets show-key                      # Show your public key")
-  (println "  bb secrets encrypt secret.edn            # Encrypt a file")
+  (println "  bb secrets keygen dev        # Generate dev key")
+  (println "  bb secrets new dev           # Create dev secrets")
+  (println "  bb secrets edit dev          # Edit dev secrets")
+  (println "  bb secrets keygen test       # Generate test key")
+  (println "  bb secrets new test          # Create test secrets")
+  (println "  bb secrets show-key          # Show all public keys")
   (println))
 
 (defn -main [& args]
   (let [command (first args)
         command-args (rest args)]
     (case command
-      "keygen" (if-let [file (first command-args)]
-                 (generate-age-key file)
-                 (generate-age-key))
-      "edit" (edit-secrets)
-      "new" (create-new-secrets)
-      "show-key" (show-public-key)
-      "encrypt" (if-let [file (first command-args)]
-                  (encrypt-command file)
-                  (do
-                    (print-error "Missing file argument")
-                    (println "Usage: bb secrets encrypt FILE")
-                    (System/exit 1)))
-      "decrypt" (if-let [file (first command-args)]
-                  (decrypt-command file)
-                  (do
-                    (print-error "Missing file argument")
-                    (println "Usage: bb secrets decrypt FILE")
-                    (System/exit 1)))
-      "help" (print-help)
-      (nil) (print-help)
+      "keygen"   (keygen! (first command-args))
+      "new"      (new-secrets! (first command-args))
+      "edit"     (edit-secrets! (first command-args))
+      "show-key" (show-key!)
+      "encrypt"  (if-let [file (first command-args)]
+                   (encrypt-command! file)
+                   (do
+                     (print-error "Missing file argument")
+                     (println "Usage: bb secrets encrypt FILE")
+                     (System/exit 1)))
+      "decrypt"  (if-let [file (first command-args)]
+                   (decrypt-command! file)
+                   (do
+                     (print-error "Missing file argument")
+                     (println "Usage: bb secrets decrypt FILE")
+                     (System/exit 1)))
+      "help"     (print-help)
+      (nil)      (print-help)
       (do
         (print-error "Unknown command:" command)
         (println)

@@ -6,6 +6,7 @@
    [finance-aggregator.db.core :as db]
    [finance-aggregator.http.server :as http]
    [finance-aggregator.http.router :as router]
+   [finance-aggregator.lib.log :as log]
    [finance-aggregator.plaid.client :as plaid]
    [finance-aggregator.lib.secrets :as secrets]
    [integrant.core :as ig]))
@@ -21,6 +22,8 @@
 (derive :finance-aggregator.system/http-port ::const)
 (derive :finance-aggregator.system/secrets-key-file ::const)
 (derive :finance-aggregator.system/secrets-file ::const)
+(derive :finance-aggregator.http/cors ::const)
+(derive :finance-aggregator.plaid/link-config ::const)
 
 ;;
 ;; Secrets Component
@@ -32,10 +35,9 @@
     (throw (ex-info "Secrets key file is required" {:config config})))
   (when-not secrets-file
     (throw (ex-info "Secrets file is required" {:config config})))
-  (println "Loading encrypted secrets from" secrets-file)
-  (println "Using key file:" key-file)
+  (log/info "Loading encrypted secrets" {:secrets-file secrets-file :key-file key-file})
   (let [loaded-secrets (secrets/load-secrets key-file secrets-file)]
-    (println "Secrets loaded successfully")
+    (log/info "Secrets loaded successfully")
     loaded-secrets))
 
 (defmethod ig/halt-key! :finance-aggregator.system/secrets
@@ -65,17 +67,20 @@
 ;;
 
 (defmethod ig/init-key :finance-aggregator.http/router
-  [_ {:keys [db secrets plaid-config] :as config}]
+  [_ {:keys [db secrets plaid-config cors-config] :as config}]
   (when-not db
     (throw (ex-info "Database component is required for router" {:config config})))
   (when-not secrets
     (throw (ex-info "Secrets component is required for router" {:config config})))
   (when-not plaid-config
     (throw (ex-info "Plaid config component is required for router" {:config config})))
-  (println "Creating HTTP router with dependencies")
+  (when-not cors-config
+    (throw (ex-info "CORS config is required for router" {:config config})))
+  (log/info "Creating HTTP router with dependencies")
   (let [deps {:db-conn (:conn db)
               :secrets secrets
-              :plaid-config plaid-config}]
+              :plaid-config plaid-config
+              :cors-config cors-config}]
     (router/create-handler deps)))
 
 (defmethod ig/halt-key! :finance-aggregator.http/router
@@ -105,17 +110,21 @@
 ;;
 
 (defmethod ig/init-key :finance-aggregator.plaid/config
-  [_ {:keys [secrets] :as config}]
+  [_ {:keys [secrets link-config] :as config}]
   (when-not secrets
     (throw (ex-info "Secrets component is required for Plaid config" {:config config})))
-  (println "Loading Plaid configuration from secrets...")
-  (if-let [plaid-config (secrets/get-secret secrets :plaid)]
-    (do
-      (println "Plaid configuration loaded:"
-               {:client-id "***" ; Don't log secrets
-                :secret "***"
-                :environment (:environment plaid-config)})
-      plaid-config)
+  (when-not link-config
+    (throw (ex-info "Link config is required for Plaid config" {:config config})))
+  (log/info "Loading Plaid configuration from secrets")
+  (if-let [plaid-secrets (secrets/get-secret secrets :plaid)]
+    (let [merged-config (merge plaid-secrets link-config)]
+      (log/info "Plaid configuration loaded"
+                {:client-id "***"
+                 :secret "***"
+                 :environment (:environment plaid-secrets)
+                 :client-name (:client-name link-config)
+                 :country-codes (:country-codes link-config)})
+      merged-config)
     (throw (ex-info "Plaid credentials not found in secrets"
                     {:available-keys (keys secrets)
                      :hint "Run 'bb secrets edit' to add Plaid credentials"}))))

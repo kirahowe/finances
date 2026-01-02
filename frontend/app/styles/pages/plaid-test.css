@@ -1,0 +1,123 @@
+/* Plaid Test Page Styles */
+
+.error-banner {
+  background-color: #fee;
+  border: 1px solid #fcc;
+  padding: 1rem;
+  margin-bottom: 1rem;
+  border-radius: 4px;
+  color: #c00;
+}
+
+.status-banner {
+  background-color: #eff6ff;
+  border: 1px solid #bfdbfe;
+  padding: 1rem;
+  margin-bottom: 1rem;
+  border-radius: 4px;
+  color: #1e40af;
+}
+
+.button-group {
+  display: flex;
+  gap: 1rem;
+  margin-bottom: 1.5rem;
+}
+
+.button-primary {
+  background-color: #2563eb;
+  color: white;
+}
+
+.button-primary:hover:not(:disabled) {
+  background-color: #1d4ed8;
+}
+
+.button-primary:disabled {
+  background-color: #93c5fd;
+  cursor: not-allowed;
+}
+
+.button-secondary {
+  background-color: #64748b;
+  color: white;
+}
+
+.button-secondary:hover:not(:disabled) {
+  background-color: #475569;
+}
+
+.response-section {
+  margin-top: 1.5rem;
+  padding-top: 1.5rem;
+  border-top: 1px solid #e5e7eb;
+}
+
+.response-section h3 {
+  margin-top: 0;
+  margin-bottom: 0.5rem;
+  color: #1f2937;
+  font-size: 1.125rem;
+}
+
+.summary {
+  margin: 0.5rem 0;
+  padding: 0.75rem;
+  background-color: #f3f4f6;
+  border-radius: 4px;
+  font-weight: 500;
+  color: #374151;
+}
+
+.json-display {
+  background-color: #f9fafb;
+  border: 1px solid #e5e7eb;
+  padding: 1rem;
+  border-radius: 4px;
+  overflow-x: auto;
+  font-family: 'Monaco', 'Menlo', 'Courier New', monospace;
+  font-size: 0.875rem;
+  line-height: 1.5;
+  color: #1f2937;
+  max-height: 400px;
+  overflow-y: auto;
+}
+
+details {
+  margin-top: 0.5rem;
+}
+
+details summary {
+  cursor: pointer;
+  padding: 0.5rem;
+  background-color: #f3f4f6;
+  border-radius: 4px;
+  font-weight: 500;
+  color: #374151;
+}
+
+details summary:hover {
+  background-color: #e5e7eb;
+}
+
+details[open] summary {
+  margin-bottom: 0.5rem;
+}
+
+.instructions-list {
+  line-height: 1.8;
+  color: #374151;
+}
+
+.instructions-list code {
+  background-color: #f3f4f6;
+  padding: 0.2rem 0.4rem;
+  border-radius: 3px;
+  font-family: 'Monaco', 'Menlo', 'Courier New', monospace;
+  font-size: 0.875rem;
+  color: #1f2937;
+}
+
+.instructions-list ul {
+  margin-top: 0.5rem;
+}

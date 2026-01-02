@@ -9,6 +9,7 @@
   (:require
    [datalevin.core :as d]
    [finance-aggregator.lib.encryption :as encryption]
+   [finance-aggregator.lib.log :as log]
    [finance-aggregator.lib.secrets :as secrets]))
 
 (def ^:private hardcoded-user-id
@@ -32,10 +33,10 @@
   (let [db (d/db conn)
         user-exists? (d/entity db [:user/id hardcoded-user-id])]
     (when-not user-exists?
-      (println (str "Creating hardcoded test user: " hardcoded-user-id))
+      (log/debug "Creating hardcoded test user" {:user-id hardcoded-user-id})
       (d/transact! conn [{:user/id hardcoded-user-id
                           :user/created-at (java.util.Date.)}])
-      (println "Test user created"))))
+      (log/debug "Test user created" {:user-id hardcoded-user-id}))))
 
 (defn store-credential!
   "Store an encrypted credential in the database.

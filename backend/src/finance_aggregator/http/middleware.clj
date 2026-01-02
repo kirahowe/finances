@@ -14,37 +14,44 @@
 ;; CORS Middleware
 ;;
 
+(defn- format-cors-value
+  "Format a CORS config value for HTTP header.
+   Vectors become comma-separated strings, strings pass through unchanged."
+  [v]
+  (if (vector? v)
+    (clojure.string/join ", " v)
+    v))
+
 (defn wrap-cors
   "Middleware to add CORS headers to responses.
-
-   Adds the following headers:
-   - Access-Control-Allow-Origin: *
-   - Access-Control-Allow-Methods: GET, POST, PUT, DELETE, OPTIONS
-   - Access-Control-Allow-Headers: Content-Type
 
    Handles OPTIONS preflight requests.
 
    Args:
      handler - Ring handler function
+     cors-config - Map with :allowed-origins, :allowed-methods, :allowed-headers, :max-age
 
    Returns:
      Wrapped handler function"
-  [handler]
-  (fn [request]
-    (if (= :options (:request-method request))
-      ;; Handle CORS preflight
-      {:status 200
-       :headers {"Access-Control-Allow-Origin" "*"
-                 "Access-Control-Allow-Methods" "GET, POST, PUT, DELETE, OPTIONS"
-                 "Access-Control-Allow-Headers" "Content-Type"}}
-      ;; Add CORS headers to actual response
-      (let [response (handler request)]
-        (update response :headers
-                (fn [headers]
-                  (merge {"Access-Control-Allow-Origin" "*"
-                          "Access-Control-Allow-Methods" "GET, POST, PUT, DELETE, OPTIONS"
-                          "Access-Control-Allow-Headers" "Content-Type"}
-                         headers)))))))
+  [handler {:keys [allowed-origins allowed-methods allowed-headers max-age]
+            :or {allowed-origins ["*"]
+                 allowed-methods ["GET" "POST" "PUT" "DELETE" "OPTIONS"]
+                 allowed-headers ["*"]
+                 max-age 3600}}]
+  (let [cors-headers {"Access-Control-Allow-Origin" (format-cors-value allowed-origins)
+                      "Access-Control-Allow-Methods" (format-cors-value allowed-methods)
+                      "Access-Control-Allow-Headers" (format-cors-value allowed-headers)
+                      "Access-Control-Max-Age" (str max-age)}]
+    (fn [request]
+      (if (= :options (:request-method request))
+        ;; Handle CORS preflight
+        {:status 200
+         :headers cors-headers}
+        ;; Add CORS headers to actual response
+        (let [response (handler request)]
+          (update response :headers
+                  (fn [headers]
+                    (merge cors-headers headers))))))))
 
 ;;
 ;; JSON Request Middleware
@@ -80,7 +87,11 @@
      Wrapped handler function"
   [handler]
   (fn [request]
-    (let [content-type (get-in request [:headers "content-type"])
+    (let [headers (:headers request)
+          ;; Try multiple ways to get content-type (supports different header key formats)
+          content-type (or (get headers "content-type")
+                          (get headers :content-type)
+                          (get headers "Content-Type"))
           json-request? (and content-type
                              (re-find #"application/json" content-type))]
       (if json-request?

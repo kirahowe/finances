@@ -1,0 +1,17 @@
+{;; Production environment overrides
+ ;; Merges with base-system.edn via meta-merge
+
+ ;; Production database path (Docker container layout)
+ :finance-aggregator.system/db-path "/app/data/finance.db"
+
+ ;; Production secrets paths
+ :finance-aggregator.system/secrets-key-file "/app/config/key.txt"
+ :finance-aggregator.system/secrets-file "/app/config/secrets.edn.age"
+
+ ;; CORS: Restrict to specific origins in production
+ ;; Override with actual production domains
+ :finance-aggregator.http/cors
+ {:allowed-origins ["https://your-domain.com"]
+  :allowed-methods ["GET" "POST" "PUT" "DELETE" "OPTIONS"]
+  :allowed-headers ["Content-Type" "Authorization"]
+  :max-age 3600}}

@@ -143,6 +143,9 @@ export default function Home({ loaderData }: Route.ComponentProps) {
           <button onClick={() => handleViewChange('transactions')} className="button">
             Transactions
           </button>
+          <a href="/plaid-test" className="button">
+            Plaid Test
+          </a>
         </div>
       </div>
 

@@ -6,21 +6,28 @@
    [charred.api :as json]
    [clojure.java.io :as io]))
 
+(def test-cors-config
+  "Default CORS config for tests"
+  {:allowed-origins ["*"]
+   :allowed-methods ["GET" "POST" "PUT" "DELETE" "OPTIONS"]
+   :allowed-headers ["*"]
+   :max-age 3600})
+
 (deftest wrap-cors-test
   (testing "adds CORS headers to response"
     (let [handler (fn [_] {:status 200 :body "OK"})
-          wrapped (middleware/wrap-cors handler)
+          wrapped (middleware/wrap-cors handler test-cors-config)
           response (wrapped {})]
       (is (= 200 (:status response)))
       (is (= "*" (get-in response [:headers "Access-Control-Allow-Origin"])))
       (is (= "GET, POST, PUT, DELETE, OPTIONS"
              (get-in response [:headers "Access-Control-Allow-Methods"])))
-      (is (= "Content-Type"
+      (is (= "*"
              (get-in response [:headers "Access-Control-Allow-Headers"])))))
 
   (testing "handles OPTIONS preflight requests"
     (let [handler (fn [_] {:status 200 :body "OK"})
-          wrapped (middleware/wrap-cors handler)
+          wrapped (middleware/wrap-cors handler test-cors-config)
           request {:request-method :options :uri "/api/test"}
           response (wrapped request)]
       (is (= 200 (:status response)))
@@ -30,10 +37,23 @@
     (let [handler (fn [_] {:status 200
                            :headers {"X-Custom" "value"}
                            :body "OK"})
-          wrapped (middleware/wrap-cors handler)
+          wrapped (middleware/wrap-cors handler test-cors-config)
           response (wrapped {})]
       (is (= "value" (get-in response [:headers "X-Custom"])))
-      (is (= "*" (get-in response [:headers "Access-Control-Allow-Origin"]))))))
+      (is (= "*" (get-in response [:headers "Access-Control-Allow-Origin"])))))
+
+  (testing "uses custom CORS config"
+    (let [handler (fn [_] {:status 200 :body "OK"})
+          custom-config {:allowed-origins ["https://example.com"]
+                         :allowed-methods ["GET" "POST"]
+                         :allowed-headers ["Content-Type"]
+                         :max-age 7200}
+          wrapped (middleware/wrap-cors handler custom-config)
+          response (wrapped {})]
+      (is (= "https://example.com" (get-in response [:headers "Access-Control-Allow-Origin"])))
+      (is (= "GET, POST" (get-in response [:headers "Access-Control-Allow-Methods"])))
+      (is (= "Content-Type" (get-in response [:headers "Access-Control-Allow-Headers"])))
+      (is (= "7200" (get-in response [:headers "Access-Control-Max-Age"]))))))
 
 (deftest wrap-json-request-test
   (testing "parses JSON request body"

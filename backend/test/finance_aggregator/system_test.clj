@@ -1,5 +1,10 @@
 (ns finance-aggregator.system-test
-  "Integration tests for Integrant system components."
+  "Integration tests for Integrant system components.
+
+   These tests use the test environment config from env/test/resources/config.edn.
+   The test config specifies:
+   - db-path: ./data/test.db
+   - http-port: 8081"
   (:require
    [clojure.test :refer [deftest is testing use-fixtures]]
    [datalevin.core :as d]
@@ -8,19 +13,20 @@
    [finance-aggregator.system] ;; Load Integrant component definitions
    [integrant.core :as ig]))
 
-(def test-db-path (str "data/test-system-" (System/currentTimeMillis) ".db"))
+;; Test config uses ./data/test.db - clean it up between tests
+(def test-db-path "./data/test.db")
 
 (use-fixtures :each
   (fn [f]
     ;; Cleanup before test
-    (when (.exists (clojure.java.io/file test-db-path))
-      (db/delete-database! test-db-path))
+    (db/delete-database! test-db-path)
     (f)
     ;; Cleanup after test
     (db/delete-database! test-db-path)))
 
 (deftest db-component-lifecycle-test
   (testing "database component starts and stops correctly"
+    ;; This test uses a minimal config for just the DB component
     (let [config {:finance-aggregator.db/connection
                   {:db-path test-db-path}}
           system (ig/init config)
@@ -39,11 +45,8 @@
 
 (deftest http-server-component-lifecycle-test
   (testing "HTTP server component starts and stops correctly"
-    (let [config (sys/load-configs ["system/base-system.edn" "system/dev.edn"])
-          ;; Override db path for testing
-          config (assoc config :finance-aggregator.system/db-path test-db-path)
-          ;; Use a different port to avoid conflicts
-          config (assoc config :finance-aggregator.system/http-port 8081)
+    ;; Uses test config from env/test/resources/config.edn - no manual overrides needed
+    (let [config (sys/load-configs sys/default-config-files)
           prepped (sys/prep-config config)
           system (ig/init prepped)
           server (get system :finance-aggregator.http/server)]
@@ -53,17 +56,13 @@
       (is (fn? (:stop-fn server)) "Component has stop function")
 
       ;; Stop the system
-      (ig/halt! system)
-
-      ;; Verify database cleanup
-      (db/delete-database! test-db-path))))
+      (ig/halt! system))))
 
 (deftest full-system-integration-test
   (testing "full system starts with all components"
-    (let [config (sys/load-configs ["system/base-system.edn" "system/dev.edn"])
-          config (assoc config :finance-aggregator.system/db-path test-db-path)
-          config (assoc config :finance-aggregator.system/http-port 8082)
-          config (sys/prep-config config)
+    ;; Uses test config from env/test/resources/config.edn - no manual overrides needed
+    (let [config (-> (sys/load-configs sys/default-config-files)
+                     (sys/prep-config))
           system (ig/init config)]
 
       (is (some? system) "System initialized")
@@ -87,17 +86,13 @@
           (is (= "Test Institution" result) "Can query transacted data")))
 
       ;; Stop the system
-      (ig/halt! system)
-
-      ;; Verify database cleanup
-      (db/delete-database! test-db-path))))
+      (ig/halt! system))))
 
 (deftest system-restart-test
   (testing "system can be stopped and restarted"
-    (let [config (sys/load-configs ["system/base-system.edn" "system/dev.edn"])
-          config (assoc config :finance-aggregator.system/db-path test-db-path)
-          config (assoc config :finance-aggregator.system/http-port 8083)
-          prepped (sys/prep-config config)]
+    ;; Uses test config from env/test/resources/config.edn - no manual overrides needed
+    (let [prepped (-> (sys/load-configs sys/default-config-files)
+                      (sys/prep-config))]
 
       ;; Start system
       (let [system1 (ig/init prepped)]
@@ -111,7 +106,4 @@
         (is (some? system2) "Second system started")
 
         ;; Stop system
-        (ig/halt! system2))
-
-      ;; Cleanup
-      (db/delete-database! test-db-path))))
+        (ig/halt! system2)))))
