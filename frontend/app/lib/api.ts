@@ -67,6 +67,34 @@ const PlaidExchangeResponseSchema = z.object({
 const PlaidAccountSchema = z.unknown(); // Keep it flexible for raw Plaid response
 const PlaidTransactionSchema = z.unknown(); // Keep it flexible for raw Plaid response
 
+const PlaidSyncAccountsResponseSchema = z.object({
+  success: z.object({
+    institutions: z.number(),
+    accounts: z.number(),
+  }),
+  failed: z.object({
+    institutions: z.number(),
+    accounts: z.number(),
+  }),
+  errors: z.array(z.object({
+    'account-id': z.string().optional(),
+    message: z.string(),
+  })),
+});
+
+const PlaidSyncTransactionsResponseSchema = z.object({
+  success: z.object({
+    transactions: z.number(),
+  }),
+  failed: z.object({
+    transactions: z.number(),
+  }),
+  errors: z.array(z.object({
+    'transaction-id': z.string().optional(),
+    message: z.string(),
+  })),
+});
+
 // Type exports
 export type Category = z.infer<typeof CategorySchema>;
 export type Transaction = z.infer<typeof TransactionSchema>;
@@ -74,6 +102,8 @@ export type Account = z.infer<typeof AccountSchema>;
 export type Stats = z.infer<typeof StatsSchema>;
 export type PlaidLinkToken = z.infer<typeof PlaidLinkTokenSchema>;
 export type PlaidExchangeResponse = z.infer<typeof PlaidExchangeResponseSchema>;
+export type PlaidSyncAccountsResponse = z.infer<typeof PlaidSyncAccountsResponseSchema>;
+export type PlaidSyncTransactionsResponse = z.infer<typeof PlaidSyncTransactionsResponseSchema>;
 
 // API Response wrapper
 const ApiResponseSchema = <T extends z.ZodTypeAny>(dataSchema: T) =>
@@ -225,6 +255,38 @@ export const api = {
     }
 
     const result = ApiResponseSchema(z.array(PlaidTransactionSchema)).parse(json);
+    return result.data;
+  },
+
+  async syncPlaidAccounts(): Promise<PlaidSyncAccountsResponse> {
+    const response = await fetch(`${API_BASE}/api/plaid/sync-accounts`, {
+      method: 'POST',
+    });
+    const json = await response.json();
+
+    // Check for error response
+    if (!response.ok || !json.success) {
+      throw new Error(json.error || `HTTP ${response.status}: ${response.statusText}`);
+    }
+
+    const result = ApiResponseSchema(PlaidSyncAccountsResponseSchema).parse(json);
+    return result.data;
+  },
+
+  async syncPlaidTransactions(opts?: { months?: number }): Promise<PlaidSyncTransactionsResponse> {
+    const response = await fetch(`${API_BASE}/api/plaid/sync-transactions`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ months: opts?.months || 6 }),
+    });
+    const json = await response.json();
+
+    // Check for error response
+    if (!response.ok || !json.success) {
+      throw new Error(json.error || `HTTP ${response.status}: ${response.statusText}`);
+    }
+
+    const result = ApiResponseSchema(PlaidSyncTransactionsResponseSchema).parse(json);
     return result.data;
   },
 };

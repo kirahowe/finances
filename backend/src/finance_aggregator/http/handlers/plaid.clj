@@ -8,6 +8,7 @@
    - POST /api/plaid/transactions - Fetch transactions from Plaid"
   (:require
    [finance-aggregator.plaid.client :as plaid]
+   [finance-aggregator.plaid.service :as plaid-svc]
    [finance-aggregator.db.credentials :as credentials]
    [finance-aggregator.http.responses :as responses]))
 
@@ -111,3 +112,47 @@
       ;; Fetch transactions from Plaid
       (let [transactions (plaid/fetch-transactions plaid-config access-token start-date end-date)]
         (responses/success-response transactions)))))
+
+(defn sync-accounts-handler
+  "Factory: creates handler for POST /api/plaid/sync-accounts.
+
+   Syncs Plaid accounts and institution to database.
+   Fetches data from Plaid API, transforms, and persists.
+
+   Args:
+     deps - Map with :db-conn, :secrets, :plaid-config
+
+   Returns:
+     Ring handler function"
+  [{:keys [db-conn secrets plaid-config]}]
+  (fn [_request]
+    (let [result (plaid-svc/sync-accounts! {:db-conn db-conn
+                                            :secrets secrets
+                                            :plaid-config plaid-config})]
+      (responses/success-response result))))
+
+(defn sync-transactions-handler
+  "Factory: creates handler for POST /api/plaid/sync-transactions.
+
+   Syncs Plaid transactions to database for specified date range.
+   Defaults to 6 months if not specified.
+
+   Expected body-params (optional):
+   - :months (integer, default 6)
+   - :endDate (string, YYYY-MM-DD format)
+
+   Args:
+     deps - Map with :db-conn, :secrets, :plaid-config
+
+   Returns:
+     Ring handler function"
+  [{:keys [db-conn secrets plaid-config]}]
+  (fn [request]
+    (let [params (:body-params request)
+          opts {:months (or (:months params) 6)
+                :end-date (:endDate params)}
+          result (plaid-svc/sync-transactions! {:db-conn db-conn
+                                                :secrets secrets
+                                                :plaid-config plaid-config}
+                                               opts)]
+      (responses/success-response result))))

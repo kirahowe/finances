@@ -72,11 +72,27 @@ backend/
 │   │   ├── core.clj                # Database connection management
 │   │   ├── categories.clj          # Category CRUD operations
 │   │   ├── transactions.clj        # Transaction operations
-│   │   └── credentials.clj         # Encrypted credential storage (Phase 2)
+│   │   └── credentials.clj         # Encrypted credential storage
 │   ├── db.clj                      # Legacy database operations
-│   ├── server.clj                  # Full API handler (routes & logic + Plaid endpoints)
 │   ├── http/
-│   │   └── server.clj              # HTTP server component (lifecycle)
+│   │   ├── server.clj              # HTTP server component (lifecycle)
+│   │   ├── router.clj              # Reitit router with middleware
+│   │   ├── middleware.clj          # CORS, JSON, request processing
+│   │   ├── errors.clj              # Exception handling middleware
+│   │   ├── responses.clj           # Standard response formats
+│   │   ├── handlers/               # Request handlers by feature
+│   │   │   ├── plaid.clj           # Plaid integration handlers
+│   │   │   ├── categories.clj      # Category CRUD handlers
+│   │   │   ├── transactions.clj    # Transaction handlers
+│   │   │   └── entities.clj        # Entity listing & query handlers
+│   │   └── routes/                 # Route definitions by feature
+│   │       ├── api.clj             # API routes aggregator
+│   │       ├── plaid.clj           # Plaid routes
+│   │       ├── categories.clj      # Category routes
+│   │       ├── transactions.clj    # Transaction routes
+│   │       ├── entities.clj        # Entity routes
+│   │       ├── stats.clj           # Stats routes
+│   │       └── static.clj          # Static file routes
 │   ├── plaid/
 │   │   └── client.clj              # Plaid API client (Phase 1 complete)
 │   ├── simplefin/
@@ -173,13 +189,13 @@ See [SECRETS.md](./SECRETS.md) for comprehensive documentation.
 Connect to 12,000+ financial institutions via Plaid API:
 - ✅ **Phase 1**: Core API client functions (`plaid/client.clj`)
 - ✅ **Phase 2**: Encryption & credentials (`lib/encryption.clj`, `db/credentials.clj`)
-- ✅ **Phase 2**: API endpoints (4 endpoints in `server.clj`)
+- ✅ **Phase 2**: API endpoints (4 endpoints via Integrant/reitit)
 - ✅ **Phase 2**: Comprehensive tests (20 tests passing)
 - 🚧 **Phase 3**: Frontend Plaid Link component (in progress)
 - 🚧 **Phase 4**: Data transformation layer
 - 🚧 **Phase 5**: Service orchestration & persistence
 
-**Current Status**: Phase 2 complete with working API endpoints. Ready for Phase 3 (frontend UI).
+**Current Status**: Phase 2 complete with clean component-based architecture. Ready for Phase 3 (frontend UI).
 
 See:
 - [ADR-004: Plaid Integration](../doc/adr/adr-004-plaid-integration.md) - Full integration plan
@@ -203,7 +219,7 @@ Datalevin provides a Datalog database with:
 
 ## API Endpoints
 
-**Currently Available** (via `server.clj`):
+**Currently Available** (via Integrant/reitit architecture):
 ```
 GET    /health                                 Health check
 GET    /api/stats                              Database statistics
@@ -231,7 +247,7 @@ POST   /api/plaid/sync-accounts                Sync accounts to database
 POST   /api/plaid/sync-transactions            Sync transactions to database
 ```
 
-See `src/finance_aggregator/server.clj` for full implementation.
+See `src/finance_aggregator/http/routes/` and `src/finance_aggregator/http/handlers/` for full implementation.
 
 ## Configuration
 

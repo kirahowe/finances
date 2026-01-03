@@ -20,4 +20,8 @@
    ["/accounts" {:get {:handler (handlers/get-accounts-handler deps)
                        :name ::get-accounts}}]
    ["/transactions" {:post {:handler (handlers/get-transactions-handler deps)
-                            :name ::get-transactions}}]])
+                            :name ::get-transactions}}]
+   ["/sync-accounts" {:post {:handler (handlers/sync-accounts-handler deps)
+                             :name ::sync-accounts}}]
+   ["/sync-transactions" {:post {:handler (handlers/sync-transactions-handler deps)
+                                 :name ::sync-transactions}}]])

@@ -20,6 +20,9 @@
    :account/institution   {:db/valueType :db.type/ref}      ; ref to institution entity
    :account/currency      {:db/valueType :db.type/string}
    :account/type          {:db/valueType :db.type/keyword}  ; :chequing, :credit, :savings, etc.
+   :account/plaid-type    {:db/valueType :db.type/string}  ; Plaid account type (depository, credit, etc.)
+   :account/plaid-subtype {:db/valueType :db.type/string}  ; Plaid account subtype (checking, savings, etc.)
+   :account/mask          {:db/valueType :db.type/string}  ; Last 4 digits of account number
    :account/user          {:db/valueType :db.type/ref}      ; ref to user (for data isolation)
 
    ;; Transactions

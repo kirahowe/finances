@@ -73,3 +73,32 @@
     ;; the expected behavior for manual testing.
     (when *plaid-config*
       (is true "fetch-transactions requires a real access_token from token exchange"))))
+
+(deftest ^:integration fetch-item-test
+  (testing "fetch-item retrieves item metadata including institution_id"
+    ;; Note: This test cannot be run in isolation because access_tokens
+    ;; are only obtained by exchanging a public_token. This test documents
+    ;; the expected behavior for manual testing.
+    (when *plaid-config*
+      (is true "fetch-item requires a real access_token from token exchange")
+      ;; Expected result shape:
+      ;; {:item_id "item-123"
+      ;;  :institution_id "ins_123"
+      ;;  :available_products [...]
+      ;;  :billed_products [...]}
+      )))
+
+(deftest ^:integration fetch-institution-test
+  (testing "fetch-institution retrieves institution details by ID"
+    ;; Note: This test cannot be run in isolation because it requires
+    ;; an institution_id from a real item. This test documents the
+    ;; expected behavior for manual testing.
+    (when *plaid-config*
+      (is true "fetch-institution requires a real institution_id from fetch-item")
+      ;; Expected result shape:
+      ;; {:institution_id "ins_123"
+      ;;  :name "Chase"
+      ;;  :url "https://www.chase.com"
+      ;;  :primary_color "#0D1B41"
+      ;;  :logo "base64-encoded-image-or-url"}
+      )))

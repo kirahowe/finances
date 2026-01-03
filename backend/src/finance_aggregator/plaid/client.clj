@@ -8,7 +8,8 @@
    [com.plaid.client ApiClient]
    [com.plaid.client.model CountryCode LinkTokenCreateRequest
     LinkTokenCreateRequestUser Products ItemPublicTokenExchangeRequest
-    AccountsGetRequest TransactionsGetRequest]
+    AccountsGetRequest TransactionsGetRequest ItemGetRequest
+    InstitutionsGetByIdRequest]
    [com.plaid.client.request PlaidApi]
    [java.util HashMap]))
 
@@ -174,3 +175,72 @@
                        :end-date end-date
                        :error (.getMessage e)}
                       e)))))
+
+(defn fetch-item
+  "Fetch item metadata including institution_id.
+
+   An item represents a connection to a financial institution.
+   Use this to get the institution_id needed for fetching institution details.
+
+   plaid-config: map with :client-id, :secret, :environment
+   access-token: string from exchange-public-token
+
+   Returns: {:item_id string
+            :institution_id string
+            :available_products vector of product strings
+            :billed_products vector of product strings}"
+  [plaid-config access-token]
+  (try
+    (let [api-client (create-api-client plaid-config)
+          plaid-api (.createService api-client PlaidApi)
+          request (-> (ItemGetRequest.)
+                      (.accessToken access-token))
+          response (.itemGet plaid-api request)
+          result (.body (.execute response))
+          item (.getItem result)]
+      {:item_id (.getItemId item)
+       :institution_id (.getInstitutionId item)
+       :available_products (vec (.getAvailableProducts item))
+       :billed_products (vec (.getBilledProducts item))})
+    (catch Exception e
+      (throw (ex-info "Failed to fetch item"
+                      {:access-token access-token
+                       :error (.getMessage e)}
+                      e)))))
+
+(defn fetch-institution
+  "Fetch institution details by institution ID.
+
+   plaid-config: map with :client-id, :secret, :environment
+   institution-id: string from fetch-item
+   country-codes: vector of CountryCode enums or strings (default [\"US\"])
+
+   Returns: {:institution_id string
+            :name string
+            :url string (or nil)
+            :primary_color string (or nil)
+            :logo string (or nil)}"
+  ([plaid-config institution-id]
+   (fetch-institution plaid-config institution-id ["US"]))
+  ([plaid-config institution-id country-codes]
+   (try
+     (let [api-client (create-api-client plaid-config)
+           plaid-api (.createService api-client PlaidApi)
+           country-enums (mapv #(ensure-enum % types/country-codes "country code") country-codes)
+           request (-> (InstitutionsGetByIdRequest.)
+                       (.institutionId institution-id)
+                       (.countryCodes country-enums))
+           response (.institutionsGetById plaid-api request)
+           result (.body (.execute response))
+           institution (.getInstitution result)]
+       {:institution_id (.getInstitutionId institution)
+        :name (.getName institution)
+        :url (.getUrl institution)
+        :primary_color (.getPrimaryColor institution)
+        :logo (.getLogo institution)})
+     (catch Exception e
+       (throw (ex-info "Failed to fetch institution"
+                       {:institution-id institution-id
+                        :country-codes country-codes
+                        :error (.getMessage e)}
+                       e))))))

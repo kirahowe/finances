@@ -385,9 +385,47 @@ function CategoryForm({
 }
 
 function AccountsSection({ accounts }: { accounts: Account[] }) {
+  const [syncStatus, setSyncStatus] = useState<string>("");
+  const [syncError, setSyncError] = useState<string | null>(null);
+  const fetcher = useFetcher();
+
+  const handleSyncAccounts = async () => {
+    setSyncStatus("Syncing accounts from Plaid...");
+    setSyncError(null);
+
+    try {
+      const result = await api.syncPlaidAccounts();
+      setSyncStatus(
+        `Successfully synced ${result.success.accounts} account(s) from ${result.success.institutions} institution(s)!`
+      );
+
+      // Reload accounts data after sync
+      setTimeout(() => {
+        window.location.reload();
+      }, 1500);
+    } catch (err) {
+      const errorMsg = err instanceof Error ? err.message : "Failed to sync accounts";
+      setSyncError(errorMsg);
+      setSyncStatus("");
+    }
+  };
+
   return (
     <div className="card">
-      <h2>Accounts</h2>
+      <div className="card-header">
+        <h2>Accounts</h2>
+        <button
+          className="button"
+          onClick={handleSyncAccounts}
+          disabled={!!syncStatus}
+        >
+          Sync Accounts
+        </button>
+      </div>
+
+      {syncStatus && <div className="status-banner">{syncStatus}</div>}
+      {syncError && <div className="error-banner">{syncError}</div>}
+
       <table className="table">
         <thead>
           <tr>
@@ -423,6 +461,8 @@ function TransactionsSection({
   const [page, setPage] = useState(0);
   const [pageSize, setPageSize] = useState<PageSize>(25);
   const [error, setError] = useState<string | null>(null);
+  const [syncStatus, setSyncStatus] = useState<string>("");
+  const [syncError, setSyncError] = useState<string | null>(null);
 
   // Initialize sorting from URL
   const [sorting, setSorting] = useState<SortingState>(() =>
@@ -505,9 +545,42 @@ function TransactionsSection({
     setFilters(clearAllFilters());
   };
 
+  const handleSyncTransactions = async () => {
+    setSyncStatus("Syncing transactions from Plaid...");
+    setSyncError(null);
+
+    try {
+      const result = await api.syncPlaidTransactions({ months: 6 });
+      setSyncStatus(
+        `Successfully synced ${result.success.transactions} transaction(s)!`
+      );
+
+      // Reload transactions data after sync
+      setTimeout(() => {
+        window.location.reload();
+      }, 1500);
+    } catch (err) {
+      const errorMsg = err instanceof Error ? err.message : "Failed to sync transactions";
+      setSyncError(errorMsg);
+      setSyncStatus("");
+    }
+  };
+
   return (
     <div className="card">
-      <h2>Transactions</h2>
+      <div className="card-header">
+        <h2>Transactions</h2>
+        <button
+          className="button"
+          onClick={handleSyncTransactions}
+          disabled={!!syncStatus}
+        >
+          Sync Transactions
+        </button>
+      </div>
+
+      {syncStatus && <div className="status-banner">{syncStatus}</div>}
+      {syncError && <div className="error-banner">{syncError}</div>}
       <ErrorDisplay error={error} onDismiss={() => setError(null)} />
 
       <FilterBar

@@ -23,7 +23,7 @@
  ;; Uses EDN readers to convert to actual Plaid SDK enum values
  :finance-aggregator.plaid/link-config
  {:client-name "Finance Aggregator"
-  :country-codes [#plaid/country-code "US"]
+  :country-codes [#plaid/country-code "CA"]
   :language "en"
   :products [#plaid/product :transactions]}
 
