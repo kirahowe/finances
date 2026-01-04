@@ -77,6 +77,21 @@ Get your Plaid credentials from: https://dashboard.plaid.com/team/keys
 
 See `backend/SECRETS.md` for detailed documentation.
 
+### 3. Configure Plaid Link for Multiple Account Selection
+
+The application expects multiple account selection to be enabled in Plaid Link:
+
+1. Go to the [Plaid Dashboard Link Customization](https://dashboard.plaid.com/link)
+2. Navigate to **Link Customization**
+3. Find the **Account Select** section
+4. Set to **"Enabled for multiple accounts"** - This allows users to select/deselect individual accounts
+
+**Important**: Ensure your language and country settings in the customization match your link token configuration (default: `en` and `US`). Mismatched settings will prevent customization from being applied.
+
+The application automatically captures and displays selected accounts when users complete the Plaid Link flow.
+
+**Note**: Some Plaid flows (Instant Match, Automated Micro-deposits Auth) only support single account selection and will override this setting.
+
 ## Running the Application
 
 ### Start Everything with Overmind

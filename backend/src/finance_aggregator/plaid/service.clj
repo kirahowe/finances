@@ -46,10 +46,10 @@
 (defn- safe-parse-accounts
   "Parse accounts with error handling, returning successes and errors.
    Uses pmap for parallel transformation."
-  [accounts institution-id user-id]
+  [accounts institution-id user-id item-id]
   (let [parse-fn (fn [account]
                    (try
-                     {:success (data/parse-account account institution-id user-id)}
+                     {:success (data/parse-account account institution-id user-id item-id)}
                      (catch Exception e
                        {:error {:account-id (:account_id account)
                                :message (.getMessage e)}})))
@@ -74,8 +74,8 @@
 
 ;;; Public API
 
-(defn sync-accounts!
-  "Sync Plaid accounts and institution to database.
+(defn sync-item-accounts!
+  "Sync accounts for a single Plaid Item to database.
 
    Fetches:
    - Item metadata (to get institution_id)
@@ -85,73 +85,245 @@
    Uses parallel fetching for item and institution data where possible.
 
    deps: {:db-conn datalevin-connection
+          :plaid-config plaid-configuration-map}
+   item-credential: {:item-id string
+                     :institution-name string
+                     :access-token string}
+
+   Returns: {:success {:institutions int, :accounts int}
+            :failed {:institutions int, :accounts int}
+            :errors [{:type keyword, :message string} ...]}"
+  [{:keys [db-conn plaid-config]} {:keys [item-id access-token institution-name]}]
+  (try
+    ;; 1. Fetch item and accounts in parallel
+    (let [item-future (future (client/fetch-item plaid-config access-token))
+          accounts-future (future (client/fetch-accounts plaid-config access-token))
+          ;; Deref item first, cancel accounts if it fails
+          item (try
+                 @item-future
+                 (catch Exception e
+                   (future-cancel accounts-future)
+                   (throw e)))
+          accounts @accounts-future
+          institution-id (:institution_id item)]
+
+      ;; 2. Fetch institution details
+      (let [institution (client/fetch-institution plaid-config institution-id)
+
+            ;; 3. Parse data (parallel transformation)
+            parsed-institution (data/parse-institution institution)
+            account-results (safe-parse-accounts accounts institution-id hardcoded-user-id item-id)
+            parsed-accounts (:success account-results)
+            account-errors (:errors account-results)]
+
+        ;; 4. Persist to database
+        (db/insert! {:institutions #{parsed-institution}
+                     :accounts (set parsed-accounts)
+                     :transactions []}
+                    db-conn)
+
+        ;; 5. Log and return results
+        (log/info "Synced Plaid Item accounts"
+                  {:item-id item-id
+                   :institution institution-name
+                   :accounts (count parsed-accounts)
+                   :errors (count account-errors)})
+
+        {:success {:institutions 1
+                   :accounts (count parsed-accounts)}
+         :failed {:institutions 0
+                  :accounts (count account-errors)}
+         :errors account-errors}))
+
+    (catch Exception e
+      (log/error "Failed to sync Plaid Item accounts"
+                 {:item-id item-id :error (.getMessage e)})
+      {:success {:institutions 0 :accounts 0}
+       :failed {:institutions 1 :accounts 0}
+       :errors [{:type :sync-error
+                 :item-id item-id
+                 :message (.getMessage e)}]})))
+
+(defn sync-all-items-accounts!
+  "Sync accounts across ALL Plaid Items in parallel.
+
+   Fetches all Plaid credentials and syncs each item's accounts.
+   Uses pmap for parallel processing across items.
+
+   deps: {:db-conn datalevin-connection
+          :secrets secrets-map
+          :plaid-config plaid-configuration-map}
+
+   Returns: {:items [{:item-id string :institution-name string :result map} ...]
+            :summary {:total-institutions int :total-accounts int :errors int}}"
+  [{:keys [db-conn secrets plaid-config] :as deps}]
+  (let [credentials (creds/get-all-plaid-credentials db-conn secrets)]
+    (if (empty? credentials)
+      {:items []
+       :summary {:total-institutions 0 :total-accounts 0 :errors 0}
+       :message "No Plaid Items found. Please link a bank account first."}
+
+      (let [;; Sync each item in parallel
+            sync-fn (fn [cred]
+                      {:item-id (:item-id cred)
+                       :institution-name (:institution-name cred)
+                       :result (sync-item-accounts! deps cred)})
+            results (pmap sync-fn credentials)
+
+            ;; Aggregate results
+            total-institutions (reduce + (map #(get-in % [:result :success :institutions] 0) results))
+            total-accounts (reduce + (map #(get-in % [:result :success :accounts] 0) results))
+            total-errors (reduce + (map #(count (get-in % [:result :errors] [])) results))]
+
+        (log/info "Synced all Plaid Items"
+                  {:items (count results)
+                   :institutions total-institutions
+                   :accounts total-accounts
+                   :errors total-errors})
+
+        {:items (vec results)
+         :summary {:total-institutions total-institutions
+                   :total-accounts total-accounts
+                   :errors total-errors}}))))
+
+(defn sync-accounts!
+  "Sync Plaid accounts from all Items to database.
+
+   This is the main entry point for account syncing. It syncs
+   all linked Plaid Items in parallel.
+
+   deps: {:db-conn datalevin-connection
           :secrets secrets-map
           :plaid-config plaid-configuration-map}
 
    Returns: {:success {:institutions int, :accounts int}
             :failed {:institutions int, :accounts int}
             :errors [{:type keyword, :message string} ...]}"
-  [{:keys [db-conn secrets plaid-config]}]
-  (try
-    ;; 1. Get access token
-    (let [access-token (creds/get-credential db-conn secrets :plaid)]
-      (when-not access-token
-        (throw (ex-info "No Plaid credential found"
-                        {:type :no-credential
-                         :hint "Run Plaid OAuth flow first"})))
+  [deps]
+  (let [result (sync-all-items-accounts! deps)]
+    ;; Convert to legacy format for backward compatibility
+    {:success {:institutions (get-in result [:summary :total-institutions] 0)
+               :accounts (get-in result [:summary :total-accounts] 0)}
+     :failed {:institutions 0
+              :accounts (get-in result [:summary :errors] 0)}
+     :errors (mapcat #(get-in % [:result :errors] []) (:items result))}))
 
-      ;; 2. Fetch item and accounts in parallel
-      (let [item-future (future (client/fetch-item plaid-config access-token))
-            accounts-future (future (client/fetch-accounts plaid-config access-token))
-            ;; Deref item first, cancel accounts if it fails
-            item (try
-                   @item-future
-                   (catch Exception e
-                     (future-cancel accounts-future)
-                     (throw e)))
-            accounts @accounts-future
-            institution-id (:institution_id item)]
-
-        ;; 3. Fetch institution details
-        (let [institution (client/fetch-institution plaid-config institution-id)
-
-              ;; 4. Parse data (parallel transformation)
-              parsed-institution (data/parse-institution institution)
-              account-results (safe-parse-accounts accounts institution-id hardcoded-user-id)
-              parsed-accounts (:success account-results)
-              account-errors (:errors account-results)]
-
-          ;; 5. Persist to database
-          (db/insert! {:institutions #{parsed-institution}
-                       :accounts (set parsed-accounts)
-                       :transactions []}
-                      db-conn)
-
-          ;; 6. Log and return results
-          (log/info "Synced Plaid accounts"
-                    {:institution institution-id
-                     :accounts (count parsed-accounts)
-                     :errors (count account-errors)})
-
-          {:success {:institutions 1
-                     :accounts (count parsed-accounts)}
-           :failed {:institutions 0
-                    :accounts (count account-errors)}
-           :errors account-errors})))
-
-    (catch Exception e
-      (log/error "Failed to sync Plaid accounts" {:error (.getMessage e)})
-      {:success {:institutions 0 :accounts 0}
-       :failed {:institutions 1 :accounts 0}
-       :errors [{:type :sync-error
-                :message (.getMessage e)}]})))
-
-(defn sync-transactions!
-  "Sync Plaid transactions to database.
+(defn sync-item-transactions!
+  "Sync transactions for a single Plaid Item to database.
 
    Fetches transactions for the specified date range (default: 6 months).
    Filters out pending transactions.
    Uses parallel transformation for performance.
+
+   deps: {:db-conn datalevin-connection
+          :plaid-config plaid-configuration-map}
+   item-credential: {:item-id string
+                     :institution-name string
+                     :access-token string}
+   opts: {:months int (default 6)
+          :end-date string YYYY-MM-DD (default today)}
+
+   Returns: {:success {:transactions int}
+            :failed {:transactions int}
+            :errors [{:transaction-id string, :message string} ...]}"
+  ([deps item-credential]
+   (sync-item-transactions! deps item-credential {}))
+  ([{:keys [db-conn plaid-config]} {:keys [item-id access-token institution-name]} opts]
+   (try
+     ;; 1. Calculate date range
+     (let [months (or (:months opts) default-sync-months)
+           end-date (:end-date opts)
+           date-range (calculate-date-range months end-date)
+           start-date (:start-date date-range)
+           end-date-final (:end-date date-range)]
+
+       ;; 2. Fetch transactions
+       (let [transactions (client/fetch-transactions plaid-config
+                                                     access-token
+                                                     start-date
+                                                     end-date-final)
+
+             ;; 3. Parse transactions (parallel, filters pending)
+             tx-results (safe-parse-transactions transactions hardcoded-user-id)
+             parsed-txns (:success tx-results)
+             tx-errors (:errors tx-results)]
+
+         ;; 4. Persist to database
+         (db/insert! {:institutions #{}
+                      :accounts #{}
+                      :transactions parsed-txns}
+                     db-conn)
+
+         ;; 5. Log and return results
+         (log/info "Synced Plaid Item transactions"
+                   {:item-id item-id
+                    :institution institution-name
+                    :start-date start-date
+                    :end-date end-date-final
+                    :transactions (count parsed-txns)
+                    :errors (count tx-errors)})
+
+         {:success {:transactions (count parsed-txns)}
+          :failed {:transactions (count tx-errors)}
+          :errors tx-errors}))
+
+     (catch Exception e
+       (log/error "Failed to sync Plaid Item transactions"
+                  {:item-id item-id :error (.getMessage e)})
+       {:success {:transactions 0}
+        :failed {:transactions 0}
+        :errors [{:type :sync-error
+                  :item-id item-id
+                  :message (.getMessage e)}]}))))
+
+(defn sync-all-items-transactions!
+  "Sync transactions across ALL Plaid Items in parallel.
+
+   Fetches all Plaid credentials and syncs each item's transactions.
+   Uses pmap for parallel processing across items.
+
+   deps: {:db-conn datalevin-connection
+          :secrets secrets-map
+          :plaid-config plaid-configuration-map}
+   opts: {:months int (default 6)
+          :end-date string YYYY-MM-DD (default today)}
+
+   Returns: {:items [{:item-id string :institution-name string :result map} ...]
+            :summary {:total-transactions int :errors int}}"
+  ([deps]
+   (sync-all-items-transactions! deps {}))
+  ([{:keys [db-conn secrets plaid-config] :as deps} opts]
+   (let [credentials (creds/get-all-plaid-credentials db-conn secrets)]
+     (if (empty? credentials)
+       {:items []
+        :summary {:total-transactions 0 :errors 0}
+        :message "No Plaid Items found. Please link a bank account first."}
+
+       (let [;; Sync each item in parallel
+             sync-fn (fn [cred]
+                       {:item-id (:item-id cred)
+                        :institution-name (:institution-name cred)
+                        :result (sync-item-transactions! deps cred opts)})
+             results (pmap sync-fn credentials)
+
+             ;; Aggregate results
+             total-transactions (reduce + (map #(get-in % [:result :success :transactions] 0) results))
+             total-errors (reduce + (map #(count (get-in % [:result :errors] [])) results))]
+
+         (log/info "Synced all Plaid Items transactions"
+                   {:items (count results)
+                    :transactions total-transactions
+                    :errors total-errors})
+
+         {:items (vec results)
+          :summary {:total-transactions total-transactions
+                    :errors total-errors}})))))
+
+(defn sync-transactions!
+  "Sync Plaid transactions from all Items to database.
+
+   This is the main entry point for transaction syncing. It syncs
+   all linked Plaid Items in parallel.
 
    deps: {:db-conn datalevin-connection
           :secrets secrets-map
@@ -164,56 +336,12 @@
             :errors [{:transaction-id string, :message string} ...]}"
   ([deps]
    (sync-transactions! deps {}))
-  ([{:keys [db-conn secrets plaid-config]} opts]
-   (try
-     ;; 1. Get access token
-     (let [access-token (creds/get-credential db-conn secrets :plaid)]
-       (when-not access-token
-         (throw (ex-info "No Plaid credential found"
-                         {:type :no-credential
-                          :hint "Run Plaid OAuth flow first"})))
-
-       ;; 2. Calculate date range
-       (let [months (or (:months opts) default-sync-months)
-             end-date (:end-date opts)
-             date-range (calculate-date-range months end-date)
-             start-date (:start-date date-range)
-             end-date-final (:end-date date-range)]
-
-         ;; 3. Fetch transactions
-         (let [transactions (client/fetch-transactions plaid-config
-                                                       access-token
-                                                       start-date
-                                                       end-date-final)
-
-               ;; 4. Parse transactions (parallel, filters pending)
-               tx-results (safe-parse-transactions transactions hardcoded-user-id)
-               parsed-txns (:success tx-results)
-               tx-errors (:errors tx-results)]
-
-           ;; 5. Persist to database
-           (db/insert! {:institutions #{}
-                        :accounts #{}
-                        :transactions parsed-txns}
-                       db-conn)
-
-           ;; 6. Log and return results
-           (log/info "Synced Plaid transactions"
-                     {:start-date start-date
-                      :end-date end-date-final
-                      :transactions (count parsed-txns)
-                      :errors (count tx-errors)})
-
-           {:success {:transactions (count parsed-txns)}
-            :failed {:transactions (count tx-errors)}
-            :errors tx-errors})))
-
-     (catch Exception e
-       (log/error "Failed to sync Plaid transactions" {:error (.getMessage e)})
-       {:success {:transactions 0}
-        :failed {:transactions 0}
-        :errors [{:type :sync-error
-                 :message (.getMessage e)}]}))))
+  ([deps opts]
+   (let [result (sync-all-items-transactions! deps opts)]
+     ;; Convert to legacy format for backward compatibility
+     {:success {:transactions (get-in result [:summary :total-transactions] 0)}
+      :failed {:transactions (get-in result [:summary :errors] 0)}
+      :errors (mapcat #(get-in % [:result :errors] []) (:items result))})))
 
 (defn sync-all!
   "Sync both accounts and transactions.

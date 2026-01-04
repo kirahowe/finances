@@ -1,23 +1,25 @@
-import { useState, useEffect } from "react";
+import { useState } from "react";
 import type { Route } from "./+types/plaid-test";
+import { usePlaidLink } from "react-plaid-link";
+import type { PlaidLinkOnSuccess, PlaidLinkOnExit, PlaidLinkOnEvent } from "react-plaid-link";
 import { api } from "../lib/api";
 import "../styles/pages/plaid-test.css";
 
-// Type for Plaid Link handler
-declare global {
-  interface Window {
-    Plaid: {
-      create: (config: {
-        token: string;
-        onSuccess: (public_token: string, metadata: unknown) => void;
-        onExit: (err: unknown, metadata: unknown) => void;
-        onEvent: (eventName: string, metadata: unknown) => void;
-      }) => {
-        open: () => void;
-        destroy: () => void;
-      };
-    };
-  }
+interface PlaidAccount {
+  id: string;
+  name: string;
+  mask: string | null;
+  type: string;
+  subtype: string;
+}
+
+interface PlaidMetadata {
+  institution?: {
+    name: string;
+    institution_id: string;
+  };
+  accounts: PlaidAccount[];
+  link_session_id: string;
 }
 
 export function meta({}: Route.MetaArgs) {
@@ -46,28 +48,25 @@ export default function PlaidTest({ loaderData }: Route.ComponentProps) {
   const [error, setError] = useState<string | null>(loaderError);
   const [status, setStatus] = useState<string>("");
   const [exchangeResult, setExchangeResult] = useState<unknown>(null);
+  const [selectedAccounts, setSelectedAccounts] = useState<PlaidAccount[]>([]);
   const [accounts, setAccounts] = useState<unknown>(null);
   const [transactions, setTransactions] = useState<unknown>(null);
   const [isLinked, setIsLinked] = useState(false);
 
-  // Load Plaid Link SDK from CDN
-  useEffect(() => {
-    const script = document.createElement("script");
-    script.src = "https://cdn.plaid.com/link/v2/stable/link-initialize.js";
-    script.async = true;
-    document.body.appendChild(script);
-
-    return () => {
-      document.body.removeChild(script);
-    };
-  }, []);
-
-  const handlePlaidLinkSuccess = async (publicToken: string, metadata: unknown) => {
+  const handlePlaidLinkSuccess: PlaidLinkOnSuccess = async (publicToken, metadata) => {
     setStatus("Exchanging public token for access token...");
     console.log("Plaid Link success", { publicToken, metadata });
 
+    // Extract selected account IDs from metadata
+    const accountIds = metadata.accounts.map(account => account.id);
+    console.log("Selected account IDs:", accountIds);
+    console.log("Selected accounts:", metadata.accounts);
+
+    // Store selected accounts for display
+    setSelectedAccounts(metadata.accounts);
+
     try {
-      const result = await api.exchangePlaidToken(publicToken);
+      const result = await api.exchangePlaidToken(publicToken, accountIds);
       setExchangeResult(result);
       setStatus("Successfully linked account!");
       setIsLinked(true);
@@ -80,7 +79,7 @@ export default function PlaidTest({ loaderData }: Route.ComponentProps) {
     }
   };
 
-  const handlePlaidLinkExit = (err: unknown, metadata: unknown) => {
+  const handlePlaidLinkExit: PlaidLinkOnExit = (err, metadata) => {
     console.log("Plaid Link exit", { err, metadata });
     if (err) {
       setError("Plaid Link exited with error");
@@ -88,33 +87,16 @@ export default function PlaidTest({ loaderData }: Route.ComponentProps) {
     }
   };
 
-  const handlePlaidLinkEvent = (eventName: string, metadata: unknown) => {
+  const handlePlaidLinkEvent: PlaidLinkOnEvent = (eventName, metadata) => {
     console.log("Plaid Link event", { eventName, metadata });
   };
 
-  const openPlaidLink = () => {
-    if (!linkToken) {
-      setError("No link token available");
-      return;
-    }
-
-    if (!window.Plaid) {
-      setError("Plaid SDK not loaded yet. Please wait and try again.");
-      return;
-    }
-
-    setStatus("Opening Plaid Link...");
-    setError(null);
-
-    const handler = window.Plaid.create({
-      token: linkToken,
-      onSuccess: handlePlaidLinkSuccess,
-      onExit: handlePlaidLinkExit,
-      onEvent: handlePlaidLinkEvent,
-    });
-
-    handler.open();
-  };
+  const { open, ready } = usePlaidLink({
+    token: linkToken,
+    onSuccess: handlePlaidLinkSuccess,
+    onExit: handlePlaidLinkExit,
+    onEvent: handlePlaidLinkEvent,
+  });
 
   const fetchAccounts = async () => {
     if (!isLinked) {
@@ -202,8 +184,8 @@ export default function PlaidTest({ loaderData }: Route.ComponentProps) {
         <div className="button-group">
           <button
             className="button button-primary"
-            onClick={openPlaidLink}
-            disabled={!linkToken}
+            onClick={() => open()}
+            disabled={!ready}
           >
             {isLinked ? "Link Another Account" : "Open Plaid Link"}
           </button>
@@ -219,6 +201,27 @@ export default function PlaidTest({ loaderData }: Route.ComponentProps) {
           <div className="response-section">
             <h3>Link Token</h3>
             <pre className="json-display">{linkToken}</pre>
+          </div>
+        )}
+
+        {selectedAccounts.length > 0 && (
+          <div className="response-section">
+            <h3>Selected Accounts</h3>
+            <p className="summary">{selectedAccounts.length} account(s) selected</p>
+            <ul className="selected-accounts-list">
+              {selectedAccounts.map((account) => (
+                <li key={account.id}>
+                  <strong>{account.name}</strong>
+                  {account.mask && ` (...${account.mask})`}
+                  {' - '}
+                  <span className="account-mask">{account.subtype || account.type}</span>
+                </li>
+              ))}
+            </ul>
+            <details>
+              <summary>View Account Details</summary>
+              <pre className="json-display">{JSON.stringify(selectedAccounts, null, 2)}</pre>
+            </details>
           </div>
         )}
 
@@ -296,9 +299,22 @@ export default function PlaidTest({ loaderData }: Route.ComponentProps) {
               <li>Password: <code>pass_good</code></li>
             </ul>
           </li>
+          <li>
+            <strong>Account Selection:</strong> Select which accounts to sync using the
+            checkboxes in the Plaid Link flow. The selected accounts will be displayed
+            above after linking.
+          </li>
           <li>After successful linking, click "Fetch Accounts" to test account retrieval</li>
           <li>Click "Fetch Transactions" to test transaction retrieval</li>
         </ol>
+        <p className="plaid-config-note">
+          <strong>Note:</strong> To enable multiple account selection, configure the
+          Account Select setting in your{' '}
+          <a href="https://dashboard.plaid.com/link" target="_blank" rel="noopener noreferrer">
+            Plaid Dashboard
+          </a>
+          {' '}under Link Customization.
+        </p>
       </div>
     </div>
   );

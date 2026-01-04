@@ -29,6 +29,8 @@
 (defn list-accounts-handler
   "Factory: creates handler for GET /api/accounts.
 
+   Includes institution information in pull pattern.
+
    Args:
      deps - Map with :db-conn
 
@@ -37,7 +39,7 @@
   [{:keys [db-conn]}]
   (fn [_request]
     (let [db (d/db db-conn)
-          query '[:find [(pull ?e [*]) ...]
+          query '[:find [(pull ?e [* {:account/institution [:db/id :institution/name]}]) ...]
                   :where [?e :account/external-id _]]
           results (d/q query db)]
       (responses/success-response results))))

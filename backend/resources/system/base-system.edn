@@ -2,9 +2,6 @@
  ;; All environments inherit from this
  ;; Environment-specific overrides in env/{dev,test,prod}/resources/config.edn
 
- ;; Database configuration
- :finance-aggregator.system/db-path "./data/finance.db"
-
  ;; HTTP server configuration
  :finance-aggregator.system/http-port 8080
 

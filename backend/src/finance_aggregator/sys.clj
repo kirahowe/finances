@@ -13,6 +13,7 @@
    [clojure.java.io :as io]
    [finance-aggregator.lib.log :as log]
    [finance-aggregator.plaid.types :as plaid-types]
+   [finance-aggregator.system] ;; Load Integrant component definitions
    [integrant.core :as ig]
    [meta-merge.core :refer [meta-merge]])
   (:import (java.net URI)))

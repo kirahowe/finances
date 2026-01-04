@@ -16,6 +16,7 @@ import { debounce } from "../lib/debounce";
 import { parseSortingState, serializeSortingState } from "../lib/sortingState";
 import type { SortingState } from "@tanstack/react-table";
 import type { PageSize } from "../lib/pagination";
+import { usePlaidLink } from "../hooks/usePlaidLink";
 import { parseFilters, serializeFilters, toggleFilterValue, clearFilterField, clearAllFilters, type FilterState, type FilterValue } from "../lib/filterState";
 import { extractFilterOptions, applyFilters } from "../lib/filterOptions";
 import "../styles/pages/dashboard.css";
@@ -62,6 +63,32 @@ export async function action({ request }: Route.ActionArgs) {
 
   if (intent === "refresh-stats") {
     return { success: true };
+  } else if (intent === "link-plaid-account") {
+    // Handle Plaid account linking with exchange and sync
+    const publicToken = formData.get("publicToken") as string;
+    if (!publicToken) {
+      return { success: false, error: "Missing public token" };
+    }
+
+    try {
+      // 1. Exchange public token for access token (stores credential)
+      const exchangeResult = await api.exchangePlaidToken(publicToken);
+
+      // 2. Sync accounts from Plaid
+      const accountsResult = await api.syncPlaidAccounts();
+
+      // 3. Sync transactions (last 6 months)
+      const transactionsResult = await api.syncPlaidTransactions({ months: 6 });
+
+      const message = `Linked ${exchangeResult.institution_name || 'account'}! ` +
+        `Synced ${accountsResult.success.accounts} account(s) and ` +
+        `${transactionsResult.success.transactions} transaction(s).`;
+
+      return { success: true, message };
+    } catch (err) {
+      const errorMsg = err instanceof Error ? err.message : "Failed to link account";
+      return { success: false, error: errorMsg };
+    }
   } else if (intent === "create-category") {
     const name = formData.get("name") as string;
     const type = formData.get("type") as CategoryType;
@@ -385,30 +412,11 @@ function CategoryForm({
 }
 
 function AccountsSection({ accounts }: { accounts: Account[] }) {
-  const [syncStatus, setSyncStatus] = useState<string>("");
-  const [syncError, setSyncError] = useState<string | null>(null);
-  const fetcher = useFetcher();
-
-  const handleSyncAccounts = async () => {
-    setSyncStatus("Syncing accounts from Plaid...");
-    setSyncError(null);
-
-    try {
-      const result = await api.syncPlaidAccounts();
-      setSyncStatus(
-        `Successfully synced ${result.success.accounts} account(s) from ${result.success.institutions} institution(s)!`
-      );
-
-      // Reload accounts data after sync
-      setTimeout(() => {
-        window.location.reload();
-      }, 1500);
-    } catch (err) {
-      const errorMsg = err instanceof Error ? err.message : "Failed to sync accounts";
-      setSyncError(errorMsg);
-      setSyncStatus("");
-    }
-  };
+  const { openPlaidLink, isReady, isLinking, status, error, clearError } = usePlaidLink({
+    onSuccess: () => {
+      console.log('Account linked successfully - data will refresh automatically');
+    },
+  });
 
   return (
     <div className="card">
@@ -416,36 +424,58 @@ function AccountsSection({ accounts }: { accounts: Account[] }) {
         <h2>Accounts</h2>
         <button
           className="button"
-          onClick={handleSyncAccounts}
-          disabled={!!syncStatus}
+          onClick={openPlaidLink}
+          disabled={!isReady || isLinking}
         >
-          Sync Accounts
+          {isLinking ? "Linking..." : "Manage Accounts"}
         </button>
       </div>
 
-      {syncStatus && <div className="status-banner">{syncStatus}</div>}
-      {syncError && <div className="error-banner">{syncError}</div>}
+      {status && <div className="status-banner">{status}</div>}
+      {error && (
+        <div className="error-banner">
+          {error}
+          <button
+            onClick={clearError}
+            style={{ marginLeft: '1rem', background: 'none', border: 'none', cursor: 'pointer' }}
+          >
+            ×
+          </button>
+        </div>
+      )}
 
-      <table className="table">
-        <thead>
-          <tr>
-            <th>Name</th>
-            <th>Type</th>
-            <th>Currency</th>
-            <th>External ID</th>
-          </tr>
-        </thead>
-        <tbody>
-          {accounts.map((account) => (
-            <tr key={account["db/id"]}>
-              <td>{account["account/external-name"]}</td>
-              <td>{account["account/type"] || "—"}</td>
-              <td>{account["account/currency"]}</td>
-              <td>{account["account/external-id"] || "—"}</td>
+      {accounts.length === 0 ? (
+        <p style={{ padding: '1rem', color: '#666' }}>
+          No accounts linked yet. Click "Manage Accounts" to connect your bank.
+        </p>
+      ) : (
+        <table className="table">
+          <thead>
+            <tr>
+              <th>Institution</th>
+              <th>Name</th>
+              <th>Type</th>
+              <th>Mask</th>
+              <th>Currency</th>
             </tr>
-          ))}
-        </tbody>
-      </table>
+          </thead>
+          <tbody>
+            {accounts.map((account) => (
+              <tr key={account["db/id"]}>
+                <td>{account["account/institution"]?.["institution/name"] || "—"}</td>
+                <td>{account["account/external-name"]}</td>
+                <td>
+                  {account["account/plaid-type"]
+                    ? `${account["account/plaid-type"]}${account["account/plaid-subtype"] ? ` / ${account["account/plaid-subtype"]}` : ''}`
+                    : account["account/type"] || "—"}
+                </td>
+                <td>{account["account/mask"] ? `****${account["account/mask"]}` : "—"}</td>
+                <td>{account["account/currency"]}</td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      )}
     </div>
   );
 }

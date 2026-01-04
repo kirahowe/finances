@@ -121,3 +121,33 @@ details[open] summary {
 .instructions-list ul {
   margin-top: 0.5rem;
 }
+
+.selected-accounts-list {
+  margin: 10px 0;
+  padding-left: 20px;
+  list-style-type: disc;
+}
+
+.selected-accounts-list li {
+  margin: 0.5rem 0;
+  color: #374151;
+}
+
+.account-mask {
+  color: #6b7280;
+}
+
+.plaid-config-note {
+  margin-top: 15px;
+  font-size: 14px;
+  color: #6b7280;
+}
+
+.plaid-config-note a {
+  color: #2563eb;
+  text-decoration: none;
+}
+
+.plaid-config-note a:hover {
+  text-decoration: underline;
+}

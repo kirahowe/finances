@@ -23,6 +23,12 @@ const CategoryRefSchema = z.object({
   'category/name': z.string(),
 });
 
+// Institution reference (nested in accounts)
+const InstitutionRefSchema = z.object({
+  'db/id': z.number(),
+  'institution/name': z.string(),
+});
+
 // Full account schema (from /api/accounts)
 const AccountSchema = z.object({
   'db/id': z.number(),
@@ -30,6 +36,11 @@ const AccountSchema = z.object({
   'account/type': z.string().optional(),
   'account/currency': z.string(),
   'account/external-id': z.string().optional(),
+  'account/plaid-type': z.string().optional(),
+  'account/plaid-subtype': z.string().optional(),
+  'account/mask': z.string().optional(),
+  'account/item-id': z.string().optional(),
+  'account/institution': InstitutionRefSchema.optional(),
 });
 
 // Minimal account reference (nested in transactions)
@@ -62,6 +73,7 @@ const PlaidLinkTokenSchema = z.object({
 const PlaidExchangeResponseSchema = z.object({
   access_token: z.string(),
   item_id: z.string(),
+  institution_name: z.string().optional(),
 });
 
 const PlaidAccountSchema = z.unknown(); // Keep it flexible for raw Plaid response
@@ -95,6 +107,13 @@ const PlaidSyncTransactionsResponseSchema = z.object({
   })),
 });
 
+// Plaid Item schema (for list-items endpoint)
+const PlaidItemSchema = z.object({
+  'item-id': z.string(),
+  'institution-name': z.string(),
+  'created-at': z.string().optional(),
+});
+
 // Type exports
 export type Category = z.infer<typeof CategorySchema>;
 export type Transaction = z.infer<typeof TransactionSchema>;
@@ -104,6 +123,8 @@ export type PlaidLinkToken = z.infer<typeof PlaidLinkTokenSchema>;
 export type PlaidExchangeResponse = z.infer<typeof PlaidExchangeResponseSchema>;
 export type PlaidSyncAccountsResponse = z.infer<typeof PlaidSyncAccountsResponseSchema>;
 export type PlaidSyncTransactionsResponse = z.infer<typeof PlaidSyncTransactionsResponseSchema>;
+export type PlaidItem = z.infer<typeof PlaidItemSchema>;
+export type InstitutionRef = z.infer<typeof InstitutionRefSchema>;
 
 // API Response wrapper
 const ApiResponseSchema = <T extends z.ZodTypeAny>(dataSchema: T) =>
@@ -211,11 +232,11 @@ export const api = {
     return result.data;
   },
 
-  async exchangePlaidToken(publicToken: string): Promise<PlaidExchangeResponse> {
+  async exchangePlaidToken(publicToken: string, accountIds?: string[]): Promise<PlaidExchangeResponse> {
     const response = await fetch(`${API_BASE}/api/plaid/exchange-token`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ publicToken }),
+      body: JSON.stringify({ publicToken, accountIds }),
     });
     const json = await response.json();
 
@@ -288,5 +309,32 @@ export const api = {
 
     const result = ApiResponseSchema(PlaidSyncTransactionsResponseSchema).parse(json);
     return result.data;
+  },
+
+  async listPlaidItems(): Promise<PlaidItem[]> {
+    const response = await fetch(`${API_BASE}/api/plaid/items`);
+    const json = await response.json();
+
+    // Check for error response
+    if (!response.ok || !json.success) {
+      throw new Error(json.error || `HTTP ${response.status}: ${response.statusText}`);
+    }
+
+    const result = ApiResponseSchema(z.array(PlaidItemSchema)).parse(json);
+    return result.data;
+  },
+
+  async deletePlaidItem(itemId: string): Promise<{ deleted: boolean }> {
+    const response = await fetch(`${API_BASE}/api/plaid/items/${encodeURIComponent(itemId)}`, {
+      method: 'DELETE',
+    });
+    const json = await response.json();
+
+    // Check for error response
+    if (!response.ok || !json.success) {
+      throw new Error(json.error || `HTTP ${response.status}: ${response.statusText}`);
+    }
+
+    return json.data;
   },
 };

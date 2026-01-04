@@ -23,6 +23,7 @@
    :account/plaid-type    {:db/valueType :db.type/string}  ; Plaid account type (depository, credit, etc.)
    :account/plaid-subtype {:db/valueType :db.type/string}  ; Plaid account subtype (checking, savings, etc.)
    :account/mask          {:db/valueType :db.type/string}  ; Last 4 digits of account number
+   :account/item-id       {:db/valueType :db.type/string}  ; Plaid item_id (links to credential)
    :account/user          {:db/valueType :db.type/ref}      ; ref to user (for data isolation)
 
    ;; Transactions
@@ -60,10 +61,12 @@
    :snapshot/source  {:db/valueType :db.type/keyword}    ; e.g. :simplefin, :manual, :calculated
 
    ;; Credentials (encrypted storage for API access tokens)
-   :credential/id            {:db/unique :db.unique/identity}
-   :credential/user          {:db/valueType :db.type/ref}
-   :credential/institution   {:db/valueType :db.type/keyword}  ; e.g. :simplefin
-   :credential/encrypted-data {:db/valueType :db.type/string}  ; AES-256-GCM encrypted
-   :credential/created-at    {:db/valueType :db.type/instant}
-   :credential/last-used     {:db/valueType :db.type/instant}
+   :credential/id              {:db/unique :db.unique/identity}
+   :credential/user            {:db/valueType :db.type/ref}
+   :credential/institution     {:db/valueType :db.type/keyword}  ; e.g. :plaid, :simplefin
+   :credential/item-id         {:db/valueType :db.type/string}   ; Plaid item_id (unique per bank connection)
+   :credential/institution-name {:db/valueType :db.type/string}  ; Human-readable institution name
+   :credential/encrypted-data  {:db/valueType :db.type/string}   ; AES-256-GCM encrypted
+   :credential/created-at      {:db/valueType :db.type/instant}
+   :credential/last-used       {:db/valueType :db.type/instant}
    })
