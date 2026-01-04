@@ -32,13 +32,18 @@
 
    Returns: {:institution/id string
             :institution/name string
-            :institution/url string (or nil)}"
+            :institution/url string (optional, omitted if nil)}
+
+   Note: Filters out nil values to avoid 'Cannot store nil as a value' errors."
   [institution]
   (-> institution
       (select-keys [:institution_id :name :url])
       (set/rename-keys {:institution_id :institution/id
                         :name :institution/name
-                        :url :institution/url})))
+                        :url :institution/url})
+      ;; Remove nil values to avoid database errors
+      (->> (remove (fn [[_ v]] (nil? v)))
+           (into {}))))
 
 (defn parse-account
   "Transform Plaid account to database schema.
@@ -46,16 +51,20 @@
    account: map from fetch-accounts
    institution-id: Plaid institution_id string
    user-id: User ID string (e.g., 'test-user')
+   item-id: Plaid item_id string (links to credential)
 
    Returns: {:account/external-id string (Plaid account_id)
             :account/external-name string
             :account/plaid-type string
             :account/plaid-subtype string
-            :account/mask string (or nil)
+            :account/mask string (optional, omitted if nil)
             :account/currency string
+            :account/item-id string (links to Plaid Item/credential)
             :account/institution lookup-ref
-            :account/user lookup-ref}"
-  [account institution-id user-id]
+            :account/user lookup-ref}
+
+   Note: Filters out nil values to avoid 'Cannot store nil as a value' errors."
+  [account institution-id user-id item-id]
   (-> account
       (select-keys [:account_id :name :official_name :type :subtype :mask :balance])
       (set/rename-keys {:account_id :account/external-id
@@ -64,11 +73,15 @@
                         :subtype :account/plaid-subtype
                         :mask :account/mask})
       (assoc :account/institution [:institution/id institution-id]
-             :account/user [:user/id user-id])
+             :account/user [:user/id user-id]
+             :account/item-id item-id)
       ;; Extract currency from balance, default to USD
       (assoc :account/currency (or (get-in account [:balance :iso_currency_code]) "USD"))
       ;; Remove balance (we don't store it in schema yet)
-      (dissoc :balance :official_name)))
+      (dissoc :balance :official_name)
+      ;; Remove nil values to avoid database errors
+      (->> (remove (fn [[_ v]] (nil? v)))
+           (into {}))))
 
 (defn parse-transaction
   "Transform Plaid transaction to database schema.
@@ -80,27 +93,33 @@
    Returns: {:transaction/external-id string
             :transaction/account lookup-ref
             :transaction/date instant
+            :transaction/posted-date instant (same as date for Plaid)
             :transaction/amount bigdec
             :transaction/payee string
             :transaction/description string
             :transaction/user lookup-ref}
 
-   Returns nil if transaction is pending."
+   Returns nil if transaction is pending.
+
+   Note: Plaid's 'date' field is the posted date, so we set both
+   :transaction/date and :transaction/posted-date to the same value."
   [txn user-id]
   (when-not (:pending txn)
-    (let [payee (or (:merchant_name txn) (:name txn))]
+    (let [payee (or (:merchant_name txn) (:name txn))
+          posted-date (string->date (:date txn))]
       (-> txn
-          (select-keys [:transaction_id :account_id :amount :date :name])
+          (select-keys [:transaction_id :account_id :amount :name])
           (set/rename-keys {:transaction_id :transaction/external-id
                             :name :transaction/description
-                            :amount :transaction/amount
-                            :date :transaction/date})
+                            :amount :transaction/amount})
           ;; Convert account_id to lookup ref
           (assoc :transaction/account [:account/external-id (:account_id txn)])
           (dissoc :account_id)
           ;; Add user ref and payee
           (assoc :transaction/user [:user/id user-id]
                  :transaction/payee payee)
+          ;; Set both date and posted-date (Plaid only provides one date)
+          (assoc :transaction/date posted-date
+                 :transaction/posted-date posted-date)
           ;; Type conversions
-          (update :transaction/amount bigdec)
-          (update :transaction/date string->date)))))
+          (update :transaction/amount bigdec)))))
