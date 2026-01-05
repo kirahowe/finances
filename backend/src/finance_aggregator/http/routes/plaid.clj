@@ -39,4 +39,6 @@
    ["/sync-accounts" {:post {:handler (handlers/sync-accounts-handler deps)
                              :name ::sync-accounts}}]
    ["/sync-transactions" {:post {:handler (handlers/sync-transactions-handler deps)
-                                 :name ::sync-transactions}}]])
+                                 :name ::sync-transactions}}]
+   ["/sync-month-transactions" {:post {:handler (handlers/sync-month-transactions-handler deps)
+                                       :name ::sync-month-transactions}}]])

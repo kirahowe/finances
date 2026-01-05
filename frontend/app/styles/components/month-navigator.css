@@ -1,0 +1,30 @@
+.month-navigator {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: var(--spacing-lg);
+}
+
+.month-navigator-controls {
+  display: flex;
+  align-items: center;
+  gap: var(--spacing-sm);
+}
+
+.month-navigator-display {
+  font-size: 1.25rem;
+  font-weight: 600;
+  min-width: 160px;
+  text-align: center;
+}
+
+.month-nav-button {
+  min-width: 36px;
+  padding: var(--spacing-xs) var(--spacing-sm);
+  font-size: 1.25rem;
+  line-height: 1;
+}
+
+.month-sync-button {
+  padding: var(--spacing-xs) var(--spacing-md);
+}

@@ -1,7 +1,8 @@
 (ns finance-aggregator.utils
   (:require
    [tick.core :as t])
-  (:import [java.util Date]))
+  (:import [java.util Date]
+           [java.util.regex Pattern]))
 
 (defn epoch->date
   "Converts Unix epoch timestamp to a date in UTC."
@@ -25,3 +26,34 @@
         end (t/>> start (t/of-months 1))]
     {:start (->epoch start)
      :end (->epoch end)}))
+
+(def ^:private month-pattern (Pattern/compile "^(\\d{4})-(\\d{2})$"))
+
+(defn parse-month-string
+  "Parse a YYYY-MM string into {:year int :month int}.
+   Throws an exception if the format is invalid or month is out of range."
+  [month-str]
+  (when (or (nil? month-str) (empty? month-str))
+    (throw (ex-info "Month string cannot be nil or empty"
+                    {:type :invalid-month :input month-str})))
+  (let [matcher (re-matcher month-pattern month-str)]
+    (if (.matches matcher)
+      (let [year (parse-long (.group matcher 1))
+            month (parse-long (.group matcher 2))]
+        (when (or (< month 1) (> month 12))
+          (throw (ex-info "Month must be between 01 and 12"
+                          {:type :invalid-month :input month-str :month month})))
+        {:year year :month month})
+      (throw (ex-info "Invalid month format. Expected YYYY-MM"
+                      {:type :invalid-month :input month-str})))))
+
+(defn month-date-range
+  "Convert a YYYY-MM string into a date range for database queries.
+   Returns {:start-date Date :end-date Date} where:
+   - start-date is inclusive (first millisecond of the month)
+   - end-date is exclusive (first millisecond of the next month)"
+  [month-str]
+  (let [{:keys [year month]} (parse-month-string month-str)
+        {:keys [start end]} (month-epoch-bounds year month)]
+    {:start-date (Date. (* start 1000))
+     :end-date (Date. (* end 1000))}))

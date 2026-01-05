@@ -15,9 +15,10 @@
    [finance-aggregator.db.credentials :as creds]
    [finance-aggregator.lib.log :as log]
    [finance-aggregator.plaid.client :as client]
-   [finance-aggregator.plaid.data :as data])
+   [finance-aggregator.plaid.data :as data]
+   [finance-aggregator.utils :as utils])
   (:import
-   [java.time LocalDate]
+   [java.time LocalDate YearMonth]
    [java.time.format DateTimeFormatter]))
 
 ;;; Constants
@@ -230,12 +231,15 @@
    (sync-item-transactions! deps item-credential {}))
   ([{:keys [db-conn plaid-config]} {:keys [item-id access-token institution-name]} opts]
    (try
-     ;; 1. Calculate date range
-     (let [months (or (:months opts) default-sync-months)
-           end-date (:end-date opts)
-           date-range (calculate-date-range months end-date)
-           start-date (:start-date date-range)
-           end-date-final (:end-date date-range)]
+     ;; 1. Calculate date range (support explicit dates or months-based calculation)
+     (let [[start-date end-date-final]
+           (if (and (:start-date opts) (:end-date opts))
+             ;; Use explicit dates when provided
+             [(:start-date opts) (:end-date opts)]
+             ;; Otherwise calculate from months
+             (let [months (or (:months opts) default-sync-months)
+                   date-range (calculate-date-range months (:end-date opts))]
+               [(:start-date date-range) (:end-date date-range)]))]
 
        ;; 2. Fetch transactions
        (let [transactions (client/fetch-transactions plaid-config
@@ -362,3 +366,36 @@
          transactions-result (sync-transactions! deps opts)]
      {:accounts accounts-result
       :transactions transactions-result})))
+
+(defn- parse-month-to-date-range
+  "Parse YYYY-MM string into start-date and end-date strings for Plaid API.
+   Returns {:start-date 'YYYY-MM-DD', :end-date 'YYYY-MM-DD'}"
+  [month-str]
+  (let [{:keys [year month]} (utils/parse-month-string month-str)
+        year-month (YearMonth/of year month)
+        start-date (.format (.atDay year-month 1) date-formatter)
+        end-date (.format (.atDay (.plusMonths year-month 1) 1) date-formatter)]
+    {:start-date start-date
+     :end-date end-date}))
+
+(defn sync-month-transactions!
+  "Sync Plaid transactions for a specific month.
+
+   This is useful for refreshing transactions for a specific month being viewed,
+   rather than syncing the full 6-month range.
+
+   deps: {:db-conn datalevin-connection
+          :secrets secrets-map
+          :plaid-config plaid-configuration-map}
+   month: String in YYYY-MM format (e.g., '2025-01')
+
+   Returns: {:success {:transactions int}
+            :failed {:transactions int}
+            :errors [{:transaction-id string, :message string} ...]}"
+  [deps month-str]
+  (let [{:keys [start-date end-date]} (parse-month-to-date-range month-str)]
+    (log/info "Syncing transactions for month" {:month month-str
+                                                 :start-date start-date
+                                                 :end-date end-date})
+    (sync-transactions! deps {:start-date start-date
+                              :end-date end-date})))

@@ -4,10 +4,10 @@
    Creates and configures the main application router with:
    - API routes (under /api)
    - Static file routes
-   - Middleware (CORS, JSON, exception handling)"
+   - Middleware (CORS, JSON, query params, exception handling)"
   (:require
    [reitit.ring :as ring]
-   [reitit.ring.middleware.parameters :as parameters]
+   [ring.middleware.params :as params]
    [finance-aggregator.http.routes.api :as api]
    [finance-aggregator.http.routes.static :as static]
    [finance-aggregator.http.middleware :as middleware]
@@ -47,7 +47,9 @@
       ;; Apply global middleware in correct order (innermost to outermost)
       ;; 1. Exception handling catches errors first
       errors/wrap-exception-handling
-      ;; 2. JSON parsing/serialization
+      ;; 2. Query params parsing (parses :query-string into :query-params)
+      params/wrap-params
+      ;; 3. JSON parsing/serialization
       middleware/wrap-json
-      ;; 3. CORS wraps everything (outermost) so errors also get CORS headers
+      ;; 4. CORS wraps everything (outermost) so errors also get CORS headers
       (middleware/wrap-cors cors-config)))

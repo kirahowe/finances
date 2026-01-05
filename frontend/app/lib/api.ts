@@ -187,8 +187,12 @@ export const api = {
     return result.data;
   },
 
-  async getTransactions(): Promise<Transaction[]> {
-    const response = await fetch(`${API_BASE}/api/transactions`);
+  async getTransactions(opts?: { month?: string }): Promise<Transaction[]> {
+    const url = new URL(`${API_BASE}/api/transactions`);
+    if (opts?.month) {
+      url.searchParams.set('month', opts.month);
+    }
+    const response = await fetch(url.toString());
     const json = await response.json();
     const result = ApiResponseSchema(z.array(TransactionSchema)).parse(json);
     return result.data;
@@ -299,6 +303,23 @@ export const api = {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ months: opts?.months || 6 }),
+    });
+    const json = await response.json();
+
+    // Check for error response
+    if (!response.ok || !json.success) {
+      throw new Error(json.error || `HTTP ${response.status}: ${response.statusText}`);
+    }
+
+    const result = ApiResponseSchema(PlaidSyncTransactionsResponseSchema).parse(json);
+    return result.data;
+  },
+
+  async syncPlaidMonthTransactions(month: string): Promise<PlaidSyncTransactionsResponse> {
+    const response = await fetch(`${API_BASE}/api/plaid/sync-month-transactions`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ month }),
     });
     const json = await response.json();
 

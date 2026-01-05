@@ -8,12 +8,14 @@ import { LoadingIndicator } from "../components/LoadingIndicator";
 import { ErrorDisplay } from "../components/ErrorDisplay";
 import { Pagination } from "../components/Pagination";
 import { FilterBar, type FilterConfig } from "../components/FilterBar";
+import { MonthNavigator } from "../components/MonthNavigator";
 import { generateCategoryIdent } from "../lib/identGenerator";
 import type { CategoryDraft } from "../lib/categoryDraft";
 import { CATEGORY_TYPE_OPTIONS, type CategoryType } from "../lib/categoryTypes";
 import { calculateSortOrderUpdates, optimizeSortOrderUpdates } from "../lib/categoryReorder";
 import { debounce } from "../lib/debounce";
 import { parseSortingState, serializeSortingState } from "../lib/sortingState";
+import { parseMonthParam, serializeMonth, type MonthState } from "../lib/monthState";
 import type { SortingState } from "@tanstack/react-table";
 import type { PageSize } from "../lib/pagination";
 import { usePlaidLink } from "../hooks/usePlaidLink";
@@ -23,6 +25,7 @@ import "../styles/pages/dashboard.css";
 import "../styles/components/pagination.css";
 import "../styles/components/category-button.css";
 import "../styles/components/filter.css";
+import "../styles/components/month-navigator.css";
 
 export function meta({}: Route.MetaArgs) {
   return [
@@ -34,6 +37,7 @@ export function meta({}: Route.MetaArgs) {
 export async function loader({ request }: Route.LoaderArgs) {
   const url = new URL(request.url);
   const view = url.searchParams.get('view');
+  const month = url.searchParams.get('month');
 
   const stats = await api.getStats();
 
@@ -46,15 +50,20 @@ export async function loader({ request }: Route.LoaderArgs) {
   } else if (view === 'accounts') {
     accounts = await api.getAccounts();
   } else if (view === 'transactions') {
+    // Parse month param (defaults to current month if invalid/missing)
+    const monthState = parseMonthParam(month);
+    const monthParam = serializeMonth(monthState);
+
     [transactions, categories] = await Promise.all([
-      api.getTransactions(),
+      api.getTransactions({ month: monthParam }),
       api.getCategories(),
     ]);
   }
 
   // Return plain object - React Router v7 handles serialization
-  // Note: For HTTP caching headers, consider using Response object when needed
-  return { stats, categories, accounts, transactions, view };
+  // Include month so frontend can use it directly from loader data
+  const monthParam = view === 'transactions' ? serializeMonth(parseMonthParam(month)) : null;
+  return { stats, categories, accounts, transactions, view, month: monthParam };
 }
 
 export async function action({ request }: Route.ActionArgs) {
@@ -116,7 +125,7 @@ export async function action({ request }: Route.ActionArgs) {
 }
 
 export default function Home({ loaderData }: Route.ComponentProps) {
-  const { stats, categories, accounts, transactions, view } = loaderData;
+  const { stats, categories, accounts, transactions, view, month } = loaderData;
   const [searchParams, setSearchParams] = useSearchParams();
   const [error, setError] = useState<string | null>(null);
   const fetcher = useFetcher();
@@ -180,7 +189,14 @@ export default function Home({ loaderData }: Route.ComponentProps) {
 
       {!isLoading && view === 'categories' && <CategoriesSection categories={categories} />}
       {!isLoading && view === 'accounts' && <AccountsSection accounts={accounts} />}
-      {!isLoading && view === 'transactions' && <TransactionsSection transactions={transactions} categories={categories} />}
+      {!isLoading && view === 'transactions' && month && (
+        <TransactionsSection
+          key={month}
+          transactions={transactions}
+          categories={categories}
+          month={month}
+        />
+      )}
     </div>
   );
 }
@@ -482,17 +498,23 @@ function AccountsSection({ accounts }: { accounts: Account[] }) {
 
 function TransactionsSection({
   transactions,
-  categories
+  categories,
+  month,
 }: {
   transactions: Transaction[];
   categories: Category[];
+  month: string;
 }) {
   const [searchParams, setSearchParams] = useSearchParams();
   const [page, setPage] = useState(0);
   const [pageSize, setPageSize] = useState<PageSize>(25);
   const [error, setError] = useState<string | null>(null);
+  const [isSyncing, setIsSyncing] = useState(false);
   const [syncStatus, setSyncStatus] = useState<string>("");
   const [syncError, setSyncError] = useState<string | null>(null);
+
+  // Month comes from loader data (server is source of truth)
+  const currentMonth = parseMonthParam(month);
 
   // Initialize sorting from URL
   const [sorting, setSorting] = useState<SortingState>(() =>
@@ -536,28 +558,28 @@ function TransactionsSection({
     );
   }, [transactions, filters]);
 
-  // Sync URL when sorting or filters change
+  // Sync URL when sorting or filters change (not month - that uses React Router navigation)
   useEffect(() => {
-    const newParams = new URLSearchParams(searchParams);
+    // Build URL from current location to preserve all params including month
+    const currentUrl = new URL(window.location.href);
 
     const serializedSort = serializeSortingState(sorting);
     if (serializedSort) {
-      newParams.set('sort', serializedSort);
+      currentUrl.searchParams.set('sort', serializedSort);
     } else {
-      newParams.delete('sort');
+      currentUrl.searchParams.delete('sort');
     }
 
     const serializedFilters = serializeFilters(filters);
     if (serializedFilters) {
-      newParams.set('filters', serializedFilters);
+      currentUrl.searchParams.set('filters', serializedFilters);
     } else {
-      newParams.delete('filters');
+      currentUrl.searchParams.delete('filters');
     }
 
     // Use native history API to avoid triggering React Router navigation
-    const newUrl = `${window.location.pathname}?${newParams.toString()}`;
-    window.history.replaceState(null, '', newUrl);
-  }, [sorting, filters, searchParams]);
+    window.history.replaceState(null, '', currentUrl.toString());
+  }, [sorting, filters]); // Removed searchParams - only sync when sort/filters change locally
 
   const handleSortingChange = (updaterOrValue: SortingState | ((old: SortingState) => SortingState)) => {
     setSorting(updaterOrValue);
@@ -575,12 +597,25 @@ function TransactionsSection({
     setFilters(clearAllFilters());
   };
 
-  const handleSyncTransactions = async () => {
+  const handleMonthChange = (newMonth: MonthState) => {
+    // Update URL with new month - this triggers a loader re-run via React Router
+    setSearchParams(prev => {
+      const next = new URLSearchParams(prev);
+      next.set('month', serializeMonth(newMonth));
+      return next;
+    });
+    // Reset to first page when month changes
+    setPage(0);
+  };
+
+  const handleSyncMonth = async () => {
+    setIsSyncing(true);
     setSyncStatus("Syncing transactions from Plaid...");
     setSyncError(null);
 
     try {
-      const result = await api.syncPlaidTransactions({ months: 6 });
+      // Use month prop directly (already in YYYY-MM format from loader)
+      const result = await api.syncPlaidMonthTransactions(month);
       setSyncStatus(
         `Successfully synced ${result.success.transactions} transaction(s)!`
       );
@@ -593,6 +628,8 @@ function TransactionsSection({
       const errorMsg = err instanceof Error ? err.message : "Failed to sync transactions";
       setSyncError(errorMsg);
       setSyncStatus("");
+    } finally {
+      setIsSyncing(false);
     }
   };
 
@@ -600,14 +637,14 @@ function TransactionsSection({
     <div className="card">
       <div className="card-header">
         <h2>Transactions</h2>
-        <button
-          className="button"
-          onClick={handleSyncTransactions}
-          disabled={!!syncStatus}
-        >
-          Sync Transactions
-        </button>
       </div>
+
+      <MonthNavigator
+        currentMonth={currentMonth}
+        onMonthChange={handleMonthChange}
+        onSync={handleSyncMonth}
+        isSyncing={isSyncing}
+      />
 
       {syncStatus && <div className="status-banner">{syncStatus}</div>}
       {syncError && <div className="error-banner">{syncError}</div>}

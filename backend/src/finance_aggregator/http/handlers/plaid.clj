@@ -227,6 +227,34 @@
     (let [items (credentials/list-plaid-items db-conn)]
       (responses/success-response items))))
 
+(defn sync-month-transactions-handler
+  "Factory: creates handler for POST /api/plaid/sync-month-transactions.
+
+   Syncs Plaid transactions to database for a specific month.
+   Useful for refreshing transactions when viewing a specific month.
+
+   Expected body-params:
+   - :month (string, YYYY-MM format, required)
+
+   Args:
+     deps - Map with :db-conn, :secrets, :plaid-config
+
+   Returns:
+     Ring handler function"
+  [{:keys [db-conn secrets plaid-config]}]
+  (fn [request]
+    (let [params (:body-params request)
+          month (:month params)]
+      (when-not month
+        (throw (ex-info "month is required"
+                        {:type :bad-request
+                         :hint "Format: YYYY-MM (e.g., 2025-01)"})))
+      (let [result (plaid-svc/sync-month-transactions! {:db-conn db-conn
+                                                        :secrets secrets
+                                                        :plaid-config plaid-config}
+                                                       month)]
+        (responses/success-response result)))))
+
 (defn delete-item-handler
   "Factory: creates handler for DELETE /api/plaid/items/:item-id.
 
