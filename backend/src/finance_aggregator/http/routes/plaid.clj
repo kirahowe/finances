@@ -24,6 +24,13 @@
                     :name ::list-items}}]
    ["/items/:item-id" {:delete {:handler (handlers/delete-item-handler deps)
                                 :name ::delete-item}}]
+   ;; Sync status and control (for frontend polling)
+   ["/items/:item-id/sync-status" {:get {:handler (handlers/get-sync-status-handler deps)
+                                         :name ::get-sync-status}}]
+   ["/items/:item-id/sync" {:post {:handler (handlers/trigger-sync-handler deps)
+                                   :name ::trigger-sync}}]
+   ["/items/:item-id/reset-sync" {:post {:handler (handlers/reset-sync-handler deps)
+                                         :name ::reset-sync}}]
 
    ;; Legacy credential endpoint (for backward compatibility)
    ["/credential" {:delete {:handler (handlers/delete-credential-handler deps)

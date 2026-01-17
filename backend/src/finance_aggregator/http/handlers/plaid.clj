@@ -73,21 +73,18 @@
               institution (plaid/fetch-institution plaid-config institution-id)
               institution-name (:name institution)]
 
-          ;; Log selected accounts for debugging
-          (when account-ids
-            (println "Selected account IDs:" account-ids)
-            (println "Number of accounts selected:" (count account-ids)))
-
-          ;; 4. Store encrypted credential with item metadata
+          ;; 4. Store encrypted credential with item metadata and selected accounts
           (credentials/store-plaid-item-credential!
-           db-conn secrets access-token item-id institution-name)
+           db-conn secrets access-token item-id institution-name account-ids)
 
           ;; Return response with item info
+          ;; Include item_id for frontend polling
           (responses/success-response
            {:access_token access-token
             :item_id item-id
             :institution_name institution-name
-            :selected_accounts (when account-ids (count account-ids))}))))))
+            :selected_accounts (when account-ids (count account-ids))
+            :sync_status :pending}))))))
 
 (defn get-accounts-handler
   "Factory: creates handler for GET /api/plaid/accounts.
@@ -277,5 +274,97 @@
                                        :item-id item-id
                                        :message "Plaid Item deleted."})
           (responses/success-response {:deleted false
+                                       :item-id item-id
+                                       :message "Plaid Item not found."}))))))
+
+;;; Sync Status and Control Handlers (for frontend polling)
+
+(defn get-sync-status-handler
+  "Factory: creates handler for GET /api/plaid/items/:item-id/sync-status.
+
+   Returns sync status for a Plaid Item. Used by frontend for polling
+   during initial sync to determine when transactions are ready.
+
+   Args:
+     deps - Map with :db-conn, :secrets, :plaid-config
+
+   Returns:
+     Ring handler function
+
+   Response:
+     {:item-id string
+      :institution-name string
+      :sync-status keyword (:pending :syncing :synced :failed)
+      :has-cursor boolean
+      :transaction-count int
+      :last-sync-at instant or nil
+      :ready-for-display boolean}"
+  [{:keys [db-conn secrets plaid-config] :as deps}]
+  (fn [request]
+    (let [item-id (get-in request [:path-params :item-id])]
+      (when-not item-id
+        (throw (ex-info "item-id is required"
+                        {:type :bad-request})))
+      (let [status (plaid-svc/get-item-sync-status {:db-conn db-conn} item-id)]
+        (responses/success-response status)))))
+
+(defn trigger-sync-handler
+  "Factory: creates handler for POST /api/plaid/items/:item-id/sync.
+
+   Triggers a transaction sync for a specific Plaid Item.
+   Sets sync status to :syncing before starting.
+
+   Args:
+     deps - Map with :db-conn, :secrets, :plaid-config
+
+   Returns:
+     Ring handler function"
+  [{:keys [db-conn secrets plaid-config] :as deps}]
+  (fn [request]
+    (let [item-id (get-in request [:path-params :item-id])]
+      (when-not item-id
+        (throw (ex-info "item-id is required"
+                        {:type :bad-request})))
+      (let [access-token (credentials/get-plaid-item-credential db-conn secrets item-id)]
+        (when-not access-token
+          (throw (ex-info "Item not found"
+                          {:type :not-found
+                           :item-id item-id})))
+
+        ;; Set status to syncing
+        (credentials/update-sync-status! db-conn item-id :syncing)
+
+        ;; Trigger sync
+        (let [institution-name (credentials/get-institution-name db-conn item-id)
+              result (plaid-svc/sync-item-transactions!
+                      {:db-conn db-conn :plaid-config plaid-config}
+                      {:item-id item-id
+                       :access-token access-token
+                       :institution-name institution-name})]
+          (responses/success-response result))))))
+
+(defn reset-sync-handler
+  "Factory: creates handler for POST /api/plaid/items/:item-id/reset-sync.
+
+   Resets the sync cursor for a Plaid Item, enabling a full re-sync.
+   The next sync will fetch up to 730 days of transaction history.
+
+   Args:
+     deps - Map with :db-conn
+
+   Returns:
+     Ring handler function"
+  [{:keys [db-conn]}]
+  (fn [request]
+    (let [item-id (get-in request [:path-params :item-id])]
+      (when-not item-id
+        (throw (ex-info "item-id is required"
+                        {:type :bad-request})))
+      (let [reset? (credentials/reset-sync-cursor! db-conn item-id)]
+        (if reset?
+          (responses/success-response {:reset true
+                                       :item-id item-id
+                                       :message "Sync cursor reset. Next sync will fetch full history."})
+          (responses/success-response {:reset false
                                        :item-id item-id
                                        :message "Plaid Item not found."}))))))

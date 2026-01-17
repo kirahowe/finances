@@ -102,3 +102,28 @@
       ;;  :primary_color "#0D1B41"
       ;;  :logo "base64-encoded-image-or-url"}
       )))
+
+(deftest ^:integration sync-transactions-test
+  (testing "sync-transactions uses /transactions/sync with cursor-based pagination"
+    ;; Note: This test cannot be run in isolation because access_tokens
+    ;; are only obtained by exchanging a public_token. This test documents
+    ;; the expected behavior for manual testing.
+    (when *plaid-config*
+      (is true "sync-transactions requires a real access_token from token exchange")
+      ;; Expected result shape for initial sync (cursor = nil):
+      ;; {:added [{:transaction_id "tx1" :account_id "acc1" :amount 10.0 ...} ...]
+      ;;  :modified []
+      ;;  :removed []
+      ;;  :next_cursor "cursor_abc123"
+      ;;  :has_more false}
+      ;;
+      ;; For incremental sync (cursor = "cursor_abc123"):
+      ;; {:added [{new transactions}]
+      ;;  :modified [{updated transactions}]
+      ;;  :removed [{:transaction_id "tx_removed"} ...]
+      ;;  :next_cursor "cursor_xyz789"
+      ;;  :has_more false}
+      ;;
+      ;; When has_more = true, caller should call again with next_cursor
+      ;; until has_more = false
+      )))

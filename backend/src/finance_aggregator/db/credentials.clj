@@ -13,6 +13,7 @@
    For Phase 2/3, all operations use hardcoded user-id 'test-user'.
    Multi-user support will be added in Phase 7."
   (:require
+   [clojure.data.json :as json]
    [datalevin.core :as d]
    [finance-aggregator.lib.encryption :as encryption]
    [finance-aggregator.lib.log :as log]
@@ -204,40 +205,49 @@
    - access-token: Plaid access_token to encrypt and store
    - item-id: Plaid item_id (unique identifier for the bank connection)
    - institution-name: Human-readable institution name (e.g., 'Chase Bank')
+   - selected-account-ids: Vector of Plaid account IDs user selected (optional)
 
    Returns:
    The created credential entity with :db/id
 
    Example:
    (store-plaid-item-credential! conn secrets-data
-     \"access-sandbox-xyz\" \"item_abc123\" \"Chase Bank\")"
-  [conn secrets-data access-token item-id institution-name]
-  ;; Ensure test user exists
-  (ensure-user-exists! conn)
+     \"access-sandbox-xyz\" \"item_abc123\" \"Chase Bank\" [\"acc_1\" \"acc_2\"])"
+  ([conn secrets-data access-token item-id institution-name]
+   (store-plaid-item-credential! conn secrets-data access-token item-id institution-name nil))
+  ([conn secrets-data access-token item-id institution-name selected-account-ids]
+   ;; Ensure test user exists
+   (ensure-user-exists! conn)
 
-  ;; Get encryption key and encrypt the token
-  (let [encryption-key (get-encryption-key secrets-data)
-        encrypted-data (encryption/encrypt-credential access-token encryption-key)
-        encrypted-data-str (pr-str encrypted-data)
-        ;; Use item-id as the credential ID for easy lookup
-        credential-id (str "plaid-item-" item-id)
-        credential {:credential/id credential-id
-                    :credential/user [:user/id hardcoded-user-id]
-                    :credential/institution :plaid
-                    :credential/item-id item-id
-                    :credential/institution-name institution-name
-                    :credential/encrypted-data encrypted-data-str
-                    :credential/created-at (java.util.Date.)}]
+   ;; Get encryption key and encrypt the token
+   (let [encryption-key (get-encryption-key secrets-data)
+         encrypted-data (encryption/encrypt-credential access-token encryption-key)
+         encrypted-data-str (pr-str encrypted-data)
+         ;; Use item-id as the credential ID for easy lookup
+         credential-id (str "plaid-item-" item-id)
+         credential (cond-> {:credential/id credential-id
+                             :credential/user [:user/id hardcoded-user-id]
+                             :credential/institution :plaid
+                             :credential/item-id item-id
+                             :credential/institution-name institution-name
+                             :credential/encrypted-data encrypted-data-str
+                             :credential/created-at (java.util.Date.)
+                             :credential/sync-status :pending}
+                      ;; Add selected account IDs if provided
+                      (seq selected-account-ids)
+                      (assoc :credential/selected-account-ids (json/write-str selected-account-ids)))]
 
-    (log/info "Storing Plaid Item credential"
-              {:item-id item-id :institution-name institution-name})
+     (log/info "Storing Plaid Item credential"
+               {:item-id item-id
+                :institution-name institution-name
+                :selected-accounts (count (or selected-account-ids []))})
 
-    ;; Upsert credential (replace if item-id already exists)
-    (d/transact! conn [credential])
+     ;; Upsert credential (replace if item-id already exists)
+     (d/transact! conn [credential])
 
-    ;; Return the entity with :db/id
-    (let [db (d/db conn)]
-      (d/pull db '[*] [:credential/id credential-id]))))
+     ;; Return the entity with :db/id
+     (let [db (d/db conn)]
+       (d/pull db '[*] [:credential/id credential-id])))))
 
 (defn get-plaid-item-credential
   "Retrieve and decrypt a Plaid Item credential by item-id.
@@ -371,6 +381,202 @@
              :institution-name (:credential/institution-name cred)
              :created-at (:credential/created-at cred)})
           credentials)))
+
+;;; Sync Cursor Functions (for /transactions/sync incremental updates)
+
+(defn get-sync-cursor
+  "Get the current sync cursor for a Plaid Item.
+
+   The cursor tracks the position in the /transactions/sync update stream.
+   Returns nil if:
+   - The item doesn't exist
+   - No sync has occurred yet (cursor not set)
+
+   Parameters:
+   - conn: Datalevin connection
+   - item-id: Plaid item_id
+
+   Returns:
+   Cursor string, or nil if not found or never synced
+
+   Example:
+   (get-sync-cursor conn \"item_abc123\")
+   ;; => \"cursor_xyz789\" or nil"
+  [conn item-id]
+  (let [db (d/db conn)
+        credential-id (str "plaid-item-" item-id)
+        credential (d/pull db '[:credential/sync-cursor] [:credential/id credential-id])]
+    (:credential/sync-cursor credential)))
+
+(defn update-sync-cursor!
+  "Update the sync cursor for a Plaid Item after successful sync.
+
+   Call this after successfully persisting transactions from /transactions/sync
+   to record the cursor position for the next incremental sync.
+
+   Parameters:
+   - conn: Datalevin connection
+   - item-id: Plaid item_id
+   - cursor: New cursor string from /transactions/sync response
+
+   Returns:
+   True if updated, false if item not found
+
+   Example:
+   (update-sync-cursor! conn \"item_abc123\" \"cursor_xyz789\")"
+  [conn item-id cursor]
+  (let [db (d/db conn)
+        credential-id (str "plaid-item-" item-id)
+        credential (d/pull db '[:db/id] [:credential/id credential-id])]
+    (if (:db/id credential)
+      (do
+        (d/transact! conn [{:db/id (:db/id credential)
+                            :credential/sync-cursor cursor}])
+        true)
+      false)))
+
+;;; Sync Status Functions (for frontend polling during initial sync)
+
+(defn get-sync-status
+  "Get the sync status for a Plaid Item.
+
+   Returns a map with sync status fields for frontend polling.
+
+   Parameters:
+   - conn: Datalevin connection
+   - item-id: Plaid item_id
+
+   Returns:
+   {:sync-status keyword (:pending, :syncing, :synced, :failed)
+    :transaction-count int
+    :last-sync-at instant or nil
+    :institution-name string}
+   Or nil if item not found
+
+   Example:
+   (get-sync-status conn \"item_abc123\")
+   ;; => {:sync-status :synced :transaction-count 42 :last-sync-at #inst \"...\"}"
+  [conn item-id]
+  (let [db (d/db conn)
+        credential-id (str "plaid-item-" item-id)
+        credential (d/pull db '[:credential/sync-status
+                                :credential/transaction-count
+                                :credential/last-sync-at
+                                :credential/institution-name]
+                           [:credential/id credential-id])]
+    (when (:credential/sync-status credential)
+      {:sync-status (:credential/sync-status credential)
+       :transaction-count (or (:credential/transaction-count credential) 0)
+       :last-sync-at (:credential/last-sync-at credential)
+       :institution-name (:credential/institution-name credential)})))
+
+(defn update-sync-status!
+  "Update the sync status for a Plaid Item.
+
+   Parameters:
+   - conn: Datalevin connection
+   - item-id: Plaid item_id
+   - status: Keyword (:pending, :syncing, :synced, :failed)
+   - opts: Optional map with:
+     - :transaction-count - Number of transactions synced
+     - :error - Error message (for :failed status)
+
+   Returns:
+   True if updated, false if item not found
+
+   Example:
+   (update-sync-status! conn \"item_abc123\" :synced {:transaction-count 42})"
+  ([conn item-id status]
+   (update-sync-status! conn item-id status {}))
+  ([conn item-id status {:keys [transaction-count error]}]
+   (let [db (d/db conn)
+         credential-id (str "plaid-item-" item-id)
+         credential (d/pull db '[:db/id] [:credential/id credential-id])]
+     (if (:db/id credential)
+       (do
+         (d/transact! conn [(cond-> {:db/id (:db/id credential)
+                                     :credential/sync-status status}
+                              ;; Add last-sync-at when synced
+                              (= status :synced)
+                              (assoc :credential/last-sync-at (java.util.Date.))
+                              ;; Add transaction count if provided
+                              transaction-count
+                              (assoc :credential/transaction-count transaction-count))])
+         true)
+       false))))
+
+(defn reset-sync-cursor!
+  "Reset the sync cursor for a Plaid Item to enable full re-sync.
+
+   Clears the cursor and resets sync-status to :pending.
+   The next sync will fetch full history (up to 730 days).
+
+   Parameters:
+   - conn: Datalevin connection
+   - item-id: Plaid item_id
+
+   Returns:
+   True if reset, false if item not found
+
+   Example:
+   (reset-sync-cursor! conn \"item_abc123\")"
+  [conn item-id]
+  (let [db (d/db conn)
+        credential-id (str "plaid-item-" item-id)
+        credential (d/pull db '[:db/id] [:credential/id credential-id])]
+    (if (:db/id credential)
+      (do
+        (log/info "Resetting sync cursor for Plaid Item" {:item-id item-id})
+        ;; Retract the cursor (set to nil) and reset status
+        (d/transact! conn [[:db/retract (:db/id credential) :credential/sync-cursor]
+                           {:db/id (:db/id credential)
+                            :credential/sync-status :pending
+                            :credential/transaction-count 0}])
+        true)
+      false)))
+
+(defn get-selected-account-ids
+  "Get the selected account IDs for a Plaid Item.
+
+   Returns the account IDs that the user selected during Plaid Link.
+
+   Parameters:
+   - conn: Datalevin connection
+   - item-id: Plaid item_id
+
+   Returns:
+   Vector of account ID strings, or nil if not stored
+
+   Example:
+   (get-selected-account-ids conn \"item_abc123\")
+   ;; => [\"acc_1\" \"acc_2\"]"
+  [conn item-id]
+  (let [db (d/db conn)
+        credential-id (str "plaid-item-" item-id)
+        credential (d/pull db '[:credential/selected-account-ids]
+                           [:credential/id credential-id])]
+    (when-let [json-str (:credential/selected-account-ids credential)]
+      (json/read-str json-str))))
+
+(defn get-institution-name
+  "Get the institution name for a Plaid Item.
+
+   Parameters:
+   - conn: Datalevin connection
+   - item-id: Plaid item_id
+
+   Returns:
+   Institution name string, or nil if not found
+
+   Example:
+   (get-institution-name conn \"item_abc123\")
+   ;; => \"Chase Bank\""
+  [conn item-id]
+  (let [db (d/db conn)
+        credential-id (str "plaid-item-" item-id)
+        credential (d/pull db '[:credential/institution-name]
+                           [:credential/id credential-id])]
+    (:credential/institution-name credential)))
 
 (comment
   ;; Example usage in REPL

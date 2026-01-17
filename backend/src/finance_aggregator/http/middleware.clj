@@ -109,6 +109,7 @@
 
    Serializes map bodies to JSON and adds Content-Type header.
    Preserves string and nil bodies unchanged.
+   Skips WebSocket upgrade responses (http-kit returns channel as body).
 
    Args:
      handler - Ring handler function
@@ -119,12 +120,19 @@
   (fn [request]
     (let [response (handler request)
           body (:body response)]
-      (if (and body (not (string? body)))
-        ;; Serialize non-string bodies to JSON
+      (cond
+        ;; Skip nil/string bodies
+        (or (nil? body) (string? body))
+        response
+
+        ;; Skip if body is a map (serialize to JSON)
+        (map? body)
         (-> response
             (assoc :body (json/write-json-str body))
             (assoc-in [:headers "Content-Type"] "application/json"))
-        ;; Keep string/nil bodies as-is
+
+        ;; Skip anything else (including http-kit WebSocket channels)
+        :else
         response))))
 
 ;;

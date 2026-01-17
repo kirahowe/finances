@@ -61,12 +61,17 @@
    :snapshot/source  {:db/valueType :db.type/keyword}    ; e.g. :simplefin, :manual, :calculated
 
    ;; Credentials (encrypted storage for API access tokens)
-   :credential/id              {:db/unique :db.unique/identity}
-   :credential/user            {:db/valueType :db.type/ref}
-   :credential/institution     {:db/valueType :db.type/keyword}  ; e.g. :plaid, :simplefin
-   :credential/item-id         {:db/valueType :db.type/string}   ; Plaid item_id (unique per bank connection)
-   :credential/institution-name {:db/valueType :db.type/string}  ; Human-readable institution name
-   :credential/encrypted-data  {:db/valueType :db.type/string}   ; AES-256-GCM encrypted
-   :credential/created-at      {:db/valueType :db.type/instant}
-   :credential/last-used       {:db/valueType :db.type/instant}
+   :credential/id                  {:db/unique :db.unique/identity}
+   :credential/user                {:db/valueType :db.type/ref}
+   :credential/institution         {:db/valueType :db.type/keyword}  ; e.g. :plaid, :simplefin
+   :credential/item-id             {:db/valueType :db.type/string}   ; Plaid item_id (unique per bank connection)
+   :credential/institution-name    {:db/valueType :db.type/string}   ; Human-readable institution name
+   :credential/encrypted-data      {:db/valueType :db.type/string}   ; AES-256-GCM encrypted
+   :credential/created-at          {:db/valueType :db.type/instant}
+   :credential/last-used           {:db/valueType :db.type/instant}
+   :credential/sync-cursor         {:db/valueType :db.type/string}   ; Plaid /transactions/sync cursor
+   :credential/selected-account-ids {:db/valueType :db.type/string}  ; JSON-encoded vector of Plaid account IDs
+   :credential/sync-status         {:db/valueType :db.type/keyword}  ; :pending, :syncing, :synced, :failed
+   :credential/last-sync-at        {:db/valueType :db.type/instant}  ; When last successful sync completed
+   :credential/transaction-count   {:db/valueType :db.type/long}     ; Number of transactions synced
    })

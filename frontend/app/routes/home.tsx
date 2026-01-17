@@ -1,7 +1,7 @@
 import { useState, useRef, useEffect, useMemo } from "react";
 import type { Route } from "./+types/home";
 import { api, type Stats, type Category, type Account, type Transaction } from "../lib/api";
-import { useSearchParams, useFetcher, useNavigation } from "react-router";
+import { useSearchParams, useFetcher, useNavigation, useRevalidator } from "react-router";
 import { OptimisticTransactionTable } from "../components/OptimisticTransactionTable";
 import { CategoryTable } from "../components/CategoryTable";
 import { LoadingIndicator } from "../components/LoadingIndicator";
@@ -73,27 +73,39 @@ export async function action({ request }: Route.ActionArgs) {
   if (intent === "refresh-stats") {
     return { success: true };
   } else if (intent === "link-plaid-account") {
-    // Handle Plaid account linking with exchange and sync
+    // Handle Plaid account linking with exchange
+    // Note: Transaction sync happens via frontend polling after this returns
     const publicToken = formData.get("publicToken") as string;
+    const accountIdsJson = formData.get("accountIds") as string;
+
     if (!publicToken) {
       return { success: false, error: "Missing public token" };
     }
 
+    // Parse account IDs if provided
+    let accountIds: string[] | undefined;
+    if (accountIdsJson) {
+      try {
+        accountIds = JSON.parse(accountIdsJson);
+      } catch {
+        console.warn('Failed to parse accountIds:', accountIdsJson);
+      }
+    }
+
     try {
-      // 1. Exchange public token for access token (stores credential)
-      const exchangeResult = await api.exchangePlaidToken(publicToken);
+      // 1. Exchange public token for access token (stores credential with accountIds)
+      const exchangeResult = await api.exchangePlaidToken(publicToken, accountIds);
 
-      // 2. Sync accounts from Plaid
-      const accountsResult = await api.syncPlaidAccounts();
+      // 2. Sync accounts from Plaid (immediate - accounts are available instantly)
+      await api.syncPlaidAccounts();
 
-      // 3. Sync transactions (last 6 months)
-      const transactionsResult = await api.syncPlaidTransactions({ months: 6 });
-
-      const message = `Linked ${exchangeResult.institution_name || 'account'}! ` +
-        `Synced ${accountsResult.success.accounts} account(s) and ` +
-        `${transactionsResult.success.transactions} transaction(s).`;
-
-      return { success: true, message };
+      // Return item_id so frontend can poll for transaction sync status
+      // Transaction sync is triggered and polled by the frontend hook
+      return {
+        success: true,
+        itemId: exchangeResult.item_id,
+        institutionName: exchangeResult.institution_name,
+      };
     } catch (err) {
       const errorMsg = err instanceof Error ? err.message : "Failed to link account";
       return { success: false, error: errorMsg };
@@ -451,12 +463,7 @@ function AccountsSection({ accounts }: { accounts: Account[] }) {
       {error && (
         <div className="error-banner">
           {error}
-          <button
-            onClick={clearError}
-            style={{ marginLeft: '1rem', background: 'none', border: 'none', cursor: 'pointer' }}
-          >
-            ×
-          </button>
+          <button onClick={clearError}>×</button>
         </div>
       )}
 
@@ -506,6 +513,7 @@ function TransactionsSection({
   month: string;
 }) {
   const [searchParams, setSearchParams] = useSearchParams();
+  const revalidator = useRevalidator();
   const [page, setPage] = useState(0);
   const [pageSize, setPageSize] = useState<PageSize>(25);
   const [error, setError] = useState<string | null>(null);
@@ -620,9 +628,10 @@ function TransactionsSection({
         `Successfully synced ${result.success.transactions} transaction(s)!`
       );
 
-      // Reload transactions data after sync
+      // Revalidate to refresh data without full page reload
       setTimeout(() => {
-        window.location.reload();
+        revalidator.revalidate();
+        setSyncStatus("");
       }, 1500);
     } catch (err) {
       const errorMsg = err instanceof Error ? err.message : "Failed to sync transactions";

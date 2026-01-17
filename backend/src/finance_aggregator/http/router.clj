@@ -2,6 +2,7 @@
   "HTTP router component using reitit.
 
    Creates and configures the main application router with:
+   - WebSocket endpoint (at /ws)
    - API routes (under /api)
    - Static file routes
    - Middleware (CORS, JSON, query params, exception handling)"
@@ -11,7 +12,14 @@
    [finance-aggregator.http.routes.api :as api]
    [finance-aggregator.http.routes.static :as static]
    [finance-aggregator.http.middleware :as middleware]
-   [finance-aggregator.http.errors :as errors]))
+   [finance-aggregator.http.errors :as errors]
+   [finance-aggregator.ws.handler :as ws]))
+
+(defn- ws-routes
+  "WebSocket routes. No middleware - raw http-kit WebSocket handling."
+  []
+  ["/ws" {:get {:handler ws/ws-handler
+                :no-doc true}}])
 
 (defn create-router
   "Create reitit router with all routes.
@@ -23,7 +31,8 @@
      Reitit router"
   [deps]
   (ring/router
-   [(api/api-routes deps)
+   [(ws-routes)
+    (api/api-routes deps)
     (static/static-routes)]
    {;; Middleware is applied in create-handler, not here
     ;; Allow specific routes before parameterized routes
@@ -43,7 +52,13 @@
        (ring/create-default-handler
         {:not-found (constantly {:status 404
                                  :headers {"Content-Type" "application/json"}
-                                 :body "{\"error\":\"Not found\"}"})}))
+                                 :body "{\"success\":false,\"error\":\"Not found\"}"})
+         :method-not-allowed (constantly {:status 405
+                                          :headers {"Content-Type" "application/json"}
+                                          :body "{\"success\":false,\"error\":\"Method not allowed\"}"})
+         :not-acceptable (constantly {:status 406
+                                      :headers {"Content-Type" "application/json"}
+                                      :body "{\"success\":false,\"error\":\"Not acceptable\"}"})}))
       ;; Apply global middleware in correct order (innermost to outermost)
       ;; 1. Exception handling catches errors first
       errors/wrap-exception-handling

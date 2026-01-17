@@ -7,9 +7,10 @@
   (:import
    [com.plaid.client ApiClient]
    [com.plaid.client.model CountryCode LinkTokenCreateRequest
-    LinkTokenCreateRequestUser Products ItemPublicTokenExchangeRequest
-    AccountsGetRequest TransactionsGetRequest ItemGetRequest
-    InstitutionsGetByIdRequest]
+    LinkTokenCreateRequestUser LinkTokenTransactions Products
+    ItemPublicTokenExchangeRequest AccountsGetRequest TransactionsGetRequest
+    ItemGetRequest InstitutionsGetByIdRequest TransactionsSyncRequest
+    TransactionsSyncRequestOptions]
    [com.plaid.client.request PlaidApi]
    [java.util HashMap]))
 
@@ -45,6 +46,12 @@
                               {:value value
                                :valid-values (keys lookup-map)})))))
 
+(def ^:private max-days-requested
+  "Maximum days of transaction history to request (2 years).
+   This is set during Link token creation and on the first /transactions/sync call.
+   Once Transactions is initialized for an Item, this cannot be changed."
+  730)
+
 (defn create-link-token
   "Generate link token for Plaid Link frontend initialization.
 
@@ -54,15 +61,21 @@
      - :country-codes (vector of CountryCode enums or strings)
      - :language (string, e.g. \"en\")
      - :products (vector of Products enums or keywords)
+     - :days-requested (int, 1-730, default 730 for max history)
 
    user-id: string identifying the user
-   Returns: link_token string"
+   Returns: link_token string
+
+   Note: days-requested configures how much transaction history to fetch.
+   Default is 730 (2 years) for maximum history. This value is set during
+   Link token creation and cannot be changed after Transactions is initialized."
   [plaid-config user-id]
-  (let [{:keys [client-name country-codes language products]
+  (let [{:keys [client-name country-codes language products days-requested]
          :or {client-name "Finance App"
               country-codes [CountryCode/US]
               language "en"
-              products [Products/TRANSACTIONS]}} plaid-config]
+              products [Products/TRANSACTIONS]
+              days-requested max-days-requested}} plaid-config]
     (try
       (let [api-client (create-api-client plaid-config)
             plaid-api (.createService api-client PlaidApi)
@@ -71,12 +84,16 @@
             ;; Ensure values are proper enum types
             product-enums (mapv #(ensure-enum % types/products "product") products)
             country-enums (mapv #(ensure-enum % types/country-codes "country code") country-codes)
+            ;; Configure transactions options for maximum history
+            transactions-options (-> (LinkTokenTransactions.)
+                                     (.daysRequested (int days-requested)))
             request (-> (LinkTokenCreateRequest.)
                         (.user user)
                         (.clientName client-name)
                         (.products product-enums)
                         (.countryCodes country-enums)
-                        (.language language))
+                        (.language language)
+                        (.transactions transactions-options))
             response (.linkTokenCreate plaid-api request)
             result (.body (.execute response))]
         (.getLinkToken result))
@@ -244,3 +261,95 @@
                         :country-codes country-codes
                         :error (.getMessage e)}
                        e))))))
+
+(defn- txn->map
+  "Convert Plaid Transaction object to a Clojure map.
+   Extracts all fields needed for parsing into database schema."
+  [txn]
+  {:transaction_id (.getTransactionId txn)
+   :account_id (.getAccountId txn)
+   :amount (.getAmount txn)
+   :date (str (.getDate txn))
+   :name (.getName txn)
+   :merchant_name (.getMerchantName txn)
+   :pending (.getPending txn)
+   :category (some-> (.getCategory txn) vec)
+   :payment_channel (some-> (.getPaymentChannel txn) str)})
+
+(defn- removed-txn->map
+  "Convert a RemovedTransaction object to a map.
+   The removed array contains objects with only transaction_id."
+  [removed-txn]
+  {:transaction_id (.getTransactionId removed-txn)})
+
+(defn sync-transactions
+  "Sync transactions using /transactions/sync with cursor-based incremental updates.
+
+   This is the recommended approach per Plaid documentation. It returns:
+   - added: New transactions since last cursor
+   - modified: Transactions that have been updated
+   - removed: Transactions that have been deleted
+   - next_cursor: Cursor for the next sync call
+   - has_more: Whether more pages are available
+   - transactions_update_status: Status of transaction data availability
+
+   plaid-config: map with :client-id, :secret, :environment
+   access-token: string from exchange-public-token
+   cursor: string from previous sync, or nil for initial sync
+   opts: {:count int (max 500, default 500)
+          :days-requested int (1-730, only used on initial sync when cursor is nil)}
+
+   For initial sync (cursor = nil):
+   - Use days-requested to control how much history to fetch (default 90, max 730)
+   - days-requested only takes effect on first sync; cannot be changed after
+
+   For incremental sync (cursor = previous next_cursor):
+   - Returns only changes since last cursor
+   - days-requested is ignored
+
+   Returns: {:added [txn-maps]
+            :modified [txn-maps]
+            :removed [txn-maps with :transaction_id only]
+            :next_cursor string
+            :has_more boolean
+            :transactions_update_status keyword - :not-ready, :initial-update-complete, or :historical-update-complete}"
+  ([plaid-config access-token]
+   (sync-transactions plaid-config access-token nil {}))
+  ([plaid-config access-token cursor]
+   (sync-transactions plaid-config access-token cursor {}))
+  ([plaid-config access-token cursor opts]
+   (let [{:keys [count days-requested]
+          :or {count 500
+               days-requested 730}} opts]
+     (try
+       (let [api-client (create-api-client plaid-config)
+             plaid-api (.createService api-client PlaidApi)
+             ;; Build request with access token and optional cursor
+             request (cond-> (-> (TransactionsSyncRequest.)
+                                 (.accessToken access-token)
+                                 (.count (int count)))
+                       ;; Add cursor if provided (incremental sync)
+                       cursor (.cursor cursor)
+                       ;; On initial sync (no cursor), set days_requested for max history
+                       (nil? cursor) (.options (-> (TransactionsSyncRequestOptions.)
+                                                   (.daysRequested (int days-requested)))))
+             response (.transactionsSync plaid-api request)
+             result (.body (.execute response))
+             ;; Parse transactions_update_status enum to keyword
+             update-status (some-> (.getTransactionsUpdateStatus result)
+                                   str
+                                   clojure.string/lower-case
+                                   (clojure.string/replace "_" "-")
+                                   keyword)]
+         {:added (mapv txn->map (.getAdded result))
+          :modified (mapv txn->map (.getModified result))
+          :removed (mapv removed-txn->map (.getRemoved result))
+          :next_cursor (.getNextCursor result)
+          :has_more (.getHasMore result)
+          :transactions_update_status update-status})
+       (catch Exception e
+         (throw (ex-info "Failed to sync transactions"
+                         {:access-token access-token
+                          :cursor cursor
+                          :error (.getMessage e)}
+                         e)))))))

@@ -1,10 +1,6 @@
 import { z } from 'zod';
 import { CATEGORY_TYPES, type CategoryType } from './categoryTypes';
-
-// API Base URL - defaulting to localhost:8080
-const API_BASE = typeof window !== 'undefined'
-  ? window.location.protocol + '//' + window.location.hostname + ':8080'
-  : 'http://localhost:8080';
+import { routes } from './routes';
 
 // Zod Schemas
 
@@ -114,6 +110,18 @@ const PlaidItemSchema = z.object({
   'created-at': z.string().optional(),
 });
 
+// Plaid sync status schema (for polling after linking)
+const PlaidSyncStatusSchema = z.object({
+  'item-id': z.string(),
+  'institution-name': z.string(),
+  'sync-status': z.enum(['pending', 'syncing', 'synced', 'failed']),
+  'has-cursor': z.boolean(),
+  'transaction-count': z.number(),
+  'last-sync-at': z.string().nullable().optional(),
+  'ready-for-display': z.boolean(),
+  'error': z.string().nullable().optional(),
+});
+
 // Type exports
 export type Category = z.infer<typeof CategorySchema>;
 export type Transaction = z.infer<typeof TransactionSchema>;
@@ -124,6 +132,7 @@ export type PlaidExchangeResponse = z.infer<typeof PlaidExchangeResponseSchema>;
 export type PlaidSyncAccountsResponse = z.infer<typeof PlaidSyncAccountsResponseSchema>;
 export type PlaidSyncTransactionsResponse = z.infer<typeof PlaidSyncTransactionsResponseSchema>;
 export type PlaidItem = z.infer<typeof PlaidItemSchema>;
+export type PlaidSyncStatus = z.infer<typeof PlaidSyncStatusSchema>;
 export type InstitutionRef = z.infer<typeof InstitutionRefSchema>;
 
 // API Response wrapper
@@ -136,21 +145,21 @@ const ApiResponseSchema = <T extends z.ZodTypeAny>(dataSchema: T) =>
 // API client
 export const api = {
   async getStats(): Promise<Stats> {
-    const response = await fetch(`${API_BASE}/api/stats`);
+    const response = await fetch(routes.stats());
     const json = await response.json();
     const result = ApiResponseSchema(StatsSchema).parse(json);
     return result.data;
   },
 
   async getCategories(): Promise<Category[]> {
-    const response = await fetch(`${API_BASE}/api/categories`);
+    const response = await fetch(routes.categories.list());
     const json = await response.json();
     const result = ApiResponseSchema(z.array(CategorySchema)).parse(json);
     return result.data;
   },
 
   async createCategory(data: { name: string; type: CategoryType; ident?: string }): Promise<Category> {
-    const response = await fetch(`${API_BASE}/api/categories`, {
+    const response = await fetch(routes.categories.create(), {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(data),
@@ -161,7 +170,7 @@ export const api = {
   },
 
   async updateCategory(id: number, data: { name: string; type: CategoryType; ident?: string }): Promise<Category> {
-    const response = await fetch(`${API_BASE}/api/categories/${id}`, {
+    const response = await fetch(routes.categories.update(id), {
       method: 'PUT',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(data),
@@ -172,7 +181,7 @@ export const api = {
   },
 
   async deleteCategory(id: number): Promise<void> {
-    const response = await fetch(`${API_BASE}/api/categories/${id}`, {
+    const response = await fetch(routes.categories.delete(id), {
       method: 'DELETE',
     });
     if (!response.ok) {
@@ -181,25 +190,21 @@ export const api = {
   },
 
   async getAccounts(): Promise<Account[]> {
-    const response = await fetch(`${API_BASE}/api/accounts`);
+    const response = await fetch(routes.accounts.list());
     const json = await response.json();
     const result = ApiResponseSchema(z.array(AccountSchema)).parse(json);
     return result.data;
   },
 
   async getTransactions(opts?: { month?: string }): Promise<Transaction[]> {
-    const url = new URL(`${API_BASE}/api/transactions`);
-    if (opts?.month) {
-      url.searchParams.set('month', opts.month);
-    }
-    const response = await fetch(url.toString());
+    const response = await fetch(routes.transactions.list(opts));
     const json = await response.json();
     const result = ApiResponseSchema(z.array(TransactionSchema)).parse(json);
     return result.data;
   },
 
   async updateTransactionCategory(transactionId: number, categoryId: number | null): Promise<Transaction> {
-    const response = await fetch(`${API_BASE}/api/transactions/${transactionId}/category`, {
+    const response = await fetch(routes.transactions.updateCategory(transactionId), {
       method: 'PUT',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ categoryId }),
@@ -210,7 +215,7 @@ export const api = {
   },
 
   async batchUpdateCategorySortOrders(updates: Array<{ id: number; sortOrder: number }>): Promise<Category[]> {
-    const response = await fetch(`${API_BASE}/api/categories/batch-sort`, {
+    const response = await fetch(routes.categories.batchSort(), {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ updates }),
@@ -222,7 +227,7 @@ export const api = {
 
   // Plaid API functions
   async createPlaidLinkToken(): Promise<PlaidLinkToken> {
-    const response = await fetch(`${API_BASE}/api/plaid/create-link-token`, {
+    const response = await fetch(routes.plaid.createLinkToken(), {
       method: 'POST',
     });
     const json = await response.json();
@@ -237,7 +242,7 @@ export const api = {
   },
 
   async exchangePlaidToken(publicToken: string, accountIds?: string[]): Promise<PlaidExchangeResponse> {
-    const response = await fetch(`${API_BASE}/api/plaid/exchange-token`, {
+    const response = await fetch(routes.plaid.exchangeToken(), {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ publicToken, accountIds }),
@@ -254,7 +259,7 @@ export const api = {
   },
 
   async getPlaidAccounts(): Promise<unknown> {
-    const response = await fetch(`${API_BASE}/api/plaid/accounts`);
+    const response = await fetch(routes.plaid.accounts());
     const json = await response.json();
 
     // Check for error response
@@ -267,7 +272,7 @@ export const api = {
   },
 
   async getPlaidTransactions(startDate: string, endDate: string): Promise<unknown> {
-    const response = await fetch(`${API_BASE}/api/plaid/transactions`, {
+    const response = await fetch(routes.plaid.transactions(), {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ startDate, endDate }),
@@ -284,7 +289,7 @@ export const api = {
   },
 
   async syncPlaidAccounts(): Promise<PlaidSyncAccountsResponse> {
-    const response = await fetch(`${API_BASE}/api/plaid/sync-accounts`, {
+    const response = await fetch(routes.plaid.syncAccounts(), {
       method: 'POST',
     });
     const json = await response.json();
@@ -299,7 +304,7 @@ export const api = {
   },
 
   async syncPlaidTransactions(opts?: { months?: number }): Promise<PlaidSyncTransactionsResponse> {
-    const response = await fetch(`${API_BASE}/api/plaid/sync-transactions`, {
+    const response = await fetch(routes.plaid.syncTransactions(), {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ months: opts?.months || 6 }),
@@ -316,7 +321,7 @@ export const api = {
   },
 
   async syncPlaidMonthTransactions(month: string): Promise<PlaidSyncTransactionsResponse> {
-    const response = await fetch(`${API_BASE}/api/plaid/sync-month-transactions`, {
+    const response = await fetch(routes.plaid.syncMonthTransactions(), {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ month }),
@@ -333,7 +338,7 @@ export const api = {
   },
 
   async listPlaidItems(): Promise<PlaidItem[]> {
-    const response = await fetch(`${API_BASE}/api/plaid/items`);
+    const response = await fetch(routes.plaid.items.list());
     const json = await response.json();
 
     // Check for error response
@@ -346,8 +351,50 @@ export const api = {
   },
 
   async deletePlaidItem(itemId: string): Promise<{ deleted: boolean }> {
-    const response = await fetch(`${API_BASE}/api/plaid/items/${encodeURIComponent(itemId)}`, {
+    const response = await fetch(routes.plaid.items.delete(itemId), {
       method: 'DELETE',
+    });
+    const json = await response.json();
+
+    // Check for error response
+    if (!response.ok || !json.success) {
+      throw new Error(json.error || `HTTP ${response.status}: ${response.statusText}`);
+    }
+
+    return json.data;
+  },
+
+  async getSyncStatus(itemId: string): Promise<PlaidSyncStatus> {
+    const response = await fetch(routes.plaid.items.syncStatus(itemId));
+    const json = await response.json();
+
+    // Check for error response
+    if (!response.ok || !json.success) {
+      throw new Error(json.error || `HTTP ${response.status}: ${response.statusText}`);
+    }
+
+    const result = ApiResponseSchema(PlaidSyncStatusSchema).parse(json);
+    return result.data;
+  },
+
+  async triggerSync(itemId: string): Promise<PlaidSyncTransactionsResponse> {
+    const response = await fetch(routes.plaid.items.triggerSync(itemId), {
+      method: 'POST',
+    });
+    const json = await response.json();
+
+    // Check for error response
+    if (!response.ok || !json.success) {
+      throw new Error(json.error || `HTTP ${response.status}: ${response.statusText}`);
+    }
+
+    const result = ApiResponseSchema(PlaidSyncTransactionsResponseSchema).parse(json);
+    return result.data;
+  },
+
+  async resetSync(itemId: string): Promise<{ reset: boolean; itemId: string; message: string }> {
+    const response = await fetch(routes.plaid.items.resetSync(itemId), {
+      method: 'POST',
     });
     const json = await response.json();
 
