@@ -5,7 +5,8 @@
    [finance-aggregator.http.routes.categories :as categories]
    [finance-aggregator.http.routes.transactions :as transactions]
    [finance-aggregator.http.routes.entities :as entities]
-   [finance-aggregator.http.routes.plaid :as plaid]))
+   [finance-aggregator.http.routes.plaid :as plaid]
+   [finance-aggregator.http.routes.csv :as csv]))
 
 (defn api-routes
   "Combine all API routes under /api prefix.
@@ -21,4 +22,5 @@
    (categories/categories-routes deps)
    (transactions/transactions-routes deps)
    (entities/entities-routes deps)
-   (plaid/plaid-routes deps)])
+   (plaid/plaid-routes deps)
+   (csv/csv-routes deps)])

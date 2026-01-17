@@ -4,11 +4,16 @@
    Endpoints:
    - GET /api/institutions - List all institutions
    - GET /api/accounts - List all accounts
+   - POST /api/accounts - Create manual account
+   - GET /api/accounts/:id - Get single account
+   - DELETE /api/accounts/:id - Delete manual account
+   - PUT /api/accounts/:id/settings - Update account settings
    - GET /api/transactions - List all transactions (optionally filtered by month)
    - POST /api/query - Execute custom Datalog query"
   (:require
    [datalevin.core :as d]
    [finance-aggregator.http.responses :as responses]
+   [finance-aggregator.manual.service :as manual-service]
    [finance-aggregator.utils :as utils]))
 
 (defn list-institutions-handler
@@ -44,6 +49,103 @@
                   :where [?e :account/external-id _]]
           results (d/q query db)]
       (responses/success-response results))))
+
+(defn create-account-handler
+  "Factory: creates handler for POST /api/accounts.
+
+   Creates a manual account with user-specified institution.
+
+   Expected body-params:
+   - :name (string) - Account name
+   - :currency (string, optional) - Currency code (defaults to USD)
+   - :institutionName (string) - Institution name
+
+   Args:
+     deps - Map with :db-conn
+
+   Returns:
+     Ring handler function"
+  [{:keys [db-conn]}]
+  (fn [request]
+    (let [params (:body-params request)
+          account-data {:name (:name params)
+                       :currency (:currency params)
+                       :institution-name (:institutionName params)}
+          result (manual-service/create-account! db-conn account-data)]
+      (if (:success result)
+        (responses/success-response (:data result))
+        (responses/json-response {:error (:error result)} 400)))))
+
+(defn get-account-handler
+  "Factory: creates handler for GET /api/accounts/:id.
+
+   Gets a single account by db/id.
+
+   Path params:
+   - :id - Account db/id
+
+   Args:
+     deps - Map with :db-conn
+
+   Returns:
+     Ring handler function"
+  [{:keys [db-conn]}]
+  (fn [request]
+    (let [id (parse-long (get-in request [:path-params :id]))
+          db (d/db db-conn)
+          account (d/pull db '[* {:account/institution [:db/id :institution/name]}] id)]
+      (if (:db/id account)
+        (responses/success-response account)
+        (responses/json-response {:error "Account not found"} 404)))))
+
+(defn delete-account-handler
+  "Factory: creates handler for DELETE /api/accounts/:id.
+
+   Deletes a manual account (cascade deletes transactions).
+
+   Path params:
+   - :id - Account external-id (not db/id)
+
+   Args:
+     deps - Map with :db-conn
+
+   Returns:
+     Ring handler function"
+  [{:keys [db-conn]}]
+  (fn [request]
+    (let [account-external-id (get-in request [:path-params :id])
+          result (manual-service/delete-account! db-conn account-external-id)]
+      (if (:success result)
+        (responses/success-response {:deleted-transactions (:deleted-transactions result)})
+        (responses/json-response {:error (:error result)} 400)))))
+
+(defn update-account-settings-handler
+  "Factory: creates handler for PUT /api/accounts/:id/settings.
+
+   Updates account settings (works for all account types).
+
+   Path params:
+   - :id - Account db/id
+
+   Expected body-params:
+   - :invertAmount (boolean, optional) - Whether to invert transaction amounts
+
+   Args:
+     deps - Map with :db-conn
+
+   Returns:
+     Ring handler function"
+  [{:keys [db-conn]}]
+  (fn [request]
+    (let [id (parse-long (get-in request [:path-params :id]))
+          params (:body-params request)
+          settings (cond-> {}
+                     (contains? params :invertAmount)
+                     (assoc :invert-amount (:invertAmount params)))
+          result (manual-service/update-account-settings! db-conn id settings)]
+      (if (:success result)
+        (responses/success-response {:success true})
+        (responses/json-response {:error (:error result)} 400)))))
 
 (def ^:private transactions-pull-pattern
   '[* {:transaction/category [:db/id :category/name]

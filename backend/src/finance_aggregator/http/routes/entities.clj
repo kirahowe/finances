@@ -16,7 +16,15 @@
    ["/institutions" {:get {:handler (handlers/list-institutions-handler deps)
                            :name ::list-institutions}}]
    ["/accounts" {:get {:handler (handlers/list-accounts-handler deps)
-                       :name ::list-accounts}}]
+                       :name ::list-accounts}
+                 :post {:handler (handlers/create-account-handler deps)
+                        :name ::create-account}}]
+   ["/accounts/:id" {:get {:handler (handlers/get-account-handler deps)
+                           :name ::get-account}
+                     :delete {:handler (handlers/delete-account-handler deps)
+                              :name ::delete-account}}]
+   ["/accounts/:id/settings" {:put {:handler (handlers/update-account-settings-handler deps)
+                                    :name ::update-account-settings}}]
    ["/transactions" {:get {:handler (handlers/list-transactions-handler deps)
                            :name ::list-transactions}}]
    ["/query" {:post {:handler (handlers/query-handler deps)

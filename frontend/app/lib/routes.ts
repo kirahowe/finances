@@ -68,6 +68,17 @@ export const routes = {
   // Accounts
   accounts: {
     list: () => buildUrl('api', 'accounts'),
+    create: () => buildUrl('api', 'accounts'),
+    get: (id: number) => buildUrl('api', 'accounts', id),
+    delete: (id: number) => buildUrl('api', 'accounts', id),
+    settings: (id: number) => buildUrl('api', 'accounts', id, 'settings'),
+  },
+
+  // CSV Import
+  csv: {
+    mapping: (accountId: number) => buildUrl('api', 'csv', 'mapping', accountId),
+    preview: (accountId: number) => buildUrl('api', 'csv', 'preview', accountId),
+    import: (accountId: number) => buildUrl('api', 'csv', 'import', accountId),
   },
 
   // Transactions

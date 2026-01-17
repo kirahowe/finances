@@ -24,6 +24,9 @@
    :account/plaid-subtype {:db/valueType :db.type/string}  ; Plaid account subtype (checking, savings, etc.)
    :account/mask          {:db/valueType :db.type/string}  ; Last 4 digits of account number
    :account/item-id       {:db/valueType :db.type/string}  ; Plaid item_id (links to credential)
+   :account/source        {:db/valueType :db.type/keyword}  ; :plaid or :manual
+   :account/csv-mapping   {:db/valueType :db.type/string}  ; EDN-encoded CSV column mapping (manual only)
+   :account/invert-amount {:db/valueType :db.type/boolean}  ; Flip amount signs (applies to all accounts)
    :account/user          {:db/valueType :db.type/ref}      ; ref to user (for data isolation)
 
    ;; Transactions

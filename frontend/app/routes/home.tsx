@@ -9,6 +9,8 @@ import { ErrorDisplay } from "../components/ErrorDisplay";
 import { Pagination } from "../components/Pagination";
 import { FilterBar, type FilterConfig } from "../components/FilterBar";
 import { MonthNavigator } from "../components/MonthNavigator";
+import { ManualAccountModal } from "../components/ManualAccountModal";
+import { CsvImportWizard } from "../components/CsvImportWizard";
 import { generateCategoryIdent } from "../lib/identGenerator";
 import type { CategoryDraft } from "../lib/categoryDraft";
 import { CATEGORY_TYPE_OPTIONS, type CategoryType } from "../lib/categoryTypes";
@@ -26,6 +28,7 @@ import "../styles/components/pagination.css";
 import "../styles/components/category-button.css";
 import "../styles/components/filter.css";
 import "../styles/components/month-navigator.css";
+import "../styles/components/csv-import.css";
 
 export function meta({}: Route.MetaArgs) {
   return [
@@ -131,6 +134,11 @@ export async function action({ request }: Route.ActionArgs) {
       transactionId,
       categoryId ? parseInt(categoryId as string) : null
     );
+  } else if (intent === "create-manual-account") {
+    const name = formData.get("name") as string;
+    const institutionName = formData.get("institutionName") as string;
+    const currency = formData.get("currency") as string;
+    await api.createAccount({ name, institutionName, currency });
   }
 
   return { success: true };
@@ -440,23 +448,40 @@ function CategoryForm({
 }
 
 function AccountsSection({ accounts }: { accounts: Account[] }) {
+  const [showManualAccountModal, setShowManualAccountModal] = useState(false);
+  const [importAccountId, setImportAccountId] = useState<number | null>(null);
+  const revalidator = useRevalidator();
   const { openPlaidLink, isReady, isLinking, status, error, clearError } = usePlaidLink({
     onSuccess: () => {
       console.log('Account linked successfully - data will refresh automatically');
     },
   });
 
+  const handleImportSuccess = () => {
+    revalidator.revalidate();
+  };
+
+  const importAccount = accounts.find((a) => a["db/id"] === importAccountId);
+
   return (
     <div className="card">
       <div className="card-header">
         <h2>Accounts</h2>
-        <button
-          className="button"
-          onClick={openPlaidLink}
-          disabled={!isReady || isLinking}
-        >
-          {isLinking ? "Linking..." : "Manage Accounts"}
-        </button>
+        <div className="button-group">
+          <button
+            className="button"
+            onClick={() => setShowManualAccountModal(true)}
+          >
+            Add Manual Account
+          </button>
+          <button
+            className="button"
+            onClick={openPlaidLink}
+            disabled={!isReady || isLinking}
+          >
+            {isLinking ? "Linking..." : "Link Bank Account"}
+          </button>
+        </div>
       </div>
 
       {status && <div className="status-banner">{status}</div>}
@@ -469,22 +494,29 @@ function AccountsSection({ accounts }: { accounts: Account[] }) {
 
       {accounts.length === 0 ? (
         <p style={{ padding: '1rem', color: '#666' }}>
-          No accounts linked yet. Click "Manage Accounts" to connect your bank.
+          No accounts yet. Click "Add Manual Account" or "Link Bank Account" to get started.
         </p>
       ) : (
         <table className="table">
           <thead>
             <tr>
+              <th>Source</th>
               <th>Institution</th>
               <th>Name</th>
               <th>Type</th>
               <th>Mask</th>
               <th>Currency</th>
+              <th>Actions</th>
             </tr>
           </thead>
           <tbody>
             {accounts.map((account) => (
               <tr key={account["db/id"]}>
+                <td>
+                  <span className={`badge badge-${account["account/source"] || 'plaid'}`}>
+                    {account["account/source"] === 'manual' ? 'Manual' : 'Plaid'}
+                  </span>
+                </td>
                 <td>{account["account/institution"]?.["institution/name"] || "—"}</td>
                 <td>{account["account/external-name"]}</td>
                 <td>
@@ -494,10 +526,33 @@ function AccountsSection({ accounts }: { accounts: Account[] }) {
                 </td>
                 <td>{account["account/mask"] ? `****${account["account/mask"]}` : "—"}</td>
                 <td>{account["account/currency"]}</td>
+                <td>
+                  {account["account/source"] === "manual" && (
+                    <button
+                      className="button button-small"
+                      onClick={() => setImportAccountId(account["db/id"])}
+                    >
+                      Import CSV
+                    </button>
+                  )}
+                </td>
               </tr>
             ))}
           </tbody>
         </table>
+      )}
+
+      {showManualAccountModal && (
+        <ManualAccountModal onClose={() => setShowManualAccountModal(false)} />
+      )}
+
+      {importAccountId && importAccount && (
+        <CsvImportWizard
+          accountId={importAccountId}
+          accountName={importAccount["account/external-name"]}
+          onClose={() => setImportAccountId(null)}
+          onSuccess={handleImportSuccess}
+        />
       )}
     </div>
   );

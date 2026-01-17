@@ -37,6 +37,9 @@ const AccountSchema = z.object({
   'account/mask': z.string().optional(),
   'account/item-id': z.string().optional(),
   'account/institution': InstitutionRefSchema.optional(),
+  'account/source': z.enum(['plaid', 'manual']).optional(),
+  'account/csv-mapping': z.string().optional(),
+  'account/invert-amount': z.boolean().optional(),
 });
 
 // Minimal account reference (nested in transactions)
@@ -123,6 +126,37 @@ const PlaidSyncStatusSchema = z.object({
   'error': z.string().nullable().optional(),
 });
 
+// CSV Import schemas
+const CsvMappingSchema = z.object({
+  columns: z.object({
+    date: z.string(),
+    amount: z.string(),
+    payee: z.string(),
+    description: z.string().optional(),
+  }),
+  'date-format': z.string(),
+});
+
+const CsvPreviewSchema = z.object({
+  headers: z.array(z.string()),
+  'sample-rows': z.array(z.record(z.string(), z.string())),
+  'total-rows': z.number(),
+  'detected-mapping': z.object({
+    date: z.string().optional(),
+    amount: z.string().optional(),
+    payee: z.string().optional(),
+    description: z.string().optional(),
+  }).optional(),
+  'suggested-date-format': z.string().optional(),
+  'stored-mapping': CsvMappingSchema.optional(),
+});
+
+const CsvImportResultSchema = z.object({
+  imported: z.number(),
+  'skipped-duplicates': z.number(),
+  errors: z.array(z.string()),
+});
+
 // Type exports
 export type Category = z.infer<typeof CategorySchema>;
 export type Transaction = z.infer<typeof TransactionSchema>;
@@ -135,6 +169,9 @@ export type PlaidSyncTransactionsResponse = z.infer<typeof PlaidSyncTransactions
 export type PlaidItem = z.infer<typeof PlaidItemSchema>;
 export type PlaidSyncStatus = z.infer<typeof PlaidSyncStatusSchema>;
 export type InstitutionRef = z.infer<typeof InstitutionRefSchema>;
+export type CsvMapping = z.infer<typeof CsvMappingSchema>;
+export type CsvPreview = z.infer<typeof CsvPreviewSchema>;
+export type CsvImportResult = z.infer<typeof CsvImportResultSchema>;
 
 // API Response wrapper
 const ApiResponseSchema = <T extends z.ZodTypeAny>(dataSchema: T) =>
@@ -194,6 +231,130 @@ export const api = {
     const response = await fetch(routes.accounts.list());
     const json = await response.json();
     const result = ApiResponseSchema(z.array(AccountSchema)).parse(json);
+    return result.data;
+  },
+
+  async createAccount(data: { name: string; currency?: string; institutionName: string }): Promise<Account> {
+    const response = await fetch(routes.accounts.create(), {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(data),
+    });
+    const json = await response.json();
+
+    if (!response.ok || !json.success) {
+      throw new Error(json.error || `HTTP ${response.status}: ${response.statusText}`);
+    }
+
+    const result = ApiResponseSchema(AccountSchema).parse(json);
+    return result.data;
+  },
+
+  async getAccount(id: number): Promise<Account> {
+    const response = await fetch(routes.accounts.get(id));
+    const json = await response.json();
+
+    if (!response.ok || !json.success) {
+      throw new Error(json.error || `HTTP ${response.status}: ${response.statusText}`);
+    }
+
+    const result = ApiResponseSchema(AccountSchema).parse(json);
+    return result.data;
+  },
+
+  async deleteAccount(id: number): Promise<void> {
+    const response = await fetch(routes.accounts.delete(id), {
+      method: 'DELETE',
+    });
+
+    if (!response.ok) {
+      const json = await response.json();
+      throw new Error(json.error || 'Failed to delete account');
+    }
+  },
+
+  async updateAccountSettings(id: number, settings: { invertAmount?: boolean }): Promise<Account> {
+    const response = await fetch(routes.accounts.settings(id), {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(settings),
+    });
+    const json = await response.json();
+
+    if (!response.ok || !json.success) {
+      throw new Error(json.error || `HTTP ${response.status}: ${response.statusText}`);
+    }
+
+    const result = ApiResponseSchema(AccountSchema).parse(json);
+    return result.data;
+  },
+
+  // CSV Import API functions
+  async getCsvMapping(accountId: number): Promise<CsvMapping | null> {
+    const response = await fetch(routes.csv.mapping(accountId));
+    const json = await response.json();
+
+    if (!response.ok || !json.success) {
+      throw new Error(json.error || `HTTP ${response.status}: ${response.statusText}`);
+    }
+
+    const result = ApiResponseSchema(CsvMappingSchema.nullable()).parse(json);
+    return result.data;
+  },
+
+  async saveCsvMapping(accountId: number, mapping: CsvMapping): Promise<{ success: boolean }> {
+    const response = await fetch(routes.csv.mapping(accountId), {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        columns: mapping.columns,
+        dateFormat: mapping['date-format'],
+      }),
+    });
+    const json = await response.json();
+
+    if (!response.ok || !json.success) {
+      throw new Error(json.error || `HTTP ${response.status}: ${response.statusText}`);
+    }
+
+    return json.data;
+  },
+
+  async previewCsv(accountId: number, csvContent: string): Promise<CsvPreview> {
+    const response = await fetch(routes.csv.preview(accountId), {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ csvContent }),
+    });
+    const json = await response.json();
+
+    if (!response.ok || !json.success) {
+      throw new Error(json.error || `HTTP ${response.status}: ${response.statusText}`);
+    }
+
+    const result = ApiResponseSchema(CsvPreviewSchema).parse(json);
+    return result.data;
+  },
+
+  async importCsv(accountId: number, csvContent: string, mapping: CsvMapping): Promise<CsvImportResult> {
+    const response = await fetch(routes.csv.import(accountId), {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        csvContent,
+        mapping: {
+          columns: mapping.columns,
+          'date-format': mapping['date-format'],
+        },
+      }),
+    });
+    const json = await response.json();
+
+    if (!response.ok || !json.success) {
+      throw new Error(json.error || `HTTP ${response.status}: ${response.statusText}`);
+    }
+
+    const result = ApiResponseSchema(CsvImportResultSchema).parse(json);
     return result.data;
   },
 
