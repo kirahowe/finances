@@ -43,6 +43,7 @@ const AccountSchema = z.object({
 const AccountRefSchema = z.object({
   'db/id': z.number(),
   'account/external-name': z.string(),
+  'account/institution': InstitutionRefSchema.optional(),
 });
 
 const TransactionSchema = z.object({

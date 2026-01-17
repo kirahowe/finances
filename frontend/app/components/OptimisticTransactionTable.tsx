@@ -92,6 +92,11 @@ export function OptimisticTransactionTable({
       header: 'Account',
       cell: (info) => info.getValue() || '—',
     }),
+    columnHelper.accessor(row => row['transaction/account']?.['account/institution']?.['institution/name'], {
+      id: 'institution',
+      header: 'Institution',
+      cell: (info) => info.getValue() || '—',
+    }),
     columnHelper.accessor('transaction/payee', {
       id: 'payee',
       header: 'Payee',

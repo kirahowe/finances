@@ -47,7 +47,8 @@
 
 (def ^:private transactions-pull-pattern
   '[* {:transaction/category [:db/id :category/name]
-       :transaction/account [:db/id :account/external-name]}])
+       :transaction/account [:db/id :account/external-name
+                             {:account/institution [:db/id :institution/name]}]}])
 
 (defn list-transactions-handler
   "Factory: creates handler for GET /api/transactions.

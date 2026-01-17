@@ -30,6 +30,37 @@ describe('OptimisticTransactionTable', () => {
     },
   ];
 
+  const mockTransactionsWithInstitution: Transaction[] = [
+    {
+      'db/id': 1,
+      'transaction/posted-date': '2024-01-15',
+      'transaction/payee': 'Store A',
+      'transaction/description': 'Purchase 1',
+      'transaction/amount': -50.0,
+      'transaction/category': mockCategories[0],
+      'transaction/account': {
+        'db/id': 10,
+        'account/external-name': 'Chequing',
+        'account/institution': {
+          'db/id': 100,
+          'institution/name': 'Chase',
+        },
+      },
+    },
+    {
+      'db/id': 2,
+      'transaction/posted-date': '2024-01-16',
+      'transaction/payee': 'Store B',
+      'transaction/description': 'Purchase 2',
+      'transaction/amount': -75.0,
+      'transaction/category': null,
+      'transaction/account': {
+        'db/id': 11,
+        'account/external-name': 'Savings',
+      },
+    },
+  ];
+
   const renderWithRouter = (component: React.ReactElement) => {
     const router = createMemoryRouter(
       [
@@ -117,5 +148,58 @@ describe('OptimisticTransactionTable', () => {
     // Note: In a real scenario, we'd see the loading state briefly.
     // For this unit test, we just verify the component renders correctly
     // with fetcher state. The loading indicator would be tested in integration tests.
+  });
+
+  it('displays institution in separate column when present', async () => {
+    renderWithRouter(
+      <OptimisticTransactionTable
+        transactions={mockTransactionsWithInstitution}
+        categories={mockCategories}
+        sorting={[]}
+        onSortingChange={vi.fn()}
+      />
+    );
+
+    // Should have Institution column header
+    expect(screen.getByRole('columnheader', { name: /institution/i })).toBeInTheDocument();
+
+    // Should render the account name
+    expect(screen.getByText('Chequing')).toBeInTheDocument();
+
+    // Should render the institution name in its own column
+    expect(screen.getByText('Chase')).toBeInTheDocument();
+  });
+
+  it('displays dash in institution column when not present', async () => {
+    renderWithRouter(
+      <OptimisticTransactionTable
+        transactions={mockTransactionsWithInstitution}
+        categories={mockCategories}
+        sorting={[]}
+        onSortingChange={vi.fn()}
+      />
+    );
+
+    // Should render the account name
+    expect(screen.getByText('Savings')).toBeInTheDocument();
+
+    // Should show dash for missing institution (multiple dashes may exist for other empty fields)
+    const dashes = screen.getAllByText('—');
+    expect(dashes.length).toBeGreaterThan(0);
+  });
+
+  it('displays dash when transaction has no account', async () => {
+    renderWithRouter(
+      <OptimisticTransactionTable
+        transactions={mockTransactions}
+        categories={mockCategories}
+        sorting={[]}
+        onSortingChange={vi.fn()}
+      />
+    );
+
+    // Transaction without account should show dash for both account and institution
+    const dashes = screen.getAllByText('—');
+    expect(dashes.length).toBeGreaterThanOrEqual(2); // At least account and institution columns
   });
 });

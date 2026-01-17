@@ -108,3 +108,58 @@
                             (handler {:query-params {"month" "invalid"}})))
       (is (thrown-with-msg? Exception #"Month must be between"
                             (handler {:query-params {"month" "2025-13"}}))))))
+
+(deftest list-transactions-handler-includes-institution-test
+  (testing "transaction response includes institution via account reference"
+    ;; Create institution, account, and transaction
+    (d/transact! setup/*test-conn*
+                 [{:institution/id "ins_test123"
+                   :institution/name "Test Bank"}])
+    (d/transact! setup/*test-conn*
+                 [{:account/external-id "acct-test-1"
+                   :account/external-name "Test Checking"
+                   :account/currency "USD"
+                   :account/institution [:institution/id "ins_test123"]}])
+    (d/transact! setup/*test-conn*
+                 [{:transaction/external-id "tx-with-inst"
+                   :transaction/payee "Test Merchant"
+                   :transaction/amount (bigdec 100.00)
+                   :transaction/posted-date (date-for 2025 1 15)
+                   :transaction/account [:account/external-id "acct-test-1"]}])
+
+    (let [handler (entities/list-transactions-handler {:db-conn setup/*test-conn*})
+          response (handler {:query-params {}})
+          body (json/read-json (:body response) :key-fn keyword)
+          data (:data body)
+          tx (first data)]
+      (is (= 200 (:status response)))
+      (is (= 1 (count data)))
+      ;; Verify account is included
+      (is (= "Test Checking" (get-in tx [:transaction/account :account/external-name])))
+      ;; Verify institution is included via account
+      (is (= "Test Bank" (get-in tx [:transaction/account :account/institution :institution/name])))))
+
+  (testing "transaction without institution shows nil for institution"
+    ;; Create account without institution and a transaction
+    (d/transact! setup/*test-conn*
+                 [{:account/external-id "acct-no-inst"
+                   :account/external-name "No Institution Account"
+                   :account/currency "USD"}])
+    (d/transact! setup/*test-conn*
+                 [{:transaction/external-id "tx-no-inst"
+                   :transaction/payee "Another Merchant"
+                   :transaction/amount (bigdec 50.00)
+                   :transaction/posted-date (date-for 2025 1 16)
+                   :transaction/account [:account/external-id "acct-no-inst"]}])
+
+    (let [handler (entities/list-transactions-handler {:db-conn setup/*test-conn*})
+          response (handler {:query-params {}})
+          body (json/read-json (:body response) :key-fn keyword)
+          data (:data body)
+          ;; Find the transaction without institution
+          tx (first (filter #(= "tx-no-inst" (:transaction/external-id %)) data))]
+      (is (= 200 (:status response)))
+      ;; Verify account is included
+      (is (= "No Institution Account" (get-in tx [:transaction/account :account/external-name])))
+      ;; Verify institution is not present (nil or missing)
+      (is (nil? (get-in tx [:transaction/account :account/institution]))))))
