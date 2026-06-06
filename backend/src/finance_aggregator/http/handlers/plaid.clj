@@ -303,11 +303,11 @@
 (defn trigger-sync-handler
   "Factory: creates handler for POST /api/plaid/items/:item-id/sync.
 
-   Triggers a full sync for a specific Plaid Item:
-   1. Syncs accounts first (required for transaction references)
-   2. Then syncs transactions
-
-   Sets sync status to :syncing before starting.
+   Triggers a full sync for a specific Plaid Item through the generic provider
+   orchestrator (`plaid-svc/sync-item!`): accounts are persisted before
+   transactions, the cursor is paged, removed transactions retracted, and the
+   terminal credential/ws status finalized. Real-time progress is published to
+   the WebSocket (keyed by item-id); the HTTP response reports the final count.
 
    Args:
      deps - Map with :db-conn, :secrets, :plaid-config
@@ -329,19 +329,18 @@
         ;; Set status to syncing
         (credentials/update-sync-status! db-conn item-id :syncing)
 
-        ;; 1. Sync accounts first (required for transaction references)
-        (let [institution-name (credentials/get-institution-name db-conn item-id)
-              item-cred {:item-id item-id
-                         :access-token access-token
-                         :institution-name institution-name}
-              _accounts-result (plaid-svc/sync-item-accounts!
-                                {:db-conn db-conn :plaid-config plaid-config}
-                                item-cred)
-              ;; 2. Then sync transactions
-              txn-result (plaid-svc/sync-item-transactions!
-                          {:db-conn db-conn :plaid-config plaid-config}
-                          item-cred)]
-          (responses/success-response txn-result))))))
+        ;; Full per-item sync (accounts then transactions) through the seam.
+        (let [institution-name (credentials/get-institution-name db-conn item-id)]
+          (plaid-svc/sync-item!
+           {:db-conn db-conn :plaid-config plaid-config}
+           {:item-id item-id
+            :access-token access-token
+            :institution-name institution-name})
+          (let [status (plaid-svc/get-item-sync-status {:db-conn db-conn} item-id)]
+            (responses/success-response
+             {:success {:transactions (or (:transaction-count status) 0)}
+              :failed {:transactions 0}
+              :errors []})))))))
 
 (defn reset-sync-handler
   "Factory: creates handler for POST /api/plaid/items/:item-id/reset-sync.

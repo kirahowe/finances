@@ -450,6 +450,8 @@ function CategoryForm({
 function AccountsSection({ accounts }: { accounts: Account[] }) {
   const [showManualAccountModal, setShowManualAccountModal] = useState(false);
   const [importAccountId, setImportAccountId] = useState<number | null>(null);
+  const [syncingProvider, setSyncingProvider] = useState<string | null>(null);
+  const [syncError, setSyncError] = useState<string | null>(null);
   const revalidator = useRevalidator();
   const { openPlaidLink, isReady, isLinking, status, error, clearError } = usePlaidLink({
     onSuccess: () => {
@@ -459,6 +461,21 @@ function AccountsSection({ accounts }: { accounts: Account[] }) {
 
   const handleImportSuccess = () => {
     revalidator.revalidate();
+  };
+
+  // Secrets-based providers (e.g. Lunchflow): the API key lives server-side, so
+  // syncing just triggers the backend pull and refreshes once it completes.
+  const handleSyncProvider = async (provider: string) => {
+    setSyncError(null);
+    setSyncingProvider(provider);
+    try {
+      await api.syncProvider(provider);
+      revalidator.revalidate();
+    } catch (err) {
+      setSyncError(err instanceof Error ? err.message : `Failed to sync ${provider}`);
+    } finally {
+      setSyncingProvider(null);
+    }
   };
 
   const importAccount = accounts.find((a) => a["db/id"] === importAccountId);
@@ -481,6 +498,13 @@ function AccountsSection({ accounts }: { accounts: Account[] }) {
           >
             {isLinking ? "Linking..." : "Link Bank Account"}
           </button>
+          <button
+            className="button"
+            onClick={() => handleSyncProvider("lunchflow")}
+            disabled={syncingProvider === "lunchflow"}
+          >
+            {syncingProvider === "lunchflow" ? "Syncing..." : "Sync Lunchflow"}
+          </button>
         </div>
       </div>
 
@@ -489,6 +513,12 @@ function AccountsSection({ accounts }: { accounts: Account[] }) {
         <div className="error-banner">
           {error}
           <button onClick={clearError}>×</button>
+        </div>
+      )}
+      {syncError && (
+        <div className="error-banner">
+          {syncError}
+          <button onClick={() => setSyncError(null)}>×</button>
         </div>
       )}
 
@@ -510,24 +540,29 @@ function AccountsSection({ accounts }: { accounts: Account[] }) {
             </tr>
           </thead>
           <tbody>
-            {accounts.map((account) => (
+            {accounts.map((account) => {
+              const provider = account["account/provider"];
+              const providerLabel = provider
+                ? provider.charAt(0).toUpperCase() + provider.slice(1)
+                : "Unknown";
+              return (
               <tr key={account["db/id"]}>
                 <td>
-                  <span className={`badge badge-${account["account/source"] || 'plaid'}`}>
-                    {account["account/source"] === 'manual' ? 'Manual' : 'Plaid'}
+                  <span className={`badge badge-${provider ?? "unknown"}`}>
+                    {providerLabel}
                   </span>
                 </td>
                 <td>{account["account/institution"]?.["institution/name"] || "—"}</td>
                 <td>{account["account/external-name"]}</td>
                 <td>
-                  {account["account/plaid-type"]
-                    ? `${account["account/plaid-type"]}${account["account/plaid-subtype"] ? ` / ${account["account/plaid-subtype"]}` : ''}`
+                  {account["account/provider-type"]
+                    ? `${account["account/provider-type"]}${account["account/provider-subtype"] ? ` / ${account["account/provider-subtype"]}` : ''}`
                     : account["account/type"] || "—"}
                 </td>
                 <td>{account["account/mask"] ? `****${account["account/mask"]}` : "—"}</td>
                 <td>{account["account/currency"]}</td>
                 <td>
-                  {account["account/source"] === "manual" && (
+                  {provider === "manual" && (
                     <button
                       className="button button-small"
                       onClick={() => setImportAccountId(account["db/id"])}
@@ -537,7 +572,8 @@ function AccountsSection({ accounts }: { accounts: Account[] }) {
                   )}
                 </td>
               </tr>
-            ))}
+              );
+            })}
           </tbody>
         </table>
       )}

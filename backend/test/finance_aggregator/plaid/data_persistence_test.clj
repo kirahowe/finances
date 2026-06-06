@@ -141,8 +141,7 @@
     (let [parsed-institution (plaid-data/parse-institution sample-plaid-institution)
           parsed-account (plaid-data/parse-account sample-plaid-account
                                                    "ins_38"
-                                                   "test-user"
-                                                   "item_abc123")
+                                                   "test-user")
           parsed-transactions (keep #(plaid-data/parse-transaction % "test-user")
                                    sample-plaid-transactions)]
 
@@ -171,8 +170,7 @@
     (let [parsed-institution (plaid-data/parse-institution sample-plaid-institution)
           parsed-account (plaid-data/parse-account sample-plaid-account
                                                    "ins_38"
-                                                   "test-user"
-                                                   "item_abc123")
+                                                   "test-user")
           parsed-transactions (keep #(plaid-data/parse-transaction % "test-user")
                                    sample-plaid-transactions)]
 
@@ -211,8 +209,7 @@
     (let [parsed-institution (plaid-data/parse-institution sample-plaid-institution)
           parsed-account (plaid-data/parse-account sample-plaid-account
                                                    "ins_38"
-                                                   "test-user"
-                                                   "item_abc123")
+                                                   "test-user")
           parsed-transactions (keep #(plaid-data/parse-transaction % "test-user")
                                    sample-plaid-transactions)]
 
@@ -241,9 +238,9 @@
       (is (= 1 (count accounts)))
       (let [acct (first accounts)]
         (is (= "Plaid Checking" (:account/external-name acct)))
-        (is (= "depository" (:account/plaid-type acct)))
-        (is (= "checking" (:account/plaid-subtype acct)))
-        (is (= "item_abc123" (:account/item-id acct)))))
+        (is (= "depository" (:account/provider-type acct)))
+        (is (= "checking" (:account/provider-subtype acct)))
+        (is (= :plaid (:account/provider acct)))))
 
     ;; Query transaction details
     (let [transactions (d/q '[:find [(pull ?e [*]) ...]
@@ -257,7 +254,8 @@
 
       ;; Verify specific transaction values
       (let [tx-001 (first (filter #(= "tx-plaid-001" (:transaction/external-id %)) transactions))]
-        (is (= (bigdec "100.50") (:transaction/amount tx-001)))
+        ;; Negated to canonical convention (Plaid positive=money-out).
+        (is (= (bigdec "-100.50") (:transaction/amount tx-001)))
         (is (= "STARBUCKS" (:transaction/description tx-001)))
         (is (= "Starbucks" (:transaction/payee tx-001)))
         (is (some? (:transaction/posted-date tx-001))
@@ -276,8 +274,7 @@
     (let [parsed-institution (plaid-data/parse-institution sample-plaid-institution)
           parsed-account (plaid-data/parse-account sample-plaid-account
                                                    "ins_38"
-                                                   "test-user"
-                                                   "item_abc123")]
+                                                   "test-user")]
 
       (db/insert! {:institutions #{parsed-institution}
                    :accounts #{parsed-account}
@@ -304,8 +301,7 @@
     (let [parsed-institution (plaid-data/parse-institution sample-plaid-institution)
           parsed-account (plaid-data/parse-account sample-plaid-account
                                                    "ins_38"
-                                                   "test-user"
-                                                   "item_abc123")
+                                                   "test-user")
           parsed-transactions (keep #(plaid-data/parse-transaction % "test-user")
                                    sample-plaid-transactions)]
 

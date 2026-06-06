@@ -82,6 +82,10 @@
   text-transform: uppercase;
   border-radius: 3px;
   letter-spacing: 0.5px;
+  /* Neutral default so any provider (incl. ones without a specific colour
+     below) still renders as a badge rather than unstyled text. */
+  background-color: #e5e7eb;
+  color: #374151;
 }
 
 .badge-plaid {
@@ -92,4 +96,9 @@
 .badge-manual {
   background-color: #f3e8ff;
   color: #7c3aed;
+}
+
+.badge-lunchflow {
+  background-color: #dcfce7;
+  color: #15803d;
 }

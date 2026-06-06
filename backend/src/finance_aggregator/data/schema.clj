@@ -20,11 +20,10 @@
    :account/institution   {:db/valueType :db.type/ref}      ; ref to institution entity
    :account/currency      {:db/valueType :db.type/string}
    :account/type          {:db/valueType :db.type/keyword}  ; :chequing, :credit, :savings, etc.
-   :account/plaid-type    {:db/valueType :db.type/string}  ; Plaid account type (depository, credit, etc.)
-   :account/plaid-subtype {:db/valueType :db.type/string}  ; Plaid account subtype (checking, savings, etc.)
+   :account/provider-type {:db/valueType :db.type/string}  ; provider-native account type (e.g. Plaid depository/credit, Lunchflow upstream connector)
+   :account/provider-subtype {:db/valueType :db.type/string}  ; provider-native subtype (e.g. Plaid checking/savings)
    :account/mask          {:db/valueType :db.type/string}  ; Last 4 digits of account number
-   :account/item-id       {:db/valueType :db.type/string}  ; Plaid item_id (links to credential)
-   :account/source        {:db/valueType :db.type/keyword}  ; :plaid or :manual
+   :account/provider      {:db/valueType :db.type/keyword}  ; :plaid, :lunchflow, :manual, ...
    :account/csv-mapping   {:db/valueType :db.type/string}  ; EDN-encoded CSV column mapping (manual only)
    :account/invert-amount {:db/valueType :db.type/boolean}  ; Flip amount signs (applies to all accounts)
    :account/user          {:db/valueType :db.type/ref}      ; ref to user (for data isolation)
@@ -39,6 +38,7 @@
    :transaction/description   {:db/valueType :db.type/string}
    :transaction/memo          {:db/valueType :db.type/string}
    :transaction/category      {:db/valueType :db.type/ref}     ; ref to category
+   :transaction/provider      {:db/valueType :db.type/keyword}  ; :plaid, :lunchflow, :manual, ... (provenance)
    :transaction/tags          {:db/valueType   :db.type/keyword
                                :db/cardinality :db.cardinality/many}  ; #{:income :transfer}
    :transaction/transfer-pair {:db/valueType :db.type/ref}   ; links paired transfers

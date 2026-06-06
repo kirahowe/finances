@@ -89,6 +89,11 @@ export const routes = {
       buildUrl('api', 'transactions', transactionId, 'category'),
   },
 
+  // Generic providers (secrets-based, e.g. Lunchflow)
+  providers: {
+    sync: (provider: string) => buildUrl('api', 'providers', provider, 'sync'),
+  },
+
   // Plaid
   plaid: {
     createLinkToken: () => buildUrl('api', 'plaid', 'create-link-token'),

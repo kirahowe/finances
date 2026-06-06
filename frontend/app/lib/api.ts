@@ -32,12 +32,15 @@ const AccountSchema = z.object({
   'account/type': z.string().optional(),
   'account/currency': z.string(),
   'account/external-id': z.string().optional(),
-  'account/plaid-type': z.string().optional(),
-  'account/plaid-subtype': z.string().optional(),
+  // Provider-native type/subtype (e.g. Plaid depository/checking). Kept as open
+  // strings so the frontend never enumerates a provider's vocabulary.
+  'account/provider-type': z.string().optional(),
+  'account/provider-subtype': z.string().optional(),
   'account/mask': z.string().optional(),
-  'account/item-id': z.string().optional(),
   'account/institution': InstitutionRefSchema.optional(),
-  'account/source': z.enum(['plaid', 'manual']).optional(),
+  // Which provider the account came from (plaid, manual, lunchflow, ...). Left
+  // as an open string so adding a backend provider needs no frontend change.
+  'account/provider': z.string().optional(),
   'account/csv-mapping': z.string().optional(),
   'account/invert-amount': z.boolean().optional(),
 });
@@ -63,6 +66,12 @@ const StatsSchema = z.object({
   institutions: z.number(),
   accounts: z.number(),
   transactions: z.number(),
+});
+
+// Generic provider sync response (POST /api/providers/:provider/sync)
+const ProviderSyncResponseSchema = z.object({
+  provider: z.string(),
+  status: z.string(),
 });
 
 // Plaid schemas
@@ -566,5 +575,21 @@ export const api = {
     }
 
     return json.data;
+  },
+
+  // Generic, provider-agnostic sync for secrets-based providers (e.g. Lunchflow).
+  // The provider's API key lives server-side, so no input is needed; the call
+  // runs the full account+transaction sync and resolves when it completes.
+  async syncProvider(provider: string): Promise<{ provider: string; status: string }> {
+    const response = await fetch(routes.providers.sync(provider), {
+      method: 'POST',
+    });
+    const json = await response.json();
+
+    if (!response.ok || !json.success) {
+      throw new Error(json.error || `HTTP ${response.status}: ${response.statusText}`);
+    }
+
+    return ApiResponseSchema(ProviderSyncResponseSchema).parse(json).data;
   },
 };

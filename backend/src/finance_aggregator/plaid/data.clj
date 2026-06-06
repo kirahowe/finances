@@ -51,30 +51,29 @@
    account: map from fetch-accounts
    institution-id: Plaid institution_id string
    user-id: User ID string (e.g., 'test-user')
-   item-id: Plaid item_id string (links to credential)
 
    Returns: {:account/external-id string (Plaid account_id)
             :account/external-name string
-            :account/plaid-type string
-            :account/plaid-subtype string
+            :account/provider keyword (:plaid)
+            :account/provider-type string
+            :account/provider-subtype string
             :account/mask string (optional, omitted if nil)
             :account/currency string
-            :account/item-id string (links to Plaid Item/credential)
             :account/institution lookup-ref
             :account/user lookup-ref}
 
    Note: Filters out nil values to avoid 'Cannot store nil as a value' errors."
-  [account institution-id user-id item-id]
+  [account institution-id user-id]
   (-> account
       (select-keys [:account_id :name :official_name :type :subtype :mask :balance])
       (set/rename-keys {:account_id :account/external-id
                         :name :account/external-name
-                        :type :account/plaid-type
-                        :subtype :account/plaid-subtype
+                        :type :account/provider-type
+                        :subtype :account/provider-subtype
                         :mask :account/mask})
       (assoc :account/institution [:institution/id institution-id]
              :account/user [:user/id user-id]
-             :account/item-id item-id)
+             :account/provider :plaid)
       ;; Extract currency from balance, default to USD
       (assoc :account/currency (or (get-in account [:balance :iso_currency_code]) "USD"))
       ;; Remove balance (we don't store it in schema yet)
@@ -94,7 +93,7 @@
             :transaction/account lookup-ref
             :transaction/date instant
             :transaction/posted-date instant (same as date for Plaid)
-            :transaction/amount bigdec
+            :transaction/amount bigdec (NEGATED: canonical inflows+/outflows-)
             :transaction/payee string
             :transaction/description string
             :transaction/user lookup-ref}
@@ -115,11 +114,14 @@
           ;; Convert account_id to lookup ref
           (assoc :transaction/account [:account/external-id (:account_id txn)])
           (dissoc :account_id)
-          ;; Add user ref and payee
+          ;; Add user ref, payee, and provenance
           (assoc :transaction/user [:user/id user-id]
-                 :transaction/payee payee)
+                 :transaction/payee payee
+                 :transaction/provider :plaid)
           ;; Set both date and posted-date (Plaid only provides one date)
           (assoc :transaction/date posted-date
                  :transaction/posted-date posted-date)
-          ;; Type conversions
-          (update :transaction/amount bigdec)))))
+          ;; Type conversion + sign flip to the canonical convention.
+          ;; Plaid is positive=money-out; we standardize on inflows-positive,
+          ;; outflows-negative, so negate.
+          (update :transaction/amount (fn [a] (- (bigdec a))))))))

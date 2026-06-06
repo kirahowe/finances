@@ -102,11 +102,11 @@
   (try
     (let [db (d/db db-conn)
           ;; Get account db/id
-          account (d/pull db '[:db/id :account/source] [:account/external-id account-external-id])]
+          account (d/pull db '[:db/id :account/provider] [:account/external-id account-external-id])]
       (if-not (:db/id account)
         {:success false
          :error "Account not found"}
-        (if (not= :manual (:account/source account))
+        (if (not= :manual (:account/provider account))
           {:success false
            :error "Cannot delete non-manual account"}
           (let [account-db-id (:db/id account)

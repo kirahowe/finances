@@ -20,7 +20,7 @@
           "External ID should have manual- prefix")
       (is (= "TD Chequing" (:account/external-name result)))
       (is (= "CAD" (:account/currency result)))
-      (is (= :manual (:account/source result)))
+      (is (= :manual (:account/provider result)))
       (is (= [:user/id "test-user"] (:account/user result)))
       (is (= [:institution/id "manual-td-bank"] (:account/institution result))
           "Institution should be ref with normalized ID"))))

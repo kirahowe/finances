@@ -83,7 +83,7 @@
    Returns: {:account/external-id string (generated UUID with 'manual-' prefix)
             :account/external-name string
             :account/currency string
-            :account/source keyword (:manual)
+            :account/provider keyword (:manual)
             :account/institution lookup-ref
             :account/user lookup-ref}"
   [account-data user-id]
@@ -92,7 +92,7 @@
     {:account/external-id external-id
      :account/external-name (:name account-data)
      :account/currency (or (:currency account-data) "USD")
-     :account/source :manual
+     :account/provider :manual
      :account/institution [:institution/id institution-id]
      :account/user [:user/id user-id]}))
 

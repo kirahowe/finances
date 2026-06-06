@@ -13,6 +13,7 @@
    [datalevin.core :as d]
    [finance-aggregator.db.credentials :as creds]
    [finance-aggregator.plaid.client :as client]
+   [finance-aggregator.plaid.provider :as plaid-provider]
    [finance-aggregator.plaid.service :as service]
    [finance-aggregator.test-utils.setup :as setup]
    [finance-aggregator.ws.state :as ws-state])
@@ -47,13 +48,13 @@
   "Seed an institution + account so transactions can resolve their
    :transaction/account lookup ref on insert."
   ([conn] (seed-account! conn "acc-1" "item_1"))
-  ([conn account-id item-id]
+  ([conn account-id _item-id]
    (d/transact! conn [{:institution/id "ins_test" :institution/name "Test Bank"}])
    (d/transact! conn [{:account/external-id account-id
                        :account/external-name "Checking"
+                       :account/provider :plaid
                        :account/institution [:institution/id "ins_test"]
-                       :account/user [:user/id "test-user"]
-                       :account/item-id item-id}])))
+                       :account/user [:user/id "test-user"]}])))
 
 (defn- seed-credential!
   "Create a Plaid Item credential row directly (bypassing encryption) so the
@@ -172,7 +173,7 @@
                                     :next-cursor "cur-x"
                                     :status :initial-update-complete))
                     ;; Avoid spawning the real 30s background poll future.
-                    service/poll-for-historical-transactions! no-op-poll]
+                    plaid-provider/poll-for-historical-transactions! no-op-poll]
         (service/sync-item-transactions!
          (with-conn deps)
          {:item-id "item_1" :access-token "tok" :institution-name "Test Bank"})
@@ -281,6 +282,60 @@
           (is (= :failed (:sync-status (creds/get-sync-status conn "item_1")))))))))
 
 ;;; ---------------------------------------------------------------------------
+;;; Full per-item sync through the generic orchestrator: sync-item!
+;;; ---------------------------------------------------------------------------
+
+(deftest sync-item-runs-accounts-and-transactions-through-orchestrator
+  (testing "sync-item! drives accounts-then-transactions through sync-provider!"
+    (let [conn setup/*test-conn*]
+      (seed-user! conn)
+      (seed-credential! conn "item_1")
+      (with-redefs [client/fetch-item
+                    (constantly {:item_id "item_1" :institution_id "ins_1"})
+                    client/fetch-accounts
+                    (constantly [{:account_id "acc-1" :name "Checking"
+                                  :type "depository" :subtype "checking"
+                                  :mask "0000" :balance {:iso_currency_code "USD"}}])
+                    client/fetch-institution
+                    (constantly {:institution_id "ins_1" :name "Test Bank" :url nil})
+                    client/sync-transactions
+                    (constantly
+                     (sync-response :added [(plaid-txn "tx-1" :account "acc-1")]
+                                    :next-cursor "cursor-A"
+                                    :status :historical-update-complete))]
+        (let [status (service/sync-item!
+                      (with-conn deps)
+                      {:item-id "item_1" :access-token "tok" :institution-name "Test Bank"})]
+          (testing "returns the terminal sync status"
+            (is (= :synced status)))
+          (testing "institution + account persisted (before txns so refs resolve)"
+            (is (= "Test Bank"
+                   (d/q '[:find ?n . :where [?e :institution/id "ins_1"]
+                          [?e :institution/name ?n]]
+                        (d/db conn))))
+            (is (some? (d/q '[:find ?e . :where [?e :account/external-id "acc-1"]]
+                            (d/db conn)))))
+          (testing "transaction persisted with resolved account ref"
+            (is (contains? (tx-ids-in-db conn) "tx-1")))
+          (testing "cursor + credential status finalized via on-complete"
+            (is (= "cursor-A" (creds/get-sync-cursor conn "item_1")))
+            (is (= :synced (:sync-status (creds/get-sync-status conn "item_1"))))))))))
+
+(deftest sync-item-marks-credential-failed-and-rethrows
+  (testing "An error during sync marks the credential :failed and propagates"
+    (let [conn setup/*test-conn*]
+      (seed-user! conn)
+      (seed-credential! conn "item_1" :status :syncing)
+      (with-redefs [client/fetch-item (fn [& _] (throw (ex-info "item boom" {})))
+                    client/fetch-accounts (constantly [])
+                    client/fetch-institution (constantly {})]
+        (is (thrown? Exception
+                     (service/sync-item!
+                      (with-conn deps)
+                      {:item-id "item_1" :access-token "tok" :institution-name "Test Bank"})))
+        (is (= :failed (:sync-status (creds/get-sync-status conn "item_1"))))))))
+
+;;; ---------------------------------------------------------------------------
 ;;; Historical poll triggering
 ;;; ---------------------------------------------------------------------------
 
@@ -296,7 +351,7 @@
                      (sync-response :added [(plaid-txn "tx-1")]
                                     :next-cursor "cur"
                                     :status :initial-update-complete))
-                    service/poll-for-historical-transactions!
+                    plaid-provider/poll-for-historical-transactions!
                     (fn [_deps cred] (swap! poll-calls conj cred))]
         (service/sync-item-transactions!
          (with-conn deps)
@@ -317,7 +372,7 @@
                      (sync-response :added [(plaid-txn "tx-1")]
                                     :next-cursor "cur"
                                     :status :initial-update-complete))
-                    service/poll-for-historical-transactions!
+                    plaid-provider/poll-for-historical-transactions!
                     (fn [& args] (swap! poll-calls conj args))]
         (service/sync-item-transactions!
          (with-conn deps)
@@ -336,7 +391,7 @@
                      (sync-response :added [(plaid-txn "tx-1")]
                                     :next-cursor "cur"
                                     :status :historical-update-complete))
-                    service/poll-for-historical-transactions!
+                    plaid-provider/poll-for-historical-transactions!
                     (fn [& args] (swap! poll-calls conj args))]
         (service/sync-item-transactions!
          (with-conn deps)
@@ -506,7 +561,7 @@
 
 (deftest safe-parse-transactions-captures-errors-and-filters-pending
   (testing "Valid txns succeed, pending dropped, malformed captured as errors"
-    (let [result (#'service/safe-parse-transactions
+    (let [result (plaid-provider/safe-parse-transactions
                   [(plaid-txn "ok-1")
                    (plaid-txn "pending-1" :pending true)
                    (plaid-txn "bad-1" :date "not-a-date")]
@@ -518,11 +573,11 @@
 
 (deftest safe-parse-accounts-captures-errors
   (testing "Parse failures are captured per-account rather than thrown"
-    (let [result (#'service/safe-parse-accounts
+    (let [result (plaid-provider/safe-parse-accounts
                   [{:account_id "acc-ok" :name "A" :type "depository"
                     :subtype "checking" :balance {:iso_currency_code "USD"}}
                    "not-a-map"]
-                  "ins_1" "test-user" "item_1")]
+                  "ins_1" "test-user")]
       (is (= 1 (count (:success result))))
       (is (= "acc-ok" (:account/external-id (first (:success result)))))
       (is (= 1 (count (:errors result)))))))

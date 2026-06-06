@@ -6,6 +6,7 @@
    [finance-aggregator.http.routes.transactions :as transactions]
    [finance-aggregator.http.routes.entities :as entities]
    [finance-aggregator.http.routes.plaid :as plaid]
+   [finance-aggregator.http.routes.providers :as providers]
    [finance-aggregator.http.routes.csv :as csv]))
 
 (defn api-routes
@@ -23,4 +24,5 @@
    (transactions/transactions-routes deps)
    (entities/entities-routes deps)
    (plaid/plaid-routes deps)
+   (providers/providers-routes deps)
    (csv/csv-routes deps)])

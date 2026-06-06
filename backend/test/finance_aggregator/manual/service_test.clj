@@ -27,7 +27,7 @@
       (let [account (:data result)]
         (is (= "TD Chequing" (:account/external-name account)))
         (is (= "CAD" (:account/currency account)))
-        (is (= :manual (:account/source account)))
+        (is (= :manual (:account/provider account)))
         (is (:account/external-id account))
         (is (.startsWith (:account/external-id account) "manual-"))
         (is (:db/id account)))))
@@ -117,7 +117,7 @@
     (d/transact! setup/*test-conn*
                  [{:account/external-id "plaid-account-123"
                    :account/external-name "Plaid Account"
-                   :account/source :plaid
+                   :account/provider :plaid
                    :account/currency "USD"
                    :account/institution [:institution/id "ins_test"]
                    :account/user [:user/id "test-user"]}])

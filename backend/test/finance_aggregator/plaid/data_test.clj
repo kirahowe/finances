@@ -43,15 +43,14 @@
                            :current 1000.0}}
           user-id "test-user"
           institution-id "ins_123"
-          item-id "item_abc123"
-          result (data/parse-account account institution-id user-id item-id)]
+          result (data/parse-account account institution-id user-id)]
       (is (= "acc-plaid-123" (:account/external-id result)))
       (is (= "Plaid Checking" (:account/external-name result)))
-      (is (= "depository" (:account/plaid-type result)))
-      (is (= "checking" (:account/plaid-subtype result)))
+      (is (= "depository" (:account/provider-type result)))
+      (is (= "checking" (:account/provider-subtype result)))
       (is (= "0000" (:account/mask result)))
       (is (= "USD" (:account/currency result)))
-      (is (= "item_abc123" (:account/item-id result)))
+      (is (= :plaid (:account/provider result)))
       (is (= [:institution/id "ins_123"] (:account/institution result)))
       (is (= [:user/id "test-user"] (:account/user result))))))
 
@@ -62,9 +61,9 @@
                   :type "depository"
                   :subtype "checking"
                   :balance {}}
-          result (data/parse-account account "ins_123" "test-user" "item_xyz")]
+          result (data/parse-account account "ins_123" "test-user")]
       (is (= "USD" (:account/currency result)))
-      (is (= "item_xyz" (:account/item-id result))))))
+      (is (= :plaid (:account/provider result))))))
 
 (deftest test-parse-transaction
   (testing "Transforms Plaid transaction with type conversions"
@@ -85,7 +84,9 @@
       (is (= (:transaction/date result) (:transaction/posted-date result))
           "For Plaid, date and posted-date should be the same")
       (is (instance? java.math.BigDecimal (:transaction/amount result)))
-      (is (= (bigdec "100.50") (:transaction/amount result)))
+      ;; Plaid is positive=money-out; canonical convention negates so outflows
+      ;; are negative.
+      (is (= (bigdec "-100.50") (:transaction/amount result)))
       (is (= "STARBUCKS" (:transaction/description result)))
       (is (= "Starbucks" (:transaction/payee result))))))
 
