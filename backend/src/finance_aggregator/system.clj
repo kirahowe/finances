@@ -126,7 +126,8 @@
                  :secret "***"
                  :environment (:environment plaid-secrets)
                  :client-name (:client-name link-config)
-                 :country-codes (:country-codes link-config)})
+                 :country-codes (:country-codes link-config)
+                 :days-requested (:days-requested link-config)})
       merged-config)
     (throw (ex-info "Plaid credentials not found in secrets"
                     {:available-keys (keys secrets)

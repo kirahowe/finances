@@ -509,7 +509,7 @@
   "Reset the sync cursor for a Plaid Item to enable full re-sync.
 
    Clears the cursor and resets sync-status to :pending.
-   The next sync will fetch full history (up to 730 days).
+   The next sync will fetch full history based on :days-requested in plaid-config.
 
    Parameters:
    - conn: Datalevin connection

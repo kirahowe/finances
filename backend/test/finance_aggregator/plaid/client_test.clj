@@ -19,15 +19,17 @@
 
 (defn- load-plaid-config
   "Load Plaid config from test environment secrets.
-   Returns nil if no credentials are available."
+   Returns nil if no credentials are available.
+   Merges in link-config settings including days-requested."
   []
   (try
     (let [config (sys/load-configs sys/default-config-files)
           key-file (get config :finance-aggregator.system/secrets-key-file)
           secrets-file (get config :finance-aggregator.system/secrets-file)
-          secrets-data (secrets/load-secrets key-file secrets-file)]
+          secrets-data (secrets/load-secrets key-file secrets-file)
+          link-config (get config :finance-aggregator.plaid/link-config)]
       (when-let [plaid (secrets/get-secret secrets-data :plaid)]
-        plaid))
+        (merge plaid link-config)))
     (catch Exception _
       nil)))
 

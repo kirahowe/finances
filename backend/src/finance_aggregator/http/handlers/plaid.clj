@@ -160,12 +160,8 @@
 (defn sync-transactions-handler
   "Factory: creates handler for POST /api/plaid/sync-transactions.
 
-   Syncs Plaid transactions to database for specified date range.
-   Defaults to 6 months if not specified.
-
-   Expected body-params (optional):
-   - :months (integer, default 6)
-   - :endDate (string, YYYY-MM-DD format)
+   Syncs Plaid transactions to database using cursor-based sync.
+   Transaction history depth is controlled by :days-requested in plaid-config.
 
    Args:
      deps - Map with :db-conn, :secrets, :plaid-config
@@ -173,14 +169,10 @@
    Returns:
      Ring handler function"
   [{:keys [db-conn secrets plaid-config]}]
-  (fn [request]
-    (let [params (:body-params request)
-          opts {:months (or (:months params) 6)
-                :end-date (:endDate params)}
-          result (plaid-svc/sync-transactions! {:db-conn db-conn
+  (fn [_request]
+    (let [result (plaid-svc/sync-transactions! {:db-conn db-conn
                                                 :secrets secrets
-                                                :plaid-config plaid-config}
-                                               opts)]
+                                                :plaid-config plaid-config})]
       (responses/success-response result))))
 
 (defn delete-credential-handler
@@ -311,7 +303,10 @@
 (defn trigger-sync-handler
   "Factory: creates handler for POST /api/plaid/items/:item-id/sync.
 
-   Triggers a transaction sync for a specific Plaid Item.
+   Triggers a full sync for a specific Plaid Item:
+   1. Syncs accounts first (required for transaction references)
+   2. Then syncs transactions
+
    Sets sync status to :syncing before starting.
 
    Args:
@@ -334,20 +329,25 @@
         ;; Set status to syncing
         (credentials/update-sync-status! db-conn item-id :syncing)
 
-        ;; Trigger sync
+        ;; 1. Sync accounts first (required for transaction references)
         (let [institution-name (credentials/get-institution-name db-conn item-id)
-              result (plaid-svc/sync-item-transactions!
-                      {:db-conn db-conn :plaid-config plaid-config}
-                      {:item-id item-id
-                       :access-token access-token
-                       :institution-name institution-name})]
-          (responses/success-response result))))))
+              item-cred {:item-id item-id
+                         :access-token access-token
+                         :institution-name institution-name}
+              _accounts-result (plaid-svc/sync-item-accounts!
+                                {:db-conn db-conn :plaid-config plaid-config}
+                                item-cred)
+              ;; 2. Then sync transactions
+              txn-result (plaid-svc/sync-item-transactions!
+                          {:db-conn db-conn :plaid-config plaid-config}
+                          item-cred)]
+          (responses/success-response txn-result))))))
 
 (defn reset-sync-handler
   "Factory: creates handler for POST /api/plaid/items/:item-id/reset-sync.
 
    Resets the sync cursor for a Plaid Item, enabling a full re-sync.
-   The next sync will fetch up to 730 days of transaction history.
+   The next sync will fetch full transaction history based on :days-requested in plaid-config.
 
    Args:
      deps - Map with :db-conn

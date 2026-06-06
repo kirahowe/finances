@@ -22,7 +22,8 @@
  {:client-name "Finance Aggregator"
   :country-codes [#plaid/country-code "CA"]
   :language "en"
-  :products [#plaid/product :transactions]}
+  :products [#plaid/product :transactions]
+  :days-requested 730}
 
  ;; Secrets component - loads encrypted secrets at startup
  :finance-aggregator.system/secrets

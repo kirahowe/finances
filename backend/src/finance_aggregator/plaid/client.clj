@@ -3,6 +3,7 @@
    All functions are pure - they take configuration and parameters,
    call the Plaid API, and return data. No side effects or component dependencies."
   (:require
+   [finance-aggregator.lib.log :as log]
    [finance-aggregator.plaid.types :as types])
   (:import
    [com.plaid.client ApiClient]
@@ -46,12 +47,6 @@
                               {:value value
                                :valid-values (keys lookup-map)})))))
 
-(def ^:private max-days-requested
-  "Maximum days of transaction history to request (2 years).
-   This is set during Link token creation and on the first /transactions/sync call.
-   Once Transactions is initialized for an Item, this cannot be changed."
-  730)
-
 (defn create-link-token
   "Generate link token for Plaid Link frontend initialization.
 
@@ -61,21 +56,24 @@
      - :country-codes (vector of CountryCode enums or strings)
      - :language (string, e.g. \"en\")
      - :products (vector of Products enums or keywords)
-     - :days-requested (int, 1-730, default 730 for max history)
+     - :days-requested (int, 1-730, REQUIRED - configures transaction history depth)
 
    user-id: string identifying the user
    Returns: link_token string
 
    Note: days-requested configures how much transaction history to fetch.
-   Default is 730 (2 years) for maximum history. This value is set during
-   Link token creation and cannot be changed after Transactions is initialized."
+   This value is set during Link token creation and cannot be changed after
+   Transactions is initialized for an Item."
   [plaid-config user-id]
-  (let [{:keys [client-name country-codes language products days-requested]
-         :or {client-name "Finance App"
-              country-codes [CountryCode/US]
-              language "en"
-              products [Products/TRANSACTIONS]
-              days-requested max-days-requested}} plaid-config]
+  (let [{:keys [client-name country-codes language products days-requested]} plaid-config]
+    (when-not days-requested
+      (throw (ex-info "days-requested is required in plaid-config"
+                      {:hint "Add :days-requested to plaid link-config (1-730)"})))
+    (log/info "Creating Plaid link token"
+              {:user-id user-id
+               :days-requested days-requested
+               :products products
+               :country-codes country-codes})
     (try
       (let [api-client (create-api-client plaid-config)
             plaid-api (.createService api-client PlaidApi)
@@ -87,6 +85,9 @@
             ;; Configure transactions options for maximum history
             transactions-options (-> (LinkTokenTransactions.)
                                      (.daysRequested (int days-requested)))
+            _ (log/info "Plaid LinkTokenTransactions object configured"
+                        {:transactions-options-str (str transactions-options)
+                         :days-requested-value (.getDaysRequested transactions-options)})
             request (-> (LinkTokenCreateRequest.)
                         (.user user)
                         (.clientName client-name)
@@ -297,15 +298,15 @@
    access-token: string from exchange-public-token
    cursor: string from previous sync, or nil for initial sync
    opts: {:count int (max 500, default 500)
-          :days-requested int (1-730, only used on initial sync when cursor is nil)}
+          :days-requested int (1-730, REQUIRED for initial sync when cursor is nil)}
 
    For initial sync (cursor = nil):
-   - Use days-requested to control how much history to fetch (default 90, max 730)
+   - days-requested MUST be provided - controls how much history to fetch
    - days-requested only takes effect on first sync; cannot be changed after
 
    For incremental sync (cursor = previous next_cursor):
    - Returns only changes since last cursor
-   - days-requested is ignored
+   - days-requested is ignored (can be omitted)
 
    Returns: {:added [txn-maps]
             :modified [txn-maps]
@@ -313,14 +314,12 @@
             :next_cursor string
             :has_more boolean
             :transactions_update_status keyword - :not-ready, :initial-update-complete, or :historical-update-complete}"
-  ([plaid-config access-token]
-   (sync-transactions plaid-config access-token nil {}))
-  ([plaid-config access-token cursor]
-   (sync-transactions plaid-config access-token cursor {}))
   ([plaid-config access-token cursor opts]
    (let [{:keys [count days-requested]
-          :or {count 500
-               days-requested 730}} opts]
+          :or {count 500}} opts]
+     (when (and (nil? cursor) (nil? days-requested))
+       (throw (ex-info "days-requested is required for initial sync (cursor is nil)"
+                       {:hint "Pass :days-requested in opts from plaid-config"})))
      (try
        (let [api-client (create-api-client plaid-config)
              plaid-api (.createService api-client PlaidApi)

@@ -9,20 +9,6 @@
 
 (use-fixtures :each setup/with-empty-db)
 
-(deftest test-calculate-date-range
-  (testing "Calculates date range for transaction sync"
-    (let [result (#'service/calculate-date-range 6 nil)]
-      (is (string? (:start-date result)))
-      (is (string? (:end-date result)))
-      (is (re-matches #"\d{4}-\d{2}-\d{2}" (:start-date result)))
-      (is (re-matches #"\d{4}-\d{2}-\d{2}" (:end-date result))))))
-
-(deftest test-calculate-date-range-custom-end
-  (testing "Uses custom end date when provided"
-    (let [result (#'service/calculate-date-range 6 "2024-12-31")]
-      (is (= "2024-12-31" (:end-date result)))
-      (is (= "2024-06-30" (:start-date result))))))
-
 ;; Note: sync-accounts! and sync-transactions! require real Plaid credentials
 ;; and are tested manually with sandbox. These tests document the expected
 ;; behavior and return value structure.
