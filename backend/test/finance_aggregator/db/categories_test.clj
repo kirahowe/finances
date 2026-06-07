@@ -202,6 +202,135 @@
       (is (= "Entertainment" (:category/name (first test-cats))))
       (is (= "Misc" (:category/name (second test-cats)))))))
 
+(deftest create-category-with-parent-test
+  (testing "creates a category referencing an existing parent"
+    (let [parent (categories/create! setup/*test-conn* {:category/name "Food"
+                                                         :category/type :expense
+                                                         :category/ident :category/food})
+          parent-id (:db/id parent)
+          child (categories/create! setup/*test-conn* {:category/name "Groceries"
+                                                       :category/type :expense
+                                                       :category/ident :category/groceries
+                                                       :category/parent parent-id})]
+      (is (= parent-id (get-in child [:category/parent :db/id]))
+          "child should reference the parent's db/id"))))
+
+(deftest update-category-parent-test
+  (testing "sets a parent via update"
+    (let [parent (categories/create! setup/*test-conn* {:category/name "Food"
+                                                         :category/type :expense
+                                                         :category/ident :category/food})
+          child (categories/create! setup/*test-conn* {:category/name "Groceries"
+                                                       :category/type :expense
+                                                       :category/ident :category/groceries})
+          updated (categories/update! setup/*test-conn* (:db/id child)
+                                      {:category/parent (:db/id parent)})]
+      (is (= (:db/id parent) (get-in updated [:category/parent :db/id])))))
+
+  (testing "clears a parent when set to nil"
+    (let [parent (categories/create! setup/*test-conn* {:category/name "Food"
+                                                         :category/type :expense
+                                                         :category/ident :category/food})
+          child (categories/create! setup/*test-conn* {:category/name "Groceries"
+                                                       :category/type :expense
+                                                       :category/ident :category/groceries
+                                                       :category/parent (:db/id parent)})]
+      (is (some? (:category/parent (categories/get-by-id setup/*test-conn* (:db/id child))))
+          "precondition: child has a parent")
+      (let [updated (categories/update! setup/*test-conn* (:db/id child)
+                                        {:category/parent nil})]
+        (is (nil? (:category/parent updated)) "parent should be cleared")
+        (is (nil? (:category/parent (categories/get-by-id setup/*test-conn* (:db/id child))))
+            "clear should be persisted")))))
+
+(deftest create-many-test
+  (testing "creates multiple categories in a single transaction, in input order"
+    (let [result (categories/create-many! setup/*test-conn*
+                                           [{:category/name "Food"
+                                             :category/type :expense
+                                             :category/ident :category/food
+                                             :tempid "p"}
+                                            {:category/name "Groceries"
+                                             :category/type :expense
+                                             :category/ident :category/groceries
+                                             :tempid "c1"
+                                             :parent-tempid "p"}
+                                            {:category/name "Dining"
+                                             :category/type :expense
+                                             :category/ident :category/dining
+                                             :tempid "c2"
+                                             :parent-tempid "p"}])]
+      (is (= 3 (count result)))
+      (is (= ["Food" "Groceries" "Dining"] (map :category/name result)))
+      (let [[food groceries dining] result]
+        (is (nil? (:category/parent food)) "top-level item has no parent")
+        (is (= (:db/id food) (get-in groceries [:category/parent :db/id]))
+            "child links to within-batch parent")
+        (is (= (:db/id food) (get-in dining [:category/parent :db/id]))))
+      (is (= 3 (count (categories/list-all setup/*test-conn*))) "all persisted")))
+
+  (testing "creates a flat batch with no parents"
+    (let [result (categories/create-many! setup/*test-conn*
+                                           [{:category/name "Salary"
+                                             :category/type :income
+                                             :category/ident :category/salary
+                                             :tempid "a"}
+                                            {:category/name "Gas"
+                                             :category/type :expense
+                                             :category/ident :category/gas
+                                             :tempid "b"}])]
+      (is (= 2 (count result)))
+      (is (every? #(nil? (:category/parent %)) result)))))
+
+(deftest category-parent-validation-test
+  (testing "create! rejects a non-existent parent"
+    (is (thrown-with-msg? clojure.lang.ExceptionInfo #"Parent category does not exist"
+                          (categories/create! setup/*test-conn*
+                                              {:category/name "Groceries" :category/type :expense
+                                               :category/ident :category/groceries
+                                               :category/parent 999999}))))
+
+  (testing "create! rejects a parent that is itself a child"
+    (let [food (categories/create! setup/*test-conn*
+                                   {:category/name "Food" :category/type :expense
+                                    :category/ident :category/food})
+          groceries (categories/create! setup/*test-conn*
+                                        {:category/name "Groceries" :category/type :expense
+                                         :category/ident :category/groceries
+                                         :category/parent (:db/id food)})]
+      (is (thrown-with-msg? clojure.lang.ExceptionInfo #"Parent must be a top-level category"
+                            (categories/create! setup/*test-conn*
+                                                {:category/name "Produce" :category/type :expense
+                                                 :category/ident :category/produce
+                                                 :category/parent (:db/id groceries)})))))
+
+  (testing "update! rejects demoting a category that has children"
+    (let [food (categories/create! setup/*test-conn*
+                                   {:category/name "Food" :category/type :expense
+                                    :category/ident :category/food})
+          other (categories/create! setup/*test-conn*
+                                    {:category/name "Transport" :category/type :expense
+                                     :category/ident :category/transport})]
+      (categories/create! setup/*test-conn*
+                          {:category/name "Groceries" :category/type :expense
+                           :category/ident :category/groceries
+                           :category/parent (:db/id food)})
+      (is (thrown-with-msg? clojure.lang.ExceptionInfo #"sub-categories cannot become a child"
+                            (categories/update! setup/*test-conn* (:db/id food)
+                                                {:category/parent (:db/id other)})))))
+
+  (testing "create-many! rejects nesting deeper than one level"
+    (is (thrown-with-msg? clojure.lang.ExceptionInfo #"nests more than one level deep"
+                          (categories/create-many! setup/*test-conn*
+                                                   [{:category/name "Food" :category/type :expense
+                                                     :category/ident :category/food :tempid "p"}
+                                                    {:category/name "Groceries" :category/type :expense
+                                                     :category/ident :category/groceries
+                                                     :tempid "c" :parent-tempid "p"}
+                                                    {:category/name "Produce" :category/type :expense
+                                                     :category/ident :category/produce
+                                                     :tempid "g" :parent-tempid "c"}])))))
+
 (deftest batch-update-sort-orders-test
   (testing "batch updates multiple category sort orders"
     (let [cat1 (categories/create! setup/*test-conn* {:category/name "Groceries"

@@ -17,9 +17,11 @@
               :name ::list}
         :post {:handler (handlers/create-category-handler deps)
                :name ::create}}]
-   ;; Specific route must come before parameterized route
+   ;; Specific routes must come before the parameterized route
    ["/batch-sort" {:post {:handler (handlers/batch-update-sort-orders-handler deps)
                           :name ::batch-sort}}]
+   ["/bulk" {:post {:handler (handlers/bulk-create-categories-handler deps)
+                    :name ::bulk}}]
    ["/:id" {:put {:handler (handlers/update-category-handler deps)
                   :name ::update}
             :delete {:handler (handlers/delete-category-handler deps)

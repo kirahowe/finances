@@ -136,6 +136,7 @@ describe('CategoryTable', () => {
     expect(onCreate).toHaveBeenCalledWith({
       name: 'Utilities',
       type: 'expense',
+      parentId: null,
     });
 
     // A new draft row should be opened automatically
@@ -168,6 +169,7 @@ describe('CategoryTable', () => {
     expect(onCreate).toHaveBeenCalledWith({
       name: 'Utilities',
       type: 'expense',
+      parentId: null,
     });
   });
 
@@ -270,8 +272,8 @@ describe('CategoryTable', () => {
     await user.keyboard('{Enter}');
 
     expect(onCreate).toHaveBeenCalledTimes(2);
-    expect(onCreate).toHaveBeenNthCalledWith(1, { name: 'Utilities', type: 'expense' });
-    expect(onCreate).toHaveBeenNthCalledWith(2, { name: 'Entertainment', type: 'expense' });
+    expect(onCreate).toHaveBeenNthCalledWith(1, { name: 'Utilities', type: 'expense', parentId: null });
+    expect(onCreate).toHaveBeenNthCalledWith(2, { name: 'Entertainment', type: 'expense', parentId: null });
   });
 
   it('renders Edit and Delete buttons for existing categories', () => {
@@ -447,8 +449,8 @@ describe('CategoryTable', () => {
     // Should show error message
     expect(screen.getByText(/category already exists/i)).toBeInTheDocument();
 
-    // Input should have error styling
-    expect(nameInput).toHaveStyle({ outline: '2px solid red' });
+    // Input should have error styling (applied via CSS class)
+    expect(nameInput).toHaveClass('category-draft-input--invalid');
   });
 
   it('removes duplicate error when name is changed to unique value', async () => {

@@ -15,6 +15,7 @@ describe('Category Draft Logic', () => {
       expect(draft).toEqual({
         name: '',
         type: 'expense',
+        parentId: null,
       });
     });
   });

@@ -4,10 +4,10 @@ import {
   createDraftCategory,
   updateDraftCategory,
   validateCategory,
-  isDraftEmpty,
   type CategoryDraft,
 } from '../lib/categoryDraft';
 import { CATEGORY_TYPE_OPTIONS, getCategoryTypeLabel, type CategoryType } from '../lib/categoryTypes';
+import { orderCategoriesHierarchically } from '../lib/categoryHierarchy';
 import { createDragDropManager } from '../lib/dragAndDrop';
 import { EditIcon } from './icons/EditIcon';
 import { DeleteIcon } from './icons/DeleteIcon';
@@ -20,6 +20,7 @@ interface CategoryTableProps {
   onDelete: (category: Category) => void;
   onCreate: (draft: CategoryDraft) => void;
   onReorder?: (reorderedCategories: Category[]) => void;
+  onBulkAdd?: () => void;
 }
 
 export function CategoryTable({
@@ -29,6 +30,7 @@ export function CategoryTable({
   onDelete,
   onCreate,
   onReorder,
+  onBulkAdd,
 }: CategoryTableProps) {
   const [draft, setDraft] = useState<CategoryDraft | null>(null);
   const [validationError, setValidationError] = useState<string | null>(null);
@@ -40,60 +42,45 @@ export function CategoryTable({
   const dragDropManager = useRef(createDragDropManager<Category>()).current;
   const [dragState, setDragState] = useState(dragDropManager.getState());
 
-  // Subscribe to drag-drop state changes
   useEffect(() => {
     return dragDropManager.subscribe(setDragState);
   }, [dragDropManager]);
 
-  // Split categories into existing and new
-  const newCategoryIdSet = new Set(newCategoryIds);
-  const existingCategories = categories.filter(
-    (cat) => !newCategoryIdSet.has(cat['db/id'])
-  );
-  const newCategories = newCategoryIds
-    .map((id) => categories.find((cat) => cat['db/id'] === id))
-    .filter((cat): cat is Category => cat !== undefined);
-  const orderedCategories = [...existingCategories, ...newCategories];
+  // Render order: top-level categories with their children indented beneath.
+  const displayNodes = orderCategoriesHierarchically(categories);
+  const orderedCategories = displayNodes.map((node) => node.category);
 
-  // Get existing category names for duplicate checking
+  // Only persisted top-level categories can be parents: single-level hierarchy,
+  // and an unsaved category (negative temp id) has no real id to reference yet.
+  const parentOptions = displayNodes
+    .filter((node) => node.depth === 0 && node.category['db/id'] > 0)
+    .map((node) => node.category);
+
+  const categoryById = new Map(categories.map((cat) => [cat['db/id'], cat]));
   const existingCategoryNames = categories.map((cat) => cat['category/name']);
+  const lastNewId = newCategoryIds.length > 0 ? newCategoryIds[newCategoryIds.length - 1] : null;
 
-  // Auto-focus and scroll to name input when draft is created
+  // Auto-focus and center the name input when a draft row appears.
   useEffect(() => {
     if (draft !== null && nameInputRef.current) {
       nameInputRef.current.focus();
-      // Scroll the input to center when draft is created
-      // This prevents the browser from doing its own scroll-into-view
-      if (nameInputRef.current.scrollIntoView) {
-        nameInputRef.current.scrollIntoView({
-          behavior: 'smooth',
-          block: 'center',
-        });
-      }
+      nameInputRef.current.scrollIntoView?.({ behavior: 'smooth', block: 'center' });
     }
   }, [draft]);
 
-  // Auto-scroll to the last new category only when NOT in draft mode
+  // Scroll to the most recently added category when not mid-draft.
   useEffect(() => {
     if (categories.length > prevCategoryCountRef.current && draft === null) {
-      // A new category was added and we're not in auto-continuation mode
-      if (lastNewCategoryRef.current && lastNewCategoryRef.current.scrollIntoView) {
-        lastNewCategoryRef.current.scrollIntoView({
-          behavior: 'smooth',
-          block: 'center',
-        });
-      }
+      lastNewCategoryRef.current?.scrollIntoView?.({ behavior: 'smooth', block: 'center' });
     }
     prevCategoryCountRef.current = categories.length;
   }, [categories.length, draft]);
 
   const handleAddClick = () => {
     if (draft === null) {
-      // Show draft row
       setDraft(createDraftCategory());
       setValidationError(null);
     } else {
-      // Submit if valid
       handleSubmit();
     }
   };
@@ -109,8 +96,8 @@ export function CategoryTable({
     const validation = validateCategory(draft, existingCategoryNames);
     if (validation.valid) {
       onCreate(draft);
-      // Open a new draft row automatically
-      setDraft(createDraftCategory());
+      // Reopen a draft carrying over type + parent so adding siblings is quick.
+      setDraft({ ...createDraftCategory(), type: draft.type, parentId: draft.parentId });
       setValidationError(null);
     } else {
       setValidationError(validation.errors.name || null);
@@ -127,15 +114,11 @@ export function CategoryTable({
     }
   };
 
-  const updateField = <K extends keyof CategoryDraft>(
-    field: K,
-    value: CategoryDraft[K]
-  ) => {
+  const updateField = <K extends keyof CategoryDraft>(field: K, value: CategoryDraft[K]) => {
     if (draft === null) return;
     const updatedDraft = updateDraftCategory(draft, field, value);
     setDraft(updatedDraft);
 
-    // Clear validation error when user changes the name
     if (field === 'name') {
       const validation = validateCategory(updatedDraft, existingCategoryNames);
       setValidationError(validation.errors.name || null);
@@ -149,9 +132,7 @@ export function CategoryTable({
   const handleDragOver = useCallback((e: React.DragEvent, index: number) => {
     e.preventDefault();
     dragDropManager.dragOver(index, orderedCategories, (reordered) => {
-      if (onReorder) {
-        onReorder(reordered);
-      }
+      onReorder?.(reordered);
     });
   }, [dragDropManager, orderedCategories, onReorder]);
 
@@ -166,38 +147,40 @@ export function CategoryTable({
           <tr>
             <th>Name</th>
             <th>Type</th>
+            <th>Parent</th>
             <th>Actions</th>
-            <th style={{ width: '40px' }}></th>
+            <th className="category-drag-col"></th>
           </tr>
         </thead>
         <tbody>
-          {orderedCategories.map((category, index) => {
-            const isLastNewCategory =
-              newCategoryIds.length > 0 &&
-              index === orderedCategories.length - 1 &&
-              newCategoryIdSet.has(category['db/id']);
+          {displayNodes.map(({ category, depth }, index) => {
+            const parentRef = category['category/parent'];
+            const parentName = parentRef
+              ? categoryById.get(parentRef['db/id'])?.['category/name'] ?? '—'
+              : '—';
 
             return (
               <tr
                 key={category['db/id']}
-                ref={isLastNewCategory ? lastNewCategoryRef : null}
+                ref={category['db/id'] === lastNewId ? lastNewCategoryRef : null}
+                className={dragState.draggedIndex === index ? 'category-row category-row--dragging' : 'category-row'}
                 draggable
                 onDragStart={() => handleDragStart(index)}
                 onDragOver={(e) => handleDragOver(e, index)}
                 onDragEnd={handleDragEnd}
-                style={{
-                  opacity: dragState.draggedIndex === index ? 0.5 : 1,
-                  transition: 'opacity 0.2s ease',
-                }}
               >
-                <td>{category['category/name']}</td>
+                <td>
+                  <span className={depth > 0 ? 'category-name category-name--child' : 'category-name'}>
+                    {category['category/name']}
+                  </span>
+                </td>
                 <td>{getCategoryTypeLabel(category['category/type'])}</td>
+                <td className="category-parent-cell">{parentName}</td>
                 <td>
                   <div className="button-group">
                     <button
                       className="button button-secondary"
                       onClick={() => onEdit(category)}
-                      style={{ padding: '6px 12px', display: 'inline-flex', alignItems: 'center' }}
                       title="Edit"
                     >
                       <EditIcon size={16} />
@@ -205,14 +188,13 @@ export function CategoryTable({
                     <button
                       className="button button-secondary"
                       onClick={() => onDelete(category)}
-                      style={{ padding: '6px 12px', display: 'inline-flex', alignItems: 'center' }}
                       title="Delete"
                     >
                       <DeleteIcon size={16} />
                     </button>
                   </div>
                 </td>
-                <td style={{ textAlign: 'center', cursor: 'move', color: '#999' }}>
+                <td className="category-drag-cell">
                   <DragIcon size={20} />
                 </td>
               </tr>
@@ -221,40 +203,23 @@ export function CategoryTable({
           {draft !== null && (
             <tr>
               <td>
-                <div>
-                  <input
-                    ref={nameInputRef}
-                    type="text"
-                    className="form-input"
-                    aria-label="Name"
-                    value={draft.name}
-                    onChange={(e) => updateField('name', e.target.value)}
-                    onKeyDown={handleKeyDown}
-                    style={{
-                      outline: validationError ? '2px solid red' : undefined,
-                    }}
-                  />
-                  {validationError && (
-                    <div
-                      style={{
-                        color: 'red',
-                        fontSize: '0.85rem',
-                        marginTop: '0.25rem',
-                      }}
-                    >
-                      {validationError}
-                    </div>
-                  )}
-                </div>
+                <input
+                  ref={nameInputRef}
+                  type="text"
+                  className={`form-input${validationError ? ' category-draft-input--invalid' : ''}`}
+                  aria-label="Name"
+                  value={draft.name}
+                  onChange={(e) => updateField('name', e.target.value)}
+                  onKeyDown={handleKeyDown}
+                />
+                {validationError && <div className="category-draft-error">{validationError}</div>}
               </td>
               <td>
                 <select
                   className="form-select"
                   aria-label="Type"
                   value={draft.type}
-                  onChange={(e) =>
-                    updateField('type', e.target.value as CategoryType)
-                  }
+                  onChange={(e) => updateField('type', e.target.value as CategoryType)}
                   onKeyDown={(e) => {
                     if (e.key === 'Escape') {
                       e.preventDefault();
@@ -270,24 +235,52 @@ export function CategoryTable({
                 </select>
               </td>
               <td>
+                <select
+                  className="form-select"
+                  aria-label="Parent"
+                  value={draft.parentId ?? ''}
+                  onChange={(e) =>
+                    updateField('parentId', e.target.value === '' ? null : Number(e.target.value))
+                  }
+                  onKeyDown={(e) => {
+                    if (e.key === 'Escape') {
+                      e.preventDefault();
+                      handleClose();
+                    }
+                  }}
+                >
+                  <option value="">No parent</option>
+                  {parentOptions.map((option) => (
+                    <option key={option['db/id']} value={option['db/id']}>
+                      {option['category/name']}
+                    </option>
+                  ))}
+                </select>
+              </td>
+              <td>
                 <button
                   className="button button-secondary"
                   onClick={handleClose}
                   aria-label="Close"
-                  style={{ padding: '0.25rem 0.5rem' }}
                 >
                   ×
                 </button>
               </td>
+              <td></td>
             </tr>
           )}
         </tbody>
       </table>
 
-      <div style={{ marginTop: '1rem' }}>
+      <div className="category-table-actions">
         <button className="button" onClick={handleAddClick}>
           + Add Category
         </button>
+        {onBulkAdd && (
+          <button className="button button-secondary" onClick={onBulkAdd}>
+            Bulk Add
+          </button>
+        )}
       </div>
     </div>
   );

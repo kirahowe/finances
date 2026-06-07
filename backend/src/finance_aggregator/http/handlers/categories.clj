@@ -32,6 +32,7 @@
    - :type (keyword)
    - :ident (keyword)
    - :sortOrder (optional, number)
+   - :parentId (optional, db/id of parent category)
 
    Args:
      deps - Map with :db-conn
@@ -44,8 +45,41 @@
           category-data (cond-> {:category/name (:name params)
                                  :category/type (keyword (:type params))
                                  :category/ident (keyword (:ident params))}
-                          (:sortOrder params) (assoc :category/sort-order (:sortOrder params)))
+                          (:sortOrder params) (assoc :category/sort-order (:sortOrder params))
+                          (:parentId params) (assoc :category/parent (:parentId params)))
           result (db-categories/create! db-conn category-data)]
+      (responses/success-response result 201))))
+
+(defn bulk-create-categories-handler
+  "Factory: creates handler for POST /api/categories/bulk.
+
+   Creates many categories in one atomic transaction. Within-batch parent
+   references let a parent and its children be created together.
+
+   Expected body-params:
+   - :categories (vector of maps, each with):
+     - :name (string)
+     - :type (string, e.g. \"expense\")
+     - :ident (string, e.g. \"category/groceries\")
+     - :tempId (string, unique within the batch)
+     - :parentTempId (optional, references another item's :tempId)
+
+   Args:
+     deps - Map with :db-conn
+
+   Returns:
+     Ring handler function"
+  [{:keys [db-conn]}]
+  (fn [request]
+    (let [items (-> request :body-params :categories)
+          prepared (mapv (fn [item]
+                           (cond-> {:category/name (:name item)
+                                    :category/type (keyword (:type item))
+                                    :category/ident (keyword (:ident item))
+                                    :tempid (:tempId item)}
+                             (:parentTempId item) (assoc :parent-tempid (:parentTempId item))))
+                         items)
+          result (db-categories/create-many! db-conn prepared)]
       (responses/success-response result 201))))
 
 (defn update-category-handler
@@ -56,6 +90,7 @@
    - :type (keyword)
    - :ident (keyword)
    - :sortOrder (number)
+   - :parentId (db/id of parent, or null to clear the parent)
 
    Args:
      deps - Map with :db-conn
@@ -70,7 +105,8 @@
                     (:name params) (assoc :category/name (:name params))
                     (:type params) (assoc :category/type (keyword (:type params)))
                     (:ident params) (assoc :category/ident (keyword (:ident params)))
-                    (:sortOrder params) (assoc :category/sort-order (:sortOrder params)))
+                    (:sortOrder params) (assoc :category/sort-order (:sortOrder params))
+                    (contains? params :parentId) (assoc :category/parent (:parentId params)))
           result (db-categories/update! db-conn db-id updates)]
       (responses/success-response result))))
 

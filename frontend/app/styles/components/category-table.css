@@ -1,0 +1,120 @@
+/* Hierarchical category rows */
+.category-name {
+  display: inline-flex;
+  align-items: center;
+}
+
+.category-name--child {
+  padding-left: var(--spacing-lg);
+  position: relative;
+  color: var(--color-text-muted);
+}
+
+.category-name--child::before {
+  content: '└';
+  position: absolute;
+  left: var(--spacing-sm);
+  color: var(--color-light-gray);
+}
+
+.category-parent-cell {
+  color: var(--color-text-muted);
+}
+
+.category-draft-error {
+  color: var(--color-error-text);
+  font-size: 0.85rem;
+  margin-top: var(--spacing-xs);
+}
+
+.category-draft-input--invalid {
+  outline: 2px solid var(--color-negative);
+}
+
+.category-table-actions {
+  margin-top: var(--spacing-md);
+  display: flex;
+  gap: var(--spacing-sm);
+}
+
+.category-drag-cell {
+  text-align: center;
+  cursor: move;
+  color: var(--color-text-muted);
+}
+
+.category-drag-col {
+  width: 40px;
+}
+
+.category-row {
+  transition: opacity 0.2s ease;
+}
+
+.category-row--dragging {
+  opacity: 0.5;
+}
+
+/* Bulk add modal */
+.bulk-modal-content {
+  max-width: 760px;
+  width: 90vw;
+}
+
+.bulk-modal-textarea {
+  width: 100%;
+  min-height: 180px;
+  font-family: var(--font-mono);
+  font-size: 0.9rem;
+  resize: vertical;
+}
+
+.bulk-modal-hint {
+  color: var(--color-text-muted);
+  font-size: 0.85rem;
+  margin: var(--spacing-sm) 0 0;
+}
+
+.bulk-modal-type {
+  display: flex;
+  align-items: center;
+  gap: var(--spacing-sm);
+  margin: var(--spacing-md) 0;
+}
+
+.bulk-preview-scroll {
+  max-height: 50vh;
+  overflow-y: auto;
+}
+
+.bulk-preview-name--child {
+  padding-left: var(--spacing-lg);
+}
+
+.bulk-preview-row--error .form-input {
+  outline: 2px solid var(--color-negative);
+}
+
+.bulk-preview-error {
+  color: var(--color-error-text);
+  font-size: 0.8rem;
+}
+
+.bulk-preview-empty {
+  color: var(--color-text-muted);
+  padding: var(--spacing-md) 0;
+}
+
+.bulk-remove-button {
+  background: none;
+  border: none;
+  color: var(--color-text-muted);
+  cursor: pointer;
+  font-size: 1.1rem;
+  line-height: 1;
+  padding: var(--spacing-xs) var(--spacing-sm);
+}
+
+.bulk-remove-button:hover {
+  color: var(--color-negative);
+}

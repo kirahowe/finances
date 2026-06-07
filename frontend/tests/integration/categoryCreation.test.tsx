@@ -47,6 +47,7 @@ describe('Category Creation Integration', () => {
     expect(onCreate).toHaveBeenCalledWith({
       name: 'Utilities',
       type: 'income',
+      parentId: null,
     });
 
     // Verify the identifier would be generated correctly
@@ -88,8 +89,8 @@ describe('Category Creation Integration', () => {
     await user.click(addButton); // Submit via button click
 
     expect(onCreate).toHaveBeenCalledTimes(2);
-    expect(onCreate).toHaveBeenNthCalledWith(1, { name: 'Utilities', type: 'expense' });
-    expect(onCreate).toHaveBeenNthCalledWith(2, { name: 'Entertainment', type: 'expense' });
+    expect(onCreate).toHaveBeenNthCalledWith(1, { name: 'Utilities', type: 'expense', parentId: null });
+    expect(onCreate).toHaveBeenNthCalledWith(2, { name: 'Entertainment', type: 'expense', parentId: null });
   });
 
   it('does not submit when name is empty or whitespace only', async () => {

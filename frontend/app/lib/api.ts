@@ -11,6 +11,8 @@ const CategorySchema = z.object({
   'category/type': z.enum(CATEGORY_TYPES),
   'category/ident': z.string().optional(),
   'category/sort-order': z.number().optional(),
+  // Pulled refs come back as a bare entity reference: { 'db/id': number }.
+  'category/parent': z.object({ 'db/id': z.number() }).nullable().optional(),
 });
 
 // Minimal category reference (nested in transactions)
@@ -72,6 +74,17 @@ const StatsSchema = z.object({
 const ProviderSyncResponseSchema = z.object({
   provider: z.string(),
   status: z.string(),
+});
+
+// One account a provider exposes for selection (GET available-accounts).
+// `external-id` is the stable per-account key used to mark connected accounts
+// and to request an import.
+const AvailableAccountSchema = z.object({
+  'external-id': z.string(),
+  'name': z.string(),
+  'institution-id': z.string(),
+  'institution-name': z.string(),
+  'institution-logo': z.string().nullable().optional(),
 });
 
 // Plaid schemas
@@ -178,6 +191,7 @@ export type PlaidSyncTransactionsResponse = z.infer<typeof PlaidSyncTransactions
 export type PlaidItem = z.infer<typeof PlaidItemSchema>;
 export type PlaidSyncStatus = z.infer<typeof PlaidSyncStatusSchema>;
 export type InstitutionRef = z.infer<typeof InstitutionRefSchema>;
+export type AvailableAccount = z.infer<typeof AvailableAccountSchema>;
 export type CsvMapping = z.infer<typeof CsvMappingSchema>;
 export type CsvPreview = z.infer<typeof CsvPreviewSchema>;
 export type CsvImportResult = z.infer<typeof CsvImportResultSchema>;
@@ -205,7 +219,7 @@ export const api = {
     return result.data;
   },
 
-  async createCategory(data: { name: string; type: CategoryType; ident?: string }): Promise<Category> {
+  async createCategory(data: { name: string; type: CategoryType; ident?: string; parentId?: number }): Promise<Category> {
     const response = await fetch(routes.categories.create(), {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
@@ -216,7 +230,8 @@ export const api = {
     return result.data;
   },
 
-  async updateCategory(id: number, data: { name: string; type: CategoryType; ident?: string }): Promise<Category> {
+  // parentId: a number sets the parent; null clears it; omit to leave unchanged.
+  async updateCategory(id: number, data: { name?: string; type?: CategoryType; ident?: string; parentId?: number | null }): Promise<Category> {
     const response = await fetch(routes.categories.update(id), {
       method: 'PUT',
       headers: { 'Content-Type': 'application/json' },
@@ -224,6 +239,24 @@ export const api = {
     });
     const json = await response.json();
     const result = ApiResponseSchema(CategorySchema).parse(json);
+    return result.data;
+  },
+
+  async bulkCreateCategories(
+    categories: Array<{ name: string; type: CategoryType; ident: string; tempId: string; parentTempId?: string | null }>
+  ): Promise<Category[]> {
+    const response = await fetch(routes.categories.bulk(), {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ categories }),
+    });
+    const json = await response.json();
+
+    if (!response.ok || !json.success) {
+      throw new Error(json.error || `HTTP ${response.status}: ${response.statusText}`);
+    }
+
+    const result = ApiResponseSchema(z.array(CategorySchema)).parse(json);
     return result.data;
   },
 
@@ -578,11 +611,22 @@ export const api = {
   },
 
   // Generic, provider-agnostic sync for secrets-based providers (e.g. Lunchflow).
-  // The provider's API key lives server-side, so no input is needed; the call
-  // runs the full account+transaction sync and resolves when it completes.
-  async syncProvider(provider: string): Promise<{ provider: string; status: string }> {
+  // The provider's API key lives server-side. Pass accountIds to add those
+  // accounts to the connected set before syncing (the connect step); omit it to
+  // refresh only already-connected accounts.
+  async syncProvider(
+    provider: string,
+    opts?: { accountIds?: string[] }
+  ): Promise<{ provider: string; status: string }> {
+    const accountIds = opts?.accountIds;
     const response = await fetch(routes.providers.sync(provider), {
       method: 'POST',
+      ...(accountIds && accountIds.length > 0
+        ? {
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ accountIds }),
+          }
+        : {}),
     });
     const json = await response.json();
 
@@ -591,5 +635,18 @@ export const api = {
     }
 
     return ApiResponseSchema(ProviderSyncResponseSchema).parse(json).data;
+  },
+
+  // List every account a secrets-based provider exposes, for the selection UI.
+  // Persists nothing server-side.
+  async getAvailableAccounts(provider: string): Promise<AvailableAccount[]> {
+    const response = await fetch(routes.providers.availableAccounts(provider));
+    const json = await response.json();
+
+    if (!response.ok || !json.success) {
+      throw new Error(json.error || `HTTP ${response.status}: ${response.statusText}`);
+    }
+
+    return ApiResponseSchema(z.array(AvailableAccountSchema)).parse(json).data;
   },
 };

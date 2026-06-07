@@ -63,6 +63,7 @@ export const routes = {
     update: (id: number) => buildUrl('api', 'categories', id),
     delete: (id: number) => buildUrl('api', 'categories', id),
     batchSort: () => buildUrl('api', 'categories', 'batch-sort'),
+    bulk: () => buildUrl('api', 'categories', 'bulk'),
   },
 
   // Accounts
@@ -92,6 +93,8 @@ export const routes = {
   // Generic providers (secrets-based, e.g. Lunchflow)
   providers: {
     sync: (provider: string) => buildUrl('api', 'providers', provider, 'sync'),
+    availableAccounts: (provider: string) =>
+      buildUrl('api', 'providers', provider, 'available-accounts'),
   },
 
   // Plaid

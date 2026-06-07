@@ -3,6 +3,8 @@ import type { CategoryType } from './categoryTypes';
 export interface CategoryDraft {
   name: string;
   type: CategoryType;
+  /** db/id of the parent category, or null for a top-level category. */
+  parentId: number | null;
 }
 
 export interface ValidationResult {
@@ -17,6 +19,7 @@ export function createDraftCategory(): CategoryDraft {
   return {
     name: '',
     type: 'expense',
+    parentId: null,
   };
 }
 
