@@ -1,0 +1,75 @@
+/* Lunchflow / provider connection modal */
+.provider-connection-content {
+  max-width: 560px;
+  width: 90vw;
+}
+
+.provider-connection-hint {
+  color: var(--color-text-muted);
+  font-size: 0.85rem;
+  margin: 0 0 var(--spacing-md);
+}
+
+.provider-connection-status {
+  color: var(--color-text-muted);
+  padding: var(--spacing-md) 0;
+}
+
+.provider-connection-scroll {
+  max-height: 50vh;
+  overflow-y: auto;
+}
+
+.provider-institution {
+  margin-bottom: var(--spacing-lg);
+}
+
+.provider-institution-name {
+  display: flex;
+  align-items: center;
+  gap: var(--spacing-sm);
+  font-size: 0.95rem;
+  margin: 0 0 var(--spacing-sm);
+  padding-bottom: var(--spacing-xs);
+  border-bottom: 1px solid var(--color-border);
+}
+
+.provider-institution-logo {
+  width: 20px;
+  height: 20px;
+  object-fit: contain;
+  border-radius: var(--border-radius);
+}
+
+.provider-account-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+
+.provider-account-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--spacing-sm);
+  padding: var(--spacing-sm) 0;
+}
+
+.provider-account-label {
+  display: flex;
+  align-items: baseline;
+  gap: var(--spacing-sm);
+  cursor: pointer;
+}
+
+.provider-account-name {
+  font-weight: 500;
+}
+
+.provider-connected-tag {
+  color: var(--color-positive);
+  font-size: 0.75rem;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.03em;
+}

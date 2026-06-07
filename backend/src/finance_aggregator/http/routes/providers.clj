@@ -9,4 +9,6 @@
   [deps]
   ["/providers"
    ["/:provider/sync" {:post {:handler (handlers/sync-handler deps)
-                              :name ::sync}}]])
+                              :name ::sync}}]
+   ["/:provider/available-accounts" {:get {:handler (handlers/available-accounts-handler deps)
+                                           :name ::available-accounts}}]])

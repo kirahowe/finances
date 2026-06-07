@@ -34,10 +34,21 @@
   {:id nil :accountId 1 :amount -7.00 :date "2026-06-03"
    :merchant "ATM Withdrawal" :description "cash" :isPending false})
 
+(deftest account-external-id-namespaces-the-id
+  (is (= "lunchflow-1" (data/account-external-id sample-account)))
+  (is (= "lunchflow-99" (data/account-external-id {:id 99}))))
+
 (deftest parse-institution-synthesizes-from-name
   (let [result (data/parse-institution sample-account)]
     (is (= "lunchflow-tangerine-bank" (:institution/id result)))
-    (is (= "Tangerine Bank" (:institution/name result)))))
+    (is (= "Tangerine Bank" (:institution/name result))))
+  (testing "logo is included when present, omitted when nil"
+    (is (= "https://cdn.example/logo.png"
+           (:institution/logo
+            (data/parse-institution (assoc sample-account
+                                           :institution_logo "https://cdn.example/logo.png")))))
+    (is (not (contains? (data/parse-institution sample-account) :institution/logo))
+        "sample-account has institution_logo nil, so the key is omitted")))
 
 (deftest parse-account-maps-canonical-fields
   (let [result (data/parse-account sample-account "test-user")]
@@ -50,8 +61,8 @@
     (is (= [:institution/id "lunchflow-tangerine-bank"] (:account/institution result)))
     (is (= [:user/id "test-user"] (:account/user result)))))
 
-(deftest parse-account-defaults-currency-to-usd
-  (is (= "USD" (:account/currency
+(deftest parse-account-defaults-currency-to-cad
+  (is (= "CAD" (:account/currency
                 (data/parse-account (dissoc sample-account :currency) "test-user")))))
 
 (deftest parse-transaction-maps-canonical-fields

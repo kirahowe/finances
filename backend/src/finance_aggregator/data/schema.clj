@@ -13,6 +13,7 @@
    :institution/name   {:db/valueType :db.type/string}
    :institution/domain {:db/valueType :db.type/string}
    :institution/url    {:db/valueType :db.type/string}
+   :institution/logo   {:db/valueType :db.type/string}   ; logo image URL (e.g. Lunchflow/Quiltt CDN)
 
    ;; Accounts
    :account/external-id   {:db/unique :db.unique/identity}  ; from e.g. SimpleFIN

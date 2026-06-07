@@ -36,6 +36,11 @@
                         (str/replace #"\s+" "-")
                         (str/replace #"[^a-z0-9-]" ""))))
 
+(defn account-external-id
+  "Canonical external-id for a Lunchflow account map: \"lunchflow-<id>\"."
+  [account]
+  (str "lunchflow-" (:id account)))
+
 (defn- transaction-hash
   "Deterministic external-id suffix for transactions that arrive without an id
    (the API can return id: null). Hashes the stable identifying fields."
@@ -48,10 +53,12 @@
 (defn parse-institution
   "Synthesize an institution entity from a Lunchflow account map.
 
-   Returns: {:institution/id string :institution/name string}"
+   Returns: {:institution/id string :institution/name string} plus
+   :institution/logo when the account carries an institution_logo URL."
   [account]
-  {:institution/id (institution-id (:institution_name account))
-   :institution/name (:institution_name account)})
+  (cond-> {:institution/id (institution-id (:institution_name account))
+           :institution/name (:institution_name account)}
+    (:institution_logo account) (assoc :institution/logo (:institution_logo account))))
 
 (defn parse-account
   "Transform a Lunchflow account to the canonical account schema.
@@ -62,9 +69,9 @@
    Returns canonical :account/* map. The Lunchflow `provider` field (the
    upstream connector, e.g. \"gocardless\") maps to :account/provider-type."
   [account user-id]
-  (cond-> {:account/external-id (str "lunchflow-" (:id account))
+  (cond-> {:account/external-id (account-external-id account)
            :account/external-name (:name account)
-           :account/currency (or (:currency account) "USD")
+           :account/currency (or (:currency account) "CAD")
            :account/provider :lunchflow
            :account/institution [:institution/id (institution-id (:institution_name account))]
            :account/user [:user/id user-id]}

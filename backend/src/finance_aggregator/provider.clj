@@ -29,7 +29,24 @@
    loop; single-pass providers (Lunchflow) return :more? false after one call."
   (fn [provider-key _opts] provider-key))
 
+(defmulti available-accounts
+  "(provider-key, opts) -> [{:external-id :name :institution-id
+                            :institution-name :currency}]
+
+   Display-friendly list of every account the provider exposes, for the
+   selection UI. Unlike fetch-accounts (which returns only the connected/
+   selected set to persist), this lists everything and persists nothing. Only
+   secrets-based, selectable providers implement it - polymorphism a la carte."
+  (fn [provider-key _opts] provider-key))
+
 (defn registered-providers
   "Set of provider-keys that have a fetch-accounts method registered."
   []
   (set (keys (methods fetch-accounts))))
+
+(defn selectable-providers
+  "Set of provider-keys that implement available-accounts (the selection UI
+   seam). A subset of registered-providers - e.g. Plaid syncs but isn't listed
+   here, so it must not be routed to the available-accounts endpoint."
+  []
+  (set (keys (methods available-accounts))))
