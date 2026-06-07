@@ -117,3 +117,35 @@
                            :where [?e :transaction/external-id]]
                          (d/db @test-conn))]
         (is (= 2 (count all-txs)))))))
+
+(deftest test-insert-creates-referenced-user
+  (testing "inserting an account that references a not-yet-created user upserts
+            the user so the :account/user lookup ref resolves (no entity-id/missing)"
+    (db/insert! {:institutions [{:institution/id "inst-001" :institution/name "Test Bank"}]
+                 :accounts [{:account/external-id "acct-001"
+                             :account/external-name "Chequing"
+                             :account/institution [:institution/id "inst-001"]
+                             :account/user [:user/id "test-user"]}]
+                 :transactions []}
+                @test-conn)
+    (let [db (d/db @test-conn)]
+      (is (some? (d/entity db [:user/id "test-user"]))
+          "the referenced user is created")
+      (is (= {:user/id "test-user"}
+             (:account/user
+              (d/pull db '[{:account/user [:user/id]}] [:account/external-id "acct-001"])))
+          "the account resolves to the created user"))))
+
+(deftest test-insert-preserves-existing-user-created-at
+  (testing "an existing user's :user/created-at is not clobbered on re-insert"
+    (let [created (java.util.Date. 1000000000000)]
+      (d/transact! @test-conn [{:user/id "test-user" :user/created-at created}])
+      (db/insert! {:institutions []
+                   :accounts [{:account/external-id "acct-001"
+                               :account/external-name "Chequing"
+                               :account/user [:user/id "test-user"]}]
+                   :transactions []}
+                  @test-conn)
+      (is (= created
+             (:user/created-at (d/pull (d/db @test-conn) '[:user/created-at] [:user/id "test-user"])))
+          "created-at is untouched because the user already existed"))))
