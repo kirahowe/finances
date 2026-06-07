@@ -1,7 +1,7 @@
-import { useEffect, useRef, useState } from 'react';
+import { useState } from 'react';
 import { useCombobox } from 'downshift';
 import type { Category } from '../lib/api';
-import { filterCategories, getSelectedIndex } from '../lib/categoryFiltering';
+import { filterCategories, getSelectedIndex, hasMatchingCategory } from '../lib/categoryFiltering';
 
 interface CategoryDropdownProps {
   categories: Category[];
@@ -36,17 +36,13 @@ export function CategoryDropdown({
   onClose,
 }: CategoryDropdownProps) {
   const [items, setItems] = useState<CategoryOption[]>(() => getOptions(categories, ''));
-  const inputRef = useRef<HTMLInputElement>(null);
 
-  // Offset by 1 for the leading "Uncategorized" option present at open.
+  // One pass over `categories` yields both the placeholder name and the
+  // highlight position (offset by 1 for the leading "Uncategorized" option).
   const selectedIndex = getSelectedIndex(categories, selectedCategoryId);
-  const initialHighlightedIndex = selectedIndex >= 0 ? selectedIndex + 1 : -1;
-
   const selectedCategoryName =
-    selectedCategoryId === null
-      ? 'Uncategorized'
-      : categories.find((cat) => cat['db/id'] === selectedCategoryId)?.['category/name'] ??
-        'Uncategorized';
+    selectedIndex >= 0 ? categories[selectedIndex]['category/name'] : 'Uncategorized';
+  const initialHighlightedIndex = selectedIndex >= 0 ? selectedIndex + 1 : -1;
 
   const { getMenuProps, getInputProps, getItemProps, getLabelProps, highlightedIndex } =
     useCombobox<CategoryOption>({
@@ -55,12 +51,14 @@ export function CategoryDropdown({
       defaultHighlightedIndex: 0,
       initialHighlightedIndex,
       itemToString: () => '',
-      // While filtering, highlight the first matching category (after the
-      // leading "Uncategorized") so Enter picks the match, not Uncategorized.
+      // Move the highlight in the reducer (synchronously, same render as the
+      // keystroke) so it never flickers through "Uncategorized" first. While
+      // filtering, highlight the first matching category — index 1, after the
+      // leading "Uncategorized" — so Enter picks the match, not Uncategorized.
+      // Only an existence check here; onInputValueChange builds the full list.
       stateReducer: (_state, { type, changes }) => {
         if (type === useCombobox.stateChangeTypes.InputChange) {
-          const filter = changes.inputValue ?? '';
-          const hasMatch = filter.trim().length > 0 && filterCategories(categories, filter).length > 0;
+          const hasMatch = hasMatchingCategory(categories, changes.inputValue ?? '');
           return { ...changes, highlightedIndex: hasMatch ? 1 : 0 };
         }
         return changes;
@@ -86,17 +84,13 @@ export function CategoryDropdown({
       },
     });
 
-  useEffect(() => {
-    inputRef.current?.focus();
-  }, []);
-
   return (
     <div className="category-dropdown">
       <label {...getLabelProps()} className="sr-only">
         Category
       </label>
       <input
-        {...getInputProps({ ref: inputRef })}
+        {...getInputProps()}
         className="category-dropdown-input"
         placeholder={selectedCategoryName}
       />

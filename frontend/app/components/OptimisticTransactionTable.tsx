@@ -128,9 +128,6 @@ export function OptimisticTransactionTable({
         const isEditing = editingTransactionId === transaction['db/id'];
 
         const optimisticCategory = getOptimisticCategory(transaction);
-        const isUpdating =
-          fetcher.state !== 'idle' &&
-          fetcher.formData?.get('transactionId') === transaction['db/id'].toString();
 
         if (isEditing) {
           return (
@@ -155,10 +152,8 @@ export function OptimisticTransactionTable({
             className="category-button"
             onClick={() => setEditingTransactionId(transaction['db/id'])}
             onFocus={() => setEditingTransactionId(transaction['db/id'])}
-            disabled={isUpdating}
           >
             {optimisticCategory.name}
-            {isUpdating && ' (saving...)'}
           </button>
         );
       },

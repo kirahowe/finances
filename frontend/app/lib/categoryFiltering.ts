@@ -7,6 +7,10 @@ function normalizeForFiltering(text: string): string {
   return text.toLowerCase().replace(/[^a-z0-9]/g, '');
 }
 
+function matchesQuery(category: Category, normalizedQuery: string): boolean {
+  return normalizeForFiltering(category['category/name']).includes(normalizedQuery);
+}
+
 /**
  * Filters categories by name (case-insensitive and whitespace-insensitive)
  */
@@ -19,10 +23,24 @@ export function filterCategories(
   }
 
   const normalizedQuery = normalizeForFiltering(filter);
-  return categories.filter((category) => {
-    const normalizedName = normalizeForFiltering(category['category/name']);
-    return normalizedName.includes(normalizedQuery);
-  });
+  return categories.filter((category) => matchesQuery(category, normalizedQuery));
+}
+
+/**
+ * Whether any category matches the filter. Cheaper than filterCategories when
+ * only existence matters: it short-circuits on the first hit and builds no
+ * array. An empty filter is treated as "no match to prefer" (not a wildcard).
+ */
+export function hasMatchingCategory(
+  categories: Category[],
+  filter: string
+): boolean {
+  if (!filter.trim()) {
+    return false;
+  }
+
+  const normalizedQuery = normalizeForFiltering(filter);
+  return categories.some((category) => matchesQuery(category, normalizedQuery));
 }
 
 /**

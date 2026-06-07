@@ -230,24 +230,27 @@ describe('CategoryDropdown', () => {
     expect(onClose).toHaveBeenCalled();
   });
 
-  it('maintains highlighted state after filtering', async () => {
+  it('highlights the first match while filtering and Enter selects it, not Uncategorized', async () => {
     const user = userEvent.setup();
+    const onSelect = vi.fn();
 
     render(
       <CategoryDropdown
         categories={mockCategories}
         selectedCategoryId={null}
-        onSelect={vi.fn()}
+        onSelect={onSelect}
         onClose={vi.fn()}
       />
     );
 
     const input = screen.getByRole('combobox');
-    await user.type(input, '{ArrowDown}');
-    await user.type(input, 'g');
+    await user.type(input, 'sal'); // matches only Salary (id 3)
 
-    const firstFilteredOption = screen.getByText('Groceries').closest('li');
-    expect(firstFilteredOption).toHaveClass('highlighted');
+    const salaryOption = screen.getByText('Salary').closest('li');
+    expect(salaryOption).toHaveClass('highlighted');
+
+    await user.keyboard('{Enter}');
+    expect(onSelect).toHaveBeenCalledWith(3);
   });
 
   it('shows "Uncategorized" as placeholder when no category is selected', () => {

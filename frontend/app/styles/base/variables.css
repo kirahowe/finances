@@ -72,6 +72,13 @@
   --font-mono: "IBM Plex Mono", "SF Mono", ui-monospace, Menlo, Consolas,
     monospace;
 
+  /* Category control — the resting button and the editing input share this
+     box so swapping one for the other never shifts the row. The negative
+     "bleed" margin is derived from the padding (see category-button /
+     category-dropdown), so the text edge stays put no matter the values. */
+  --category-field-padding-y: 0.2rem;
+  --category-field-padding-x: 0.4rem;
+
   /* Layout */
   --container-max-width: 1600px;
   --border-radius: 8px;

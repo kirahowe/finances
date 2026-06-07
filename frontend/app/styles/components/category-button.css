@@ -3,8 +3,9 @@
   border: 1px solid transparent;
   color: var(--color-ink-soft);
   cursor: pointer;
-  padding: 0.2rem 0.4rem;
-  margin: -0.2rem -0.4rem;
+  padding: var(--category-field-padding-y) var(--category-field-padding-x);
+  margin: calc(-1 * var(--category-field-padding-y))
+    calc(-1 * var(--category-field-padding-x));
   border-radius: var(--radius-sm);
   font-family: inherit;
   font-size: inherit;

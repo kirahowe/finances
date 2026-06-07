@@ -2,6 +2,7 @@ import { describe, it, expect } from 'vitest';
 import {
   filterCategories,
   getSelectedIndex,
+  hasMatchingCategory,
 } from '../../app/lib/categoryFiltering';
 import type { Category } from '../../app/lib/api';
 
@@ -131,6 +132,30 @@ describe('categoryFiltering', () => {
       const result = filterCategories(categories, 'WORKINC');
       expect(result).toHaveLength(1);
       expect(result[0]['category/name']).toBe('Work Income');
+    });
+  });
+
+  describe('hasMatchingCategory', () => {
+    it('is true when at least one category matches', () => {
+      expect(hasMatchingCategory(mockCategories, 'gro')).toBe(true);
+      expect(hasMatchingCategory(mockCategories, 'g')).toBe(true);
+    });
+
+    it('is false when no category matches', () => {
+      expect(hasMatchingCategory(mockCategories, 'xyz')).toBe(false);
+    });
+
+    it('treats an empty or whitespace filter as no match (not a wildcard)', () => {
+      expect(hasMatchingCategory(mockCategories, '')).toBe(false);
+      expect(hasMatchingCategory(mockCategories, '   ')).toBe(false);
+    });
+
+    it('agrees with filterCategories on whether matches exist', () => {
+      for (const filter of ['gro', 'g', 'xyz', 'salary', 'gymmem']) {
+        expect(hasMatchingCategory(mockCategories, filter)).toBe(
+          filterCategories(mockCategories, filter).length > 0
+        );
+      }
     });
   });
 
