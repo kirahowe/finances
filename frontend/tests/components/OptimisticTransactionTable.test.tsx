@@ -4,6 +4,7 @@ import userEvent from '@testing-library/user-event';
 import { createMemoryRouter, RouterProvider } from 'react-router';
 import { OptimisticTransactionTable } from '../../app/components/OptimisticTransactionTable';
 import type { Transaction, Category } from '../../app/lib/api';
+import { formatAmount } from '../../app/lib/format';
 
 describe('OptimisticTransactionTable', () => {
   const mockCategories: Category[] = [
@@ -58,6 +59,32 @@ describe('OptimisticTransactionTable', () => {
         'db/id': 11,
         'account/external-name': 'Savings',
       },
+    },
+  ];
+
+  const mockTransactionWithSplits: Transaction[] = [
+    {
+      'db/id': 5,
+      'transaction/posted-date': '2024-02-01',
+      'transaction/payee': 'Costco',
+      'transaction/description': 'Warehouse run',
+      'transaction/amount': -100.0,
+      'transaction/category': null,
+      'transaction/splits': [
+        {
+          'db/id': 51,
+          'split/amount': -60.0,
+          'split/order': 0,
+          'split/memo': 'food',
+          'split/category': { 'db/id': 1, 'category/name': 'Groceries' },
+        },
+        {
+          'db/id': 52,
+          'split/amount': -40.0,
+          'split/order': 1,
+          'split/category': { 'db/id': 2, 'category/name': 'Salary' },
+        },
+      ],
     },
   ];
 
@@ -186,6 +213,60 @@ describe('OptimisticTransactionTable', () => {
     // Should show dash for missing institution (multiple dashes may exist for other empty fields)
     const dashes = screen.getAllByText('—');
     expect(dashes.length).toBeGreaterThan(0);
+  });
+
+  it('renders a split as a context row plus one muted line per part', () => {
+    renderWithRouter(
+      <OptimisticTransactionTable
+        transactions={mockTransactionWithSplits}
+        categories={mockCategories}
+        sorting={[]}
+        onSortingChange={vi.fn()}
+        onSplit={vi.fn()}
+      />
+    );
+
+    // One context (parent) row + one child line per part.
+    expect(document.querySelectorAll('tr.is-split-parent').length).toBe(1);
+    expect(document.querySelectorAll('tr.split-child-row').length).toBe(2);
+
+    // The parent carries the context once (payee, description)...
+    expect(screen.getAllByText('Costco').length).toBe(1);
+    expect(screen.getByText('Warehouse run')).toBeInTheDocument();
+    // ...but its amount and category are blank so the total isn't shown twice.
+    expect(screen.queryByText(formatAmount(-100))).not.toBeInTheDocument();
+    expect(screen.queryByText(/Split \(/)).not.toBeInTheDocument();
+
+    // Each part line shows its category + signed amount, with a split marker.
+    expect(document.querySelectorAll('.split-icon').length).toBe(2);
+    expect(screen.getByRole('button', { name: 'Groceries' })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Salary' })).toBeInTheDocument();
+    expect(screen.getByText(formatAmount(-60))).toBeInTheDocument();
+    expect(screen.getByText(formatAmount(-40))).toBeInTheDocument();
+  });
+
+  it('offers an Edit affordance on split rows that opens the editor', async () => {
+    const user = userEvent.setup();
+    const onSplit = vi.fn();
+    renderWithRouter(
+      <OptimisticTransactionTable
+        transactions={mockTransactionWithSplits}
+        categories={mockCategories}
+        sorting={[]}
+        onSortingChange={vi.fn()}
+        onSplit={onSplit}
+      />
+    );
+
+    const editButtons = screen.getAllByRole('button', { name: 'Edit' });
+    expect(editButtons.length).toBe(2);
+
+    await user.click(editButtons[0]);
+    expect(onSplit).toHaveBeenCalledWith(mockTransactionWithSplits[0]);
+
+    // Clicking a part's category also opens the editor.
+    await user.click(screen.getByRole('button', { name: 'Groceries' }));
+    expect(onSplit).toHaveBeenCalledTimes(2);
   });
 
   it('displays dash when transaction has no account', async () => {

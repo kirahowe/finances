@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useState, Fragment } from 'react';
 import {
   useReactTable,
   getCoreRowModel,
@@ -9,9 +9,33 @@ import {
   type OnChangeFn,
 } from '@tanstack/react-table';
 import { useFetcher } from 'react-router';
-import type { Transaction, Category } from '../lib/api';
+import type { Transaction, Category, Split } from '../lib/api';
 import { formatAmount, formatDate } from '../lib/format';
+import { isSplitBalanced } from '../lib/splitMath';
 import { CategoryDropdown } from './CategoryDropdown';
+import '../styles/components/split-rows.css';
+
+// Branch/split marker shown on each line of a split transaction.
+function SplitIcon({ drift }: { drift?: boolean }) {
+  return (
+    <svg
+      className={`split-icon ${drift ? 'split-icon-drift' : ''}`}
+      width="14"
+      height="14"
+      viewBox="0 0 24 24"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="2"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      aria-hidden="true"
+    >
+      <title>{drift ? 'Split parts no longer add up to the amount' : 'Part of a split'}</title>
+      <polyline points="15 10 20 15 15 20" />
+      <path d="M4 4v7a4 4 0 0 0 4 4h12" />
+    </svg>
+  );
+}
 
 interface OptimisticTransactionTableProps {
   transactions: Transaction[];
@@ -20,6 +44,7 @@ interface OptimisticTransactionTableProps {
   pageSize?: number;
   sorting: SortingState;
   onSortingChange: OnChangeFn<SortingState>;
+  onSplit?: (transaction: Transaction) => void;
 }
 
 export function OptimisticTransactionTable({
@@ -29,6 +54,7 @@ export function OptimisticTransactionTable({
   pageSize,
   sorting,
   onSortingChange,
+  onSplit,
 }: OptimisticTransactionTableProps) {
   const [editingTransactionId, setEditingTransactionId] = useState<number | null>(null);
   const fetcher = useFetcher();
@@ -80,6 +106,49 @@ export function OptimisticTransactionTable({
 
     fetcher.submit(formData, { method: 'post' });
     setEditingTransactionId(null);
+  };
+
+  // One cell of a split part's (child) row. Only the amount and category are
+  // filled (with a branch marker + an Edit action); the rest is blank because the
+  // parent row already carries the date/account/payee context.
+  const renderSplitChildCell = (columnId: string, split: Split, tx: Transaction, drift: boolean) => {
+    switch (columnId) {
+      case 'description':
+        return <SplitIcon drift={drift} />;
+      case 'amount': {
+        const amount = split['split/amount'];
+        return (
+          <span className={`numeric ${amount >= 0 ? 'positive' : 'negative'}`}>
+            {formatAmount(amount)}
+          </span>
+        );
+      }
+      case 'category':
+        return (
+          <div className="category-cell-content">
+            <button
+              type="button"
+              className="category-button"
+              onClick={() => onSplit?.(tx)}
+              title="Edit split"
+            >
+              {split['split/category']?.['category/name'] ?? 'Uncategorized'}
+            </button>
+            {onSplit && (
+              <button
+                type="button"
+                className="split-action"
+                onClick={() => onSplit(tx)}
+                title="Edit split"
+              >
+                Edit
+              </button>
+            )}
+          </div>
+        );
+      default:
+        return null;
+    }
   };
 
   const columns = [
@@ -148,13 +217,25 @@ export function OptimisticTransactionTable({
         }
 
         return (
-          <button
-            className="category-button"
-            onClick={() => setEditingTransactionId(transaction['db/id'])}
-            onFocus={() => setEditingTransactionId(transaction['db/id'])}
-          >
-            {optimisticCategory.name}
-          </button>
+          <div className="category-cell-content">
+            <button
+              className="category-button"
+              onClick={() => setEditingTransactionId(transaction['db/id'])}
+              onFocus={() => setEditingTransactionId(transaction['db/id'])}
+            >
+              {optimisticCategory.name}
+            </button>
+            {onSplit && (
+              <button
+                type="button"
+                className="split-action"
+                onClick={() => onSplit(transaction)}
+                title="Split this transaction"
+              >
+                Split
+              </button>
+            )}
+          </div>
         );
       },
     }),
@@ -215,15 +296,63 @@ export function OptimisticTransactionTable({
         ))}
       </thead>
       <tbody>
-        {displayRows.map((row) => (
-          <tr key={row.id}>
-            {row.getVisibleCells().map((cell) => (
-              <td key={cell.id} className={cellClassName(cell.column.id)}>
-                {flexRender(cell.column.columnDef.cell, cell.getContext())}
-              </td>
-            ))}
-          </tr>
-        ))}
+        {displayRows.map((row) => {
+          const tx = row.original;
+          const txSplits = tx['transaction/splits'];
+          const parts =
+            txSplits && txSplits.length > 0
+              ? [...txSplits].sort((a, b) => (a['split/order'] ?? 0) - (b['split/order'] ?? 0))
+              : null;
+
+          // Unsplit transaction: one normal row.
+          if (!parts) {
+            return (
+              <tr key={row.id}>
+                {row.getVisibleCells().map((cell) => (
+                  <td key={cell.id} className={cellClassName(cell.column.id)}>
+                    {flexRender(cell.column.columnDef.cell, cell.getContext())}
+                  </td>
+                ))}
+              </tr>
+            );
+          }
+
+          // Split transaction: a context "parent" row (date/account/payee, but no
+          // amount/category to avoid showing the total twice) followed by one muted
+          // line per part carrying just the amount + category.
+          const drift = !isSplitBalanced(
+            tx['transaction/amount'],
+            parts.map((s) => s['split/amount'])
+          );
+          const lastIdx = parts.length - 1;
+          return (
+            <Fragment key={row.id}>
+              <tr className="is-split-parent">
+                {row.getVisibleCells().map((cell) => {
+                  const id = cell.column.id;
+                  const blank = id === 'amount' || id === 'category';
+                  return (
+                    <td key={cell.id} className={cellClassName(id)}>
+                      {blank ? null : flexRender(cell.column.columnDef.cell, cell.getContext())}
+                    </td>
+                  );
+                })}
+              </tr>
+              {parts.map((split, i) => (
+                <tr
+                  key={`${row.id}-part-${split['db/id'] ?? i}`}
+                  className={`split-child-row ${i === lastIdx ? 'is-last' : ''}`}
+                >
+                  {row.getVisibleCells().map((cell) => (
+                    <td key={cell.id} className={cellClassName(cell.column.id)}>
+                      {renderSplitChildCell(cell.column.id, split, tx, drift)}
+                    </td>
+                  ))}
+                </tr>
+              ))}
+            </Fragment>
+          );
+        })}
       </tbody>
     </table>
   );

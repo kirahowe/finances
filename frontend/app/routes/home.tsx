@@ -4,6 +4,7 @@ import { api, type Category, type Transaction } from "../lib/api";
 import { useSearchParams, useRevalidator } from "react-router";
 import { SiteHeader } from "../components/SiteHeader";
 import { OptimisticTransactionTable } from "../components/OptimisticTransactionTable";
+import { SplitTransactionModal } from "../components/SplitTransactionModal";
 import { ErrorDisplay } from "../components/ErrorDisplay";
 import { Pagination } from "../components/Pagination";
 import { FilterBar, type FilterConfig } from "../components/FilterBar";
@@ -98,6 +99,7 @@ function TransactionsSection({
   const [page, setPage] = useState(0);
   const [pageSize, setPageSize] = useState<PageSize>(25);
   const [error, setError] = useState<string | null>(null);
+  const [splitTx, setSplitTx] = useState<Transaction | null>(null);
   const [isSyncing, setIsSyncing] = useState(false);
   const [syncStatus, setSyncStatus] = useState<string>("");
   const [syncError, setSyncError] = useState<string | null>(null);
@@ -291,6 +293,7 @@ function TransactionsSection({
               pageSize={pageSize}
               sorting={sorting}
               onSortingChange={handleSortingChange}
+              onSplit={setSplitTx}
             />
 
             <Pagination
@@ -303,6 +306,18 @@ function TransactionsSection({
           </>
         )}
       </div>
+
+      {splitTx && (
+        <SplitTransactionModal
+          transaction={splitTx}
+          categories={categories}
+          onClose={() => setSplitTx(null)}
+          onSaved={() => {
+            setSplitTx(null);
+            revalidator.revalidate();
+          }}
+        />
+      )}
     </>
   );
 }
