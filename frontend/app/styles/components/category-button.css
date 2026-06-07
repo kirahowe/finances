@@ -1,18 +1,28 @@
 .category-button {
   background: none;
-  border: none;
-  color: var(--color-primary);
+  border: 1px solid transparent;
+  color: var(--color-ink-soft);
   cursor: pointer;
-  padding: 0;
-  text-decoration: underline;
+  padding: 0.2rem 0.4rem;
+  margin: -0.2rem -0.4rem;
+  border-radius: var(--radius-sm);
   font-family: inherit;
   font-size: inherit;
   text-align: left;
   width: 100%;
   white-space: normal;
   word-wrap: break-word;
+  transition: background-color 0.15s var(--ease-out),
+    color 0.15s var(--ease-out), border-color 0.15s var(--ease-out);
 }
 
 .category-button:hover {
-  color: var(--color-primary-hover);
+  color: var(--color-pine-hover);
+  background-color: var(--color-accent-soft);
+  border-color: #cfe1d8;
+}
+
+.category-button:disabled {
+  opacity: 0.6;
+  cursor: default;
 }

@@ -7,16 +7,21 @@ html {
   padding: 0;
   height: 100%;
   background-color: var(--color-background);
+  -webkit-text-size-adjust: 100%;
 }
 
 body {
   margin: 0;
   padding: 0;
-  height: 100%;
+  min-height: 100%;
   font-family: var(--font-body);
   color: var(--color-text);
   background-color: var(--color-background);
-  line-height: 1.5;
+  line-height: 1.55;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+  text-rendering: optimizeLegibility;
+  font-feature-settings: "ss01", "cv01";
 }
 
 h1, h2, h3, h4, h5, h6 {
@@ -31,4 +36,21 @@ button {
 table {
   border-collapse: collapse;
   width: 100%;
+}
+
+::selection {
+  background-color: var(--color-pine-soft);
+  color: var(--color-pine-hover);
+}
+
+a {
+  color: var(--color-primary);
+  text-underline-offset: 0.18em;
+  text-decoration-thickness: 1px;
+}
+
+:focus-visible {
+  outline: 2px solid var(--color-primary);
+  outline-offset: 2px;
+  border-radius: 3px;
 }

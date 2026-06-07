@@ -28,7 +28,9 @@
   display: flex;
   align-items: center;
   gap: var(--spacing-sm);
-  font-size: 0.95rem;
+  font-family: var(--font-display);
+  font-size: 1rem;
+  font-weight: 500;
   margin: 0 0 var(--spacing-sm);
   padding-bottom: var(--spacing-xs);
   border-bottom: 1px solid var(--color-border);
@@ -38,7 +40,7 @@
   width: 20px;
   height: 20px;
   object-fit: contain;
-  border-radius: var(--border-radius);
+  border-radius: var(--radius-sm);
 }
 
 .provider-account-list {
@@ -53,6 +55,11 @@
   justify-content: space-between;
   gap: var(--spacing-sm);
   padding: var(--spacing-sm) 0;
+  border-bottom: 1px solid var(--color-border);
+}
+
+.provider-account-row:last-child {
+  border-bottom: none;
 }
 
 .provider-account-label {
@@ -68,8 +75,9 @@
 
 .provider-connected-tag {
   color: var(--color-positive);
-  font-size: 0.75rem;
+  font-family: var(--font-mono);
+  font-size: 0.7rem;
   font-weight: 600;
   text-transform: uppercase;
-  letter-spacing: 0.03em;
+  letter-spacing: 0.05em;
 }

@@ -1,150 +1,110 @@
-/* Plaid Test Page Styles */
-
-.error-banner {
-  background-color: #fee;
-  border: 1px solid #fcc;
-  padding: 1rem;
-  margin-bottom: 1rem;
-  border-radius: 4px;
-  color: #c00;
-}
-
-.status-banner {
-  background-color: #eff6ff;
-  border: 1px solid #bfdbfe;
-  padding: 1rem;
-  margin-bottom: 1rem;
-  border-radius: 4px;
-  color: #1e40af;
-}
-
-.button-group {
-  display: flex;
-  gap: 1rem;
-  margin-bottom: 1.5rem;
-}
-
-.button-primary {
-  background-color: #2563eb;
-  color: white;
-}
-
-.button-primary:hover:not(:disabled) {
-  background-color: #1d4ed8;
-}
-
-.button-primary:disabled {
-  background-color: #93c5fd;
-  cursor: not-allowed;
-}
-
-.button-secondary {
-  background-color: #64748b;
-  color: white;
-}
-
-.button-secondary:hover:not(:disabled) {
-  background-color: #475569;
-}
+/* Plaid Test Page Styles
+   (buttons + banners inherit the global theme; only page-specific
+   presentation lives here) */
 
 .response-section {
-  margin-top: 1.5rem;
-  padding-top: 1.5rem;
-  border-top: 1px solid #e5e7eb;
+  margin-top: var(--spacing-lg);
+  padding-top: var(--spacing-lg);
+  border-top: 1px solid var(--color-border);
 }
 
 .response-section h3 {
   margin-top: 0;
-  margin-bottom: 0.5rem;
-  color: #1f2937;
-  font-size: 1.125rem;
+  margin-bottom: var(--spacing-sm);
+  font-family: var(--font-display);
+  color: var(--color-ink);
+  font-size: 1.1rem;
 }
 
 .summary {
-  margin: 0.5rem 0;
+  margin: var(--spacing-sm) 0;
   padding: 0.75rem;
-  background-color: #f3f4f6;
-  border-radius: 4px;
+  background-color: var(--color-paper);
+  border: 1px solid var(--color-border);
+  border-radius: var(--border-radius);
   font-weight: 500;
-  color: #374151;
+  color: var(--color-ink-soft);
 }
 
 .json-display {
-  background-color: #f9fafb;
-  border: 1px solid #e5e7eb;
-  padding: 1rem;
-  border-radius: 4px;
+  background-color: var(--color-paper);
+  border: 1px solid var(--color-border);
+  padding: var(--spacing-md);
+  border-radius: var(--border-radius);
   overflow-x: auto;
-  font-family: 'Monaco', 'Menlo', 'Courier New', monospace;
-  font-size: 0.875rem;
-  line-height: 1.5;
-  color: #1f2937;
+  font-family: var(--font-mono);
+  font-size: 0.8rem;
+  line-height: 1.6;
+  color: var(--color-ink);
   max-height: 400px;
   overflow-y: auto;
 }
 
 details {
-  margin-top: 0.5rem;
+  margin-top: var(--spacing-sm);
 }
 
 details summary {
   cursor: pointer;
-  padding: 0.5rem;
-  background-color: #f3f4f6;
-  border-radius: 4px;
+  padding: var(--spacing-sm);
+  background-color: var(--color-paper-deep);
+  border-radius: var(--border-radius);
   font-weight: 500;
-  color: #374151;
+  color: var(--color-ink-soft);
+  font-size: 0.85rem;
 }
 
 details summary:hover {
-  background-color: #e5e7eb;
+  background-color: var(--color-border);
 }
 
 details[open] summary {
-  margin-bottom: 0.5rem;
+  margin-bottom: var(--spacing-sm);
 }
 
 .instructions-list {
-  line-height: 1.8;
-  color: #374151;
+  line-height: 1.9;
+  color: var(--color-ink-soft);
 }
 
 .instructions-list code {
-  background-color: #f3f4f6;
-  padding: 0.2rem 0.4rem;
-  border-radius: 3px;
-  font-family: 'Monaco', 'Menlo', 'Courier New', monospace;
-  font-size: 0.875rem;
-  color: #1f2937;
+  background-color: var(--color-paper-deep);
+  padding: 0.15rem 0.4rem;
+  border-radius: var(--radius-sm);
+  font-family: var(--font-mono);
+  font-size: 0.82rem;
+  color: var(--color-ink);
 }
 
 .instructions-list ul {
-  margin-top: 0.5rem;
+  margin-top: var(--spacing-sm);
 }
 
 .selected-accounts-list {
-  margin: 10px 0;
-  padding-left: 20px;
+  margin: var(--spacing-sm) 0;
+  padding-left: var(--spacing-lg);
   list-style-type: disc;
 }
 
 .selected-accounts-list li {
-  margin: 0.5rem 0;
-  color: #374151;
+  margin: var(--spacing-sm) 0;
+  color: var(--color-ink-soft);
 }
 
 .account-mask {
-  color: #6b7280;
+  color: var(--color-text-muted);
+  font-family: var(--font-mono);
+  font-size: 0.85rem;
 }
 
 .plaid-config-note {
-  margin-top: 15px;
-  font-size: 14px;
-  color: #6b7280;
+  margin-top: var(--spacing-md);
+  font-size: 0.85rem;
+  color: var(--color-text-muted);
 }
 
 .plaid-config-note a {
-  color: #2563eb;
+  color: var(--color-primary);
   text-decoration: none;
 }
 

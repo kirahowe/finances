@@ -1,23 +1,45 @@
+h1, h2, h3 {
+  font-family: var(--font-display);
+  font-weight: 500;
+  letter-spacing: -0.01em;
+  line-height: 1.1;
+  color: var(--color-ink);
+}
+
 h1 {
-  font-size: 2rem;
-  margin-bottom: var(--spacing-lg);
+  font-size: clamp(1.9rem, 1.4rem + 1.6vw, 2.6rem);
+  font-optical-sizing: auto;
 }
 
 h2 {
-  font-size: 1.5rem;
-  margin-bottom: var(--spacing-md);
+  font-size: 1.4rem;
 }
 
 h3 {
-  font-size: 1.25rem;
-  margin-bottom: var(--spacing-md);
+  font-size: 1.15rem;
 }
 
 button {
-  font-size: 1rem;
+  font-size: 0.9rem;
   font-weight: 500;
+  letter-spacing: 0.005em;
 }
 
-.amount {
+/* Tabular figures everywhere a number appears in the ledger. */
+.amount,
+.numeric {
+  font-family: var(--font-mono);
   font-variant-numeric: tabular-nums;
+  font-feature-settings: "tnum" 1;
+  letter-spacing: -0.01em;
+}
+
+/* Small-caps style label used for stat labels, table heads, eyebrows. */
+.eyebrow {
+  font-family: var(--font-body);
+  font-size: 0.7rem;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.12em;
+  color: var(--color-text-muted);
 }

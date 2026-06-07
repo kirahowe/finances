@@ -1,49 +1,156 @@
+/* ============================================================
+   Stat cards (Setup overview)
+   ============================================================ */
 .stats-grid {
   display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
-  gap: var(--spacing-lg);
+  grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+  gap: var(--spacing-md);
   margin-bottom: var(--spacing-xl);
 }
 
 .stat-card {
-  background: var(--color-white);
-  border-radius: var(--border-radius);
+  position: relative;
+  background: var(--color-surface);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-lg);
   padding: var(--spacing-lg);
-  box-shadow: 0 2px 4px var(--color-shadow);
-  text-align: center;
+  box-shadow: var(--shadow-sm);
+  overflow: hidden;
+}
+
+.stat-card::before {
+  content: "";
+  position: absolute;
+  left: 0;
+  top: var(--spacing-lg);
+  bottom: var(--spacing-lg);
+  width: 3px;
+  border-radius: var(--radius-pill);
+  background: var(--color-pine);
+  opacity: 0.85;
 }
 
 .stat-value {
-  font-size: 2.5rem;
-  font-weight: bold;
-  color: var(--color-primary);
-  margin-bottom: var(--spacing-sm);
+  font-family: var(--font-mono);
+  font-variant-numeric: tabular-nums;
+  font-size: 2.4rem;
+  font-weight: 500;
+  line-height: 1;
+  color: var(--color-ink);
+  margin-bottom: var(--spacing-xs);
 }
 
 .stat-label {
   color: var(--color-text-muted);
-  font-size: 0.875rem;
+  font-size: 0.7rem;
+  font-weight: 600;
   text-transform: uppercase;
-  letter-spacing: 0.5px;
+  letter-spacing: 0.12em;
 }
 
-/* Status and error banners */
+/* ============================================================
+   Transactions summary bar (month figures)
+   ============================================================ */
+.summary-bar {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--spacing-xl);
+  align-items: flex-end;
+  padding: var(--spacing-md) var(--spacing-lg);
+  margin-bottom: var(--spacing-lg);
+  background: var(--color-surface);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-lg);
+  box-shadow: var(--shadow-sm);
+}
+
+.summary-item {
+  display: flex;
+  flex-direction: column;
+  gap: 0.2rem;
+}
+
+.summary-item .eyebrow {
+  font-size: 0.65rem;
+}
+
+.summary-value {
+  font-family: var(--font-mono);
+  font-variant-numeric: tabular-nums;
+  font-size: 1.5rem;
+  font-weight: 500;
+  line-height: 1.1;
+  color: var(--color-ink);
+}
+
+.summary-value.positive {
+  color: var(--color-positive);
+}
+
+.summary-value.negative {
+  color: var(--color-negative);
+}
+
+.summary-divider {
+  flex: 1;
+}
+
+/* ============================================================
+   Provider badges
+   ============================================================ */
+.badge {
+  display: inline-block;
+  padding: 0.18rem 0.5rem;
+  font-family: var(--font-mono);
+  font-size: 0.68rem;
+  font-weight: 500;
+  text-transform: uppercase;
+  border-radius: var(--radius-sm);
+  letter-spacing: 0.06em;
+  background-color: var(--color-paper-deep);
+  color: var(--color-ink-soft);
+  border: 1px solid var(--color-border);
+}
+
+.badge-plaid {
+  background-color: #e6efe9;
+  color: var(--color-pine-hover);
+  border-color: #cfe1d8;
+}
+
+.badge-manual {
+  background-color: #efe9df;
+  color: #7a5a1e;
+  border-color: #e2d6c0;
+}
+
+.badge-lunchflow {
+  background-color: #e7efe2;
+  color: #3f6b2a;
+  border-color: #d4e3c9;
+}
+
+/* ============================================================
+   Status / error banners
+   ============================================================ */
 .status-banner {
-  background-color: #eff6ff;
-  border: 1px solid #bfdbfe;
-  padding: 1rem;
-  margin-bottom: 1rem;
-  border-radius: 4px;
-  color: #1e40af;
+  background-color: var(--color-accent-soft);
+  border: 1px solid #cfe1d8;
+  padding: 0.75rem var(--spacing-md);
+  margin-bottom: var(--spacing-md);
+  border-radius: var(--border-radius);
+  color: var(--color-pine-hover);
+  font-size: 0.9rem;
 }
 
 .error-banner {
-  background-color: #fee;
-  border: 1px solid #fcc;
-  padding: 1rem;
-  margin-bottom: 1rem;
-  border-radius: 4px;
-  color: #c00;
+  background-color: var(--color-error-bg);
+  border: 1px solid var(--color-error-border);
+  padding: 0.75rem var(--spacing-md);
+  margin-bottom: var(--spacing-md);
+  border-radius: var(--border-radius);
+  color: var(--color-error-text);
+  font-size: 0.9rem;
   display: flex;
   align-items: center;
   justify-content: space-between;
@@ -54,7 +161,8 @@
   border: none;
   cursor: pointer;
   font-size: 1.25rem;
-  color: #c00;
+  line-height: 1;
+  color: var(--color-error-text);
   padding: 0 0.25rem;
 }
 
@@ -62,43 +170,14 @@
   opacity: 0.7;
 }
 
-/* Button group styling */
+/* Misc helpers */
 .button-group {
   display: flex;
-  gap: var(--spacing-md);
+  gap: var(--spacing-sm);
+  flex-wrap: wrap;
 }
 
 .button-small {
-  padding: 0.25rem 0.75rem;
-  font-size: 0.875rem;
-}
-
-/* Badge styling */
-.badge {
-  display: inline-block;
-  padding: 0.25rem 0.5rem;
-  font-size: 0.75rem;
-  font-weight: 600;
-  text-transform: uppercase;
-  border-radius: 3px;
-  letter-spacing: 0.5px;
-  /* Neutral default so any provider (incl. ones without a specific colour
-     below) still renders as a badge rather than unstyled text. */
-  background-color: #e5e7eb;
-  color: #374151;
-}
-
-.badge-plaid {
-  background-color: #dbeafe;
-  color: #1e40af;
-}
-
-.badge-manual {
-  background-color: #f3e8ff;
-  color: #7c3aed;
-}
-
-.badge-lunchflow {
-  background-color: #dcfce7;
-  color: #15803d;
+  padding: 0.3rem 0.7rem;
+  font-size: 0.8rem;
 }

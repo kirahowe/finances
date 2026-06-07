@@ -1,34 +1,61 @@
 :root {
-  /* Base Colors */
-  --color-dark-gray: #333;
-  --color-medium-gray: #666;
-  --color-light-gray: #ddd;
-  --color-very-light-gray: #f5f5f5;
-  --color-white: #fff;
-  --color-blue: #007aff;
-  --color-dark-blue: #0056b3;
-  --color-green: #27ae60;
-  --color-red: #e74c3c;
-  --color-light-red: #fee;
-  --color-medium-red: #fcc;
-  --color-dark-red: #c33;
-  --color-black-transparent: rgba(0, 0, 0, 0.1);
-  --color-black-semi-transparent: rgba(0, 0, 0, 0.5);
+  /* ----------------------------------------------------------------
+     "Ledger" palette — a modern financial broadsheet.
+     Warm paper, ink type, a single restrained pine accent. Amount
+     greens/reds are reserved exclusively for figures so they read as
+     data, never decoration.
+  ---------------------------------------------------------------- */
 
-  /* Semantic Colors */
-  --color-text: var(--color-dark-gray);
+  /* Neutrals (warm) */
+  --color-ink: #211f1a;
+  --color-ink-soft: #57534b;
+  --color-dark-gray: #211f1a;
+  --color-medium-gray: #8a8576;
+  --color-light-gray: #dcd6c8;
+  --color-very-light-gray: #efebe1;
+  --color-paper: #f6f3ec;
+  --color-paper-deep: #ece7db;
+  --color-white: #ffffff;
+
+  /* Accent (pine) */
+  --color-pine: #1c5d4e;
+  --color-pine-hover: #15493d;
+  --color-pine-soft: #e2ede8;
+
+  /* Figures */
+  --color-green: #157f4b;
+  --color-red: #b23a2e;
+
+  /* Error surfaces (oxblood-tinted) */
+  --color-light-red: #fbeae7;
+  --color-medium-red: #e9c4be;
+  --color-dark-red: #8c2b22;
+
+  --color-black-transparent: rgba(33, 31, 26, 0.06);
+  --color-black-semi-transparent: rgba(33, 31, 26, 0.45);
+
+  /* ---- Semantic aliases (consumed across components) ---- */
+  --color-text: var(--color-ink);
   --color-text-muted: var(--color-medium-gray);
-  --color-background: var(--color-very-light-gray);
+  --color-background: var(--color-paper);
+  --color-surface: var(--color-white);
   --color-border: var(--color-light-gray);
+  --color-border-strong: #cbc3b1;
   --color-positive: var(--color-green);
   --color-negative: var(--color-red);
-  --color-primary: var(--color-blue);
-  --color-primary-hover: var(--color-dark-blue);
+  --color-primary: var(--color-pine);
+  --color-primary-hover: var(--color-pine-hover);
+  --color-accent-soft: var(--color-pine-soft);
   --color-shadow: var(--color-black-transparent);
   --color-backdrop: var(--color-black-semi-transparent);
   --color-error-bg: var(--color-light-red);
   --color-error-text: var(--color-dark-red);
   --color-error-border: var(--color-medium-red);
+
+  /* Compat tokens referenced by csv-import.css */
+  --color-gray-50: var(--color-paper);
+  --color-gray-100: var(--color-paper-deep);
+  --color-success: var(--color-green);
 
   /* Spacing */
   --spacing-xs: 0.25rem;
@@ -39,10 +66,25 @@
   --spacing-xxl: 3rem;
 
   /* Typography */
-  --font-body: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
-  --font-mono: 'SF Mono', Monaco, Consolas, monospace;
+  --font-display: "Fraunces", "Iowan Old Style", Georgia, serif;
+  --font-body: "Hanken Grotesk", ui-sans-serif, system-ui, -apple-system,
+    "Segoe UI", Roboto, sans-serif;
+  --font-mono: "IBM Plex Mono", "SF Mono", ui-monospace, Menlo, Consolas,
+    monospace;
 
   /* Layout */
   --container-max-width: 1600px;
   --border-radius: 8px;
+  --radius-sm: 5px;
+  --radius-lg: 14px;
+  --radius-pill: 999px;
+
+  /* Elevation (warm, soft) */
+  --shadow-sm: 0 1px 2px rgba(33, 31, 26, 0.05), 0 1px 1px rgba(33, 31, 26, 0.04);
+  --shadow-md: 0 4px 16px -4px rgba(33, 31, 26, 0.1),
+    0 2px 6px -2px rgba(33, 31, 26, 0.06);
+  --shadow-lg: 0 18px 40px -12px rgba(33, 31, 26, 0.2);
+
+  /* Motion */
+  --ease-out: cubic-bezier(0.16, 1, 0.3, 1);
 }

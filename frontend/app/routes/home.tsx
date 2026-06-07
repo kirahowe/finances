@@ -1,38 +1,33 @@
-import { useState, useRef, useEffect, useMemo } from "react";
+import { useState, useEffect, useMemo } from "react";
 import type { Route } from "./+types/home";
-import { api, type Stats, type Category, type Account, type Transaction } from "../lib/api";
-import { useSearchParams, useFetcher, useNavigation, useRevalidator } from "react-router";
+import { api, type Category, type Transaction } from "../lib/api";
+import { useSearchParams, useRevalidator } from "react-router";
+import { SiteHeader } from "../components/SiteHeader";
 import { OptimisticTransactionTable } from "../components/OptimisticTransactionTable";
-import { CategoryTable } from "../components/CategoryTable";
-import { BulkCategoryModal } from "../components/BulkCategoryModal";
-import { LoadingIndicator } from "../components/LoadingIndicator";
 import { ErrorDisplay } from "../components/ErrorDisplay";
 import { Pagination } from "../components/Pagination";
 import { FilterBar, type FilterConfig } from "../components/FilterBar";
 import { MonthNavigator } from "../components/MonthNavigator";
-import { ManualAccountModal } from "../components/ManualAccountModal";
-import { LunchflowConnectionModal } from "../components/LunchflowConnectionModal";
-import { CsvImportWizard } from "../components/CsvImportWizard";
-import { generateCategoryIdent } from "../lib/identGenerator";
-import type { CategoryDraft } from "../lib/categoryDraft";
-import { CATEGORY_TYPE_OPTIONS, type CategoryType } from "../lib/categoryTypes";
-import { calculateSortOrderUpdates, optimizeSortOrderUpdates } from "../lib/categoryReorder";
-import { debounce } from "../lib/debounce";
 import { parseSortingState, serializeSortingState } from "../lib/sortingState";
 import { parseMonthParam, serializeMonth, type MonthState } from "../lib/monthState";
 import type { SortingState } from "@tanstack/react-table";
 import type { PageSize } from "../lib/pagination";
-import { usePlaidLink } from "../hooks/usePlaidLink";
-import { parseFilters, serializeFilters, toggleFilterValue, clearFilterField, clearAllFilters, type FilterState, type FilterValue } from "../lib/filterState";
+import { formatAmount } from "../lib/format";
+import {
+  parseFilters,
+  serializeFilters,
+  toggleFilterValue,
+  clearFilterField,
+  clearAllFilters,
+  type FilterState,
+  type FilterValue,
+} from "../lib/filterState";
 import { extractFilterOptions, applyFilters } from "../lib/filterOptions";
 import "../styles/pages/dashboard.css";
 import "../styles/components/pagination.css";
 import "../styles/components/category-button.css";
-import "../styles/components/category-table.css";
 import "../styles/components/filter.css";
 import "../styles/components/month-navigator.css";
-import "../styles/components/csv-import.css";
-import "../styles/components/provider-connection.css";
 
 export function meta({}: Route.MetaArgs) {
   return [
@@ -43,643 +38,48 @@ export function meta({}: Route.MetaArgs) {
 
 export async function loader({ request }: Route.LoaderArgs) {
   const url = new URL(request.url);
-  const view = url.searchParams.get('view');
-  const month = url.searchParams.get('month');
+  const month = url.searchParams.get("month");
 
-  const stats = await api.getStats();
+  const monthState = parseMonthParam(month);
+  const monthParam = serializeMonth(monthState);
 
-  let categories: Category[] = [];
-  let accounts: Account[] = [];
-  let transactions: Transaction[] = [];
+  const [stats, transactions, categories] = await Promise.all([
+    api.getStats(),
+    api.getTransactions({ month: monthParam }),
+    api.getCategories(),
+  ]);
 
-  if (view === 'categories') {
-    categories = await api.getCategories();
-  } else if (view === 'accounts') {
-    accounts = await api.getAccounts();
-  } else if (view === 'transactions') {
-    // Parse month param (defaults to current month if invalid/missing)
-    const monthState = parseMonthParam(month);
-    const monthParam = serializeMonth(monthState);
-
-    [transactions, categories] = await Promise.all([
-      api.getTransactions({ month: monthParam }),
-      api.getCategories(),
-    ]);
-  }
-
-  // Return plain object - React Router v7 handles serialization
-  // Include month so frontend can use it directly from loader data
-  const monthParam = view === 'transactions' ? serializeMonth(parseMonthParam(month)) : null;
-  return { stats, categories, accounts, transactions, view, month: monthParam };
+  return { stats, transactions, categories, month: monthParam };
 }
 
 export async function action({ request }: Route.ActionArgs) {
   const formData = await request.formData();
   const intent = formData.get("intent");
 
-  if (intent === "refresh-stats") {
-    return { success: true };
-  } else if (intent === "link-plaid-account") {
-    // Handle Plaid account linking with exchange
-    // Note: Transaction sync happens via frontend polling after this returns
-    const publicToken = formData.get("publicToken") as string;
-    const accountIdsJson = formData.get("accountIds") as string;
-
-    if (!publicToken) {
-      return { success: false, error: "Missing public token" };
-    }
-
-    // Parse account IDs if provided
-    let accountIds: string[] | undefined;
-    if (accountIdsJson) {
-      try {
-        accountIds = JSON.parse(accountIdsJson);
-      } catch {
-        console.warn('Failed to parse accountIds:', accountIdsJson);
-      }
-    }
-
-    try {
-      // 1. Exchange public token for access token (stores credential with accountIds)
-      const exchangeResult = await api.exchangePlaidToken(publicToken, accountIds);
-
-      // 2. Sync accounts from Plaid (immediate - accounts are available instantly)
-      await api.syncPlaidAccounts();
-
-      // Return item_id so frontend can poll for transaction sync status
-      // Transaction sync is triggered and polled by the frontend hook
-      return {
-        success: true,
-        itemId: exchangeResult.item_id,
-        institutionName: exchangeResult.institution_name,
-      };
-    } catch (err) {
-      const errorMsg = err instanceof Error ? err.message : "Failed to link account";
-      return { success: false, error: errorMsg };
-    }
-  } else if (intent === "create-category") {
-    const name = formData.get("name") as string;
-    const type = formData.get("type") as CategoryType;
-    const ident = formData.get("ident") as string | undefined;
-    const parentId = formData.get("parentId");
-    await api.createCategory({
-      name,
-      type,
-      ident: ident || undefined,
-      parentId: parentId ? parseInt(parentId as string) : undefined,
-    });
-  } else if (intent === "update-category") {
-    const id = parseInt(formData.get("id") as string);
-    const name = formData.get("name") as string;
-    const type = formData.get("type") as CategoryType;
-    const ident = formData.get("ident") as string | undefined;
-    // The edit form always submits parentId: "" means top-level (clear), a
-    // number sets the parent.
-    const parentIdRaw = formData.get("parentId") as string;
-    const parentId = parentIdRaw === "" ? null : parseInt(parentIdRaw);
-    await api.updateCategory(id, { name, type, ident: ident || undefined, parentId });
-  } else if (intent === "delete-category") {
-    const id = parseInt(formData.get("id") as string);
-    await api.deleteCategory(id);
-  } else if (intent === "update-transaction-category") {
+  if (intent === "update-transaction-category") {
     const transactionId = parseInt(formData.get("transactionId") as string);
     const categoryId = formData.get("categoryId");
     await api.updateTransactionCategory(
       transactionId,
       categoryId ? parseInt(categoryId as string) : null
     );
-  } else if (intent === "create-manual-account") {
-    const name = formData.get("name") as string;
-    const institutionName = formData.get("institutionName") as string;
-    const currency = formData.get("currency") as string;
-    await api.createAccount({ name, institutionName, currency });
   }
 
   return { success: true };
 }
 
 export default function Home({ loaderData }: Route.ComponentProps) {
-  const { stats, categories, accounts, transactions, view, month } = loaderData;
-  const [searchParams, setSearchParams] = useSearchParams();
-  const [error, setError] = useState<string | null>(null);
-  const fetcher = useFetcher();
-  const navigation = useNavigation();
-
-  const isLoading = navigation.state === 'loading';
-
-  const handleRefresh = () => {
-    fetcher.submit({ intent: "refresh-stats" }, { method: "post" });
-  };
-
-  const handleViewChange = (newView: string) => {
-    setSearchParams({ view: newView });
-  };
+  const { stats, transactions, categories, month } = loaderData;
 
   return (
     <div className="container">
-      <h1>Finance Aggregator</h1>
-
-      <ErrorDisplay error={error} onDismiss={() => setError(null)} />
-
-      <div className="stats-grid">
-        <div className="stat-card">
-          <div className="stat-value">{stats.institutions}</div>
-          <div className="stat-label">Institutions</div>
-        </div>
-        <div className="stat-card">
-          <div className="stat-value">{stats.accounts}</div>
-          <div className="stat-label">Accounts</div>
-        </div>
-        <div className="stat-card">
-          <div className="stat-value">{stats.transactions}</div>
-          <div className="stat-label">Transactions</div>
-        </div>
-      </div>
-
-      <div className="card">
-        <div className="card-header">
-          <h2>Navigate</h2>
-          <button className="button" onClick={handleRefresh}>
-            Refresh Stats
-          </button>
-        </div>
-        <div className="nav-links">
-          <button onClick={() => handleViewChange('categories')} className="button">
-            Categories
-          </button>
-          <button onClick={() => handleViewChange('accounts')} className="button">
-            Accounts
-          </button>
-          <button onClick={() => handleViewChange('transactions')} className="button">
-            Transactions
-          </button>
-          <a href="/plaid-test" className="button">
-            Plaid Test
-          </a>
-        </div>
-      </div>
-
-      <LoadingIndicator isLoading={isLoading} message="Loading data..." />
-
-      {!isLoading && view === 'categories' && <CategoriesSection categories={categories} />}
-      {!isLoading && view === 'accounts' && <AccountsSection accounts={accounts} />}
-      {!isLoading && view === 'transactions' && month && (
-        <TransactionsSection
-          key={month}
-          transactions={transactions}
-          categories={categories}
-          month={month}
-        />
-      )}
-    </div>
-  );
-}
-
-function CategoriesSection({ categories }: { categories: Category[] }) {
-  const [editingCategory, setEditingCategory] = useState<Category | null>(null);
-  const [showBulkModal, setShowBulkModal] = useState(false);
-  const [newCategoryIds, setNewCategoryIds] = useState<number[]>([]);
-  const [optimisticCategories, setOptimisticCategories] = useState<Category[]>([]);
-  const [localCategories, setLocalCategories] = useState<Category[]>([]);
-  const nextTempIdRef = useRef(-1);
-  const originalCategoriesRef = useRef(categories);
-  const fetcher = useFetcher();
-  const revalidator = useRevalidator();
-
-  // Update original categories ref when server data changes
-  useEffect(() => {
-    originalCategoriesRef.current = categories;
-    setLocalCategories(categories);
-  }, [categories]);
-
-  // Merge server categories with optimistic categories
-  const allCategories = [...localCategories, ...optimisticCategories];
-
-  // Clean up optimistic categories when they appear in the server data
-  useEffect(() => {
-    if (optimisticCategories.length > 0) {
-      setOptimisticCategories((prev) =>
-        prev.filter((opt) =>
-          !categories.some((cat) => cat['category/name'] === opt['category/name'])
-        )
-      );
-    }
-  }, [categories, optimisticCategories.length]);
-
-  // Track IDs of categories that were optimistically added
-  useEffect(() => {
-    const optimisticIds = optimisticCategories.map((cat) => cat['db/id']);
-    if (optimisticIds.length > 0) {
-      setNewCategoryIds((prev) => {
-        const serverNewIds = categories
-          .filter((cat) =>
-            optimisticCategories.some((opt) => opt['category/name'] === cat['category/name'])
-          )
-          .map((cat) => cat['db/id']);
-
-        const combined = [...new Set([...prev, ...optimisticIds, ...serverNewIds])];
-        return combined;
-      });
-    }
-  }, [categories, optimisticCategories]);
-
-  const handleEdit = (category: Category) => {
-    setEditingCategory(category);
-  };
-
-  const handleDelete = (category: Category) => {
-    if (confirm(`Delete category "${category["category/name"]}"?`)) {
-      fetcher.submit(
-        { intent: "delete-category", id: category["db/id"].toString() },
-        { method: "post" }
-      );
-    }
-  };
-
-  const handleCreate = (draft: CategoryDraft) => {
-    // Create optimistic category
-    const tempId = nextTempIdRef.current--;
-    const optimisticCategory: Category = {
-      'db/id': tempId,
-      'category/name': draft.name,
-      'category/type': draft.type,
-      ...(draft.parentId !== null ? { 'category/parent': { 'db/id': draft.parentId } } : {}),
-    };
-
-    setOptimisticCategories((prev) => [...prev, optimisticCategory]);
-
-    const ident = generateCategoryIdent(draft.name);
-    const submission: Record<string, string> = {
-      intent: "create-category",
-      name: draft.name,
-      type: draft.type,
-      ident,
-    };
-    if (draft.parentId !== null) {
-      submission.parentId = String(draft.parentId);
-    }
-    fetcher.submit(submission, { method: "post" });
-  };
-
-  const handleCloseForm = () => {
-    setEditingCategory(null);
-  };
-
-  const handleBulkCreated = () => {
-    setShowBulkModal(false);
-    revalidator.revalidate();
-  };
-
-  // Debounced batch update for reordering
-  const debouncedBatchUpdate = useRef(
-    debounce(async (updates: Array<{ id: number; sortOrder: number }>) => {
-      try {
-        await api.batchUpdateCategorySortOrders(updates);
-      } catch (error) {
-        console.error('Failed to update category order:', error);
-        // Revert to original order on error
-        setLocalCategories(originalCategoriesRef.current);
-      }
-    }, 500)
-  ).current;
-
-  const handleReorder = (reordered: Category[]) => {
-    // Optimistically update local state
-    setLocalCategories(reordered);
-
-    // Calculate and batch the updates
-    const allUpdates = calculateSortOrderUpdates(reordered);
-    const optimizedUpdates = optimizeSortOrderUpdates(allUpdates, originalCategoriesRef.current);
-
-    if (optimizedUpdates.length > 0) {
-      debouncedBatchUpdate(optimizedUpdates);
-    }
-  };
-
-  return (
-    <div className="card">
-      <div className="card-header">
-        <h2>Categories</h2>
-      </div>
-
-      <CategoryTable
-        categories={allCategories}
-        newCategoryIds={newCategoryIds}
-        onEdit={handleEdit}
-        onDelete={handleDelete}
-        onCreate={handleCreate}
-        onReorder={handleReorder}
-        onBulkAdd={() => setShowBulkModal(true)}
+      <SiteHeader stats={stats} />
+      <TransactionsSection
+        key={month}
+        transactions={transactions}
+        categories={categories}
+        month={month}
       />
-
-      {editingCategory && (
-        <CategoryForm
-          category={editingCategory}
-          categories={allCategories}
-          onClose={handleCloseForm}
-        />
-      )}
-
-      {showBulkModal && (
-        <BulkCategoryModal
-          existingCategories={allCategories}
-          onClose={() => setShowBulkModal(false)}
-          onCreated={handleBulkCreated}
-        />
-      )}
-    </div>
-  );
-}
-
-function CategoryForm({
-  category,
-  categories,
-  onClose,
-}: {
-  category: Category | null;
-  categories: Category[];
-  onClose: () => void;
-}) {
-  const fetcher = useFetcher();
-  const isEditing = category !== null;
-  const [name, setName] = useState(category?.["category/name"] || "");
-
-  const generatedIdent = generateCategoryIdent(name);
-
-  // A category with its own sub-categories can't also become a child
-  // (single-level hierarchy).
-  const hasChildren = category
-    ? categories.some((c) => c["category/parent"]?.["db/id"] === category["db/id"])
-    : false;
-
-  // Only persisted top-level categories (excluding this one) are eligible
-  // parents; unsaved categories (negative temp id) have no real id to reference.
-  const parentOptions = categories.filter(
-    (c) => !c["category/parent"] && c["db/id"] !== category?.["db/id"] && c["db/id"] > 0
-  );
-
-  const handleSubmit = () => {
-    // Close modal after submission (works with fetcher)
-    onClose();
-  };
-
-  return (
-    <div className="modal-backdrop" onClick={onClose}>
-      <div className="modal-content" onClick={(e) => e.stopPropagation()}>
-        <h2>{isEditing ? "Edit Category" : "Add Category"}</h2>
-        <fetcher.Form method="post" onSubmit={handleSubmit}>
-          <input
-            type="hidden"
-            name="intent"
-            value={isEditing ? "update-category" : "create-category"}
-          />
-          <input
-            type="hidden"
-            name="ident"
-            value={generatedIdent}
-          />
-          {isEditing && (
-            <input
-              type="hidden"
-              name="id"
-              value={category["db/id"].toString()}
-            />
-          )}
-
-          <div className="form-group">
-            <label className="form-label" htmlFor="name">
-              Name
-            </label>
-            <input
-              className="form-input"
-              type="text"
-              id="name"
-              name="name"
-              value={name}
-              onChange={(e) => setName(e.target.value)}
-              required
-            />
-          </div>
-
-          <div className="form-group">
-            <label className="form-label" htmlFor="type">
-              Type
-            </label>
-            <select
-              className="form-select"
-              id="type"
-              name="type"
-              defaultValue={category?.["category/type"] || "expense"}
-              required
-            >
-              {CATEGORY_TYPE_OPTIONS.map((option) => (
-                <option key={option.value} value={option.value}>
-                  {option.label}
-                </option>
-              ))}
-            </select>
-          </div>
-
-          <div className="form-group">
-            <label className="form-label" htmlFor="parentId">
-              Parent
-            </label>
-            <select
-              className="form-select"
-              id="parentId"
-              name="parentId"
-              defaultValue={category?.["category/parent"]?.["db/id"]?.toString() ?? ""}
-              disabled={hasChildren}
-            >
-              <option value="">No parent</option>
-              {parentOptions.map((option) => (
-                <option key={option["db/id"]} value={option["db/id"]}>
-                  {option["category/name"]}
-                </option>
-              ))}
-            </select>
-            {hasChildren && (
-              <p className="bulk-modal-hint">
-                This category has sub-categories, so it can't become a child.
-              </p>
-            )}
-          </div>
-
-          <div className="form-actions">
-            <button type="button" className="button button-secondary" onClick={onClose}>
-              Cancel
-            </button>
-            <button type="submit" className="button">
-              {isEditing ? "Update" : "Create"}
-            </button>
-          </div>
-        </fetcher.Form>
-      </div>
-    </div>
-  );
-}
-
-function AccountsSection({ accounts }: { accounts: Account[] }) {
-  const [showManualAccountModal, setShowManualAccountModal] = useState(false);
-  const [showLunchflowModal, setShowLunchflowModal] = useState(false);
-  const [importAccountId, setImportAccountId] = useState<number | null>(null);
-  const [syncingProvider, setSyncingProvider] = useState<string | null>(null);
-  const [syncError, setSyncError] = useState<string | null>(null);
-  const revalidator = useRevalidator();
-  const { openPlaidLink, isReady, isLinking, status, error, clearError } = usePlaidLink({
-    onSuccess: () => {
-      console.log('Account linked successfully - data will refresh automatically');
-    },
-  });
-
-  const handleImportSuccess = () => {
-    revalidator.revalidate();
-  };
-
-  // Secrets-based providers (e.g. Lunchflow): the API key lives server-side, so
-  // syncing just triggers the backend pull and refreshes once it completes.
-  const handleSyncProvider = async (provider: string) => {
-    setSyncError(null);
-    setSyncingProvider(provider);
-    try {
-      await api.syncProvider(provider);
-      revalidator.revalidate();
-    } catch (err) {
-      setSyncError(err instanceof Error ? err.message : `Failed to sync ${provider}`);
-    } finally {
-      setSyncingProvider(null);
-    }
-  };
-
-  const importAccount = accounts.find((a) => a["db/id"] === importAccountId);
-
-  return (
-    <div className="card">
-      <div className="card-header">
-        <h2>Accounts</h2>
-        <div className="button-group">
-          <button
-            className="button"
-            onClick={() => setShowManualAccountModal(true)}
-          >
-            Add Manual Account
-          </button>
-          <button
-            className="button"
-            onClick={openPlaidLink}
-            disabled={!isReady || isLinking}
-          >
-            {isLinking ? "Linking..." : "Link Bank Account"}
-          </button>
-          <button
-            className="button"
-            onClick={() => setShowLunchflowModal(true)}
-          >
-            Connect Lunchflow
-          </button>
-          <button
-            className="button"
-            onClick={() => handleSyncProvider("lunchflow")}
-            disabled={syncingProvider === "lunchflow"}
-          >
-            {syncingProvider === "lunchflow" ? "Syncing..." : "Sync Lunchflow"}
-          </button>
-        </div>
-      </div>
-
-      {status && <div className="status-banner">{status}</div>}
-      {error && (
-        <div className="error-banner">
-          {error}
-          <button onClick={clearError}>×</button>
-        </div>
-      )}
-      {syncError && (
-        <div className="error-banner">
-          {syncError}
-          <button onClick={() => setSyncError(null)}>×</button>
-        </div>
-      )}
-
-      {accounts.length === 0 ? (
-        <p style={{ padding: '1rem', color: '#666' }}>
-          No accounts yet. Click "Add Manual Account" or "Link Bank Account" to get started.
-        </p>
-      ) : (
-        <table className="table">
-          <thead>
-            <tr>
-              <th>Source</th>
-              <th>Institution</th>
-              <th>Name</th>
-              <th>Type</th>
-              <th>Mask</th>
-              <th>Currency</th>
-              <th>Actions</th>
-            </tr>
-          </thead>
-          <tbody>
-            {accounts.map((account) => {
-              const provider = account["account/provider"];
-              const providerLabel = provider
-                ? provider.charAt(0).toUpperCase() + provider.slice(1)
-                : "Unknown";
-              return (
-              <tr key={account["db/id"]}>
-                <td>
-                  <span className={`badge badge-${provider ?? "unknown"}`}>
-                    {providerLabel}
-                  </span>
-                </td>
-                <td>{account["account/institution"]?.["institution/name"] || "—"}</td>
-                <td>{account["account/external-name"]}</td>
-                <td>
-                  {account["account/provider-type"]
-                    ? `${account["account/provider-type"]}${account["account/provider-subtype"] ? ` / ${account["account/provider-subtype"]}` : ''}`
-                    : account["account/type"] || "—"}
-                </td>
-                <td>{account["account/mask"] ? `****${account["account/mask"]}` : "—"}</td>
-                <td>{account["account/currency"]}</td>
-                <td>
-                  {provider === "manual" && (
-                    <button
-                      className="button button-small"
-                      onClick={() => setImportAccountId(account["db/id"])}
-                    >
-                      Import CSV
-                    </button>
-                  )}
-                </td>
-              </tr>
-              );
-            })}
-          </tbody>
-        </table>
-      )}
-
-      {showManualAccountModal && (
-        <ManualAccountModal onClose={() => setShowManualAccountModal(false)} />
-      )}
-
-      {showLunchflowModal && (
-        <LunchflowConnectionModal
-          existingAccounts={accounts}
-          onClose={() => setShowLunchflowModal(false)}
-          onConnected={() => {
-            setShowLunchflowModal(false);
-            revalidator.revalidate();
-          }}
-        />
-      )}
-
-      {importAccountId && importAccount && (
-        <CsvImportWizard
-          accountId={importAccountId}
-          accountName={importAccount["account/external-name"]}
-          onClose={() => setImportAccountId(null)}
-          onSuccess={handleImportSuccess}
-        />
-      )}
     </div>
   );
 }
@@ -707,79 +107,87 @@ function TransactionsSection({
 
   // Initialize sorting from URL
   const [sorting, setSorting] = useState<SortingState>(() =>
-    parseSortingState(searchParams.get('sort'))
+    parseSortingState(searchParams.get("sort"))
   );
 
   // Initialize filters from URL - single source of truth
   const [filters, setFilters] = useState<FilterState>(() =>
-    parseFilters(searchParams.get('filters'))
+    parseFilters(searchParams.get("filters"))
   );
 
   // Extract filter options from all transactions
   const filterConfigs = useMemo<FilterConfig[]>(() => {
     const accountOptions = extractFilterOptions(
       transactions,
-      tx => tx['transaction/account']?.['db/id'],
-      tx => tx['transaction/account']?.['account/external-name'] || 'Unknown'
+      (tx) => tx["transaction/account"]?.["db/id"],
+      (tx) => tx["transaction/account"]?.["account/external-name"] || "Unknown"
     );
 
     const categoryOptions = extractFilterOptions(
       transactions,
-      tx => tx['transaction/category']?.['db/id'],
-      tx => tx['transaction/category']?.['category/name'] || 'Uncategorized'
+      (tx) => tx["transaction/category"]?.["db/id"],
+      (tx) => tx["transaction/category"]?.["category/name"] || "Uncategorized"
     );
 
     return [
-      { field: 'account', label: 'Account', options: accountOptions },
-      { field: 'category', label: 'Category', options: categoryOptions },
+      { field: "account", label: "Account", options: accountOptions },
+      { field: "category", label: "Category", options: categoryOptions },
     ];
   }, [transactions]);
 
   // Apply filters to transactions
   const filteredTransactions = useMemo(() => {
-    return applyFilters(
-      transactions,
-      filters,
-      {
-        account: (tx: Transaction) => tx['transaction/account']?.['db/id'],
-        category: (tx: Transaction) => tx['transaction/category']?.['db/id'],
-      }
-    );
+    return applyFilters(transactions, filters, {
+      account: (tx: Transaction) => tx["transaction/account"]?.["db/id"],
+      category: (tx: Transaction) => tx["transaction/category"]?.["db/id"],
+    });
   }, [transactions, filters]);
+
+  // Month figures derived from the currently-visible (filtered) set.
+  const summary = useMemo(() => {
+    let inflow = 0;
+    let outflow = 0;
+    for (const tx of filteredTransactions) {
+      const amount = tx["transaction/amount"] ?? 0;
+      if (amount >= 0) inflow += amount;
+      else outflow += amount;
+    }
+    return { count: filteredTransactions.length, inflow, outflow, net: inflow + outflow };
+  }, [filteredTransactions]);
 
   // Sync URL when sorting or filters change (not month - that uses React Router navigation)
   useEffect(() => {
-    // Build URL from current location to preserve all params including month
     const currentUrl = new URL(window.location.href);
 
     const serializedSort = serializeSortingState(sorting);
     if (serializedSort) {
-      currentUrl.searchParams.set('sort', serializedSort);
+      currentUrl.searchParams.set("sort", serializedSort);
     } else {
-      currentUrl.searchParams.delete('sort');
+      currentUrl.searchParams.delete("sort");
     }
 
     const serializedFilters = serializeFilters(filters);
     if (serializedFilters) {
-      currentUrl.searchParams.set('filters', serializedFilters);
+      currentUrl.searchParams.set("filters", serializedFilters);
     } else {
-      currentUrl.searchParams.delete('filters');
+      currentUrl.searchParams.delete("filters");
     }
 
-    // Use native history API to avoid triggering React Router navigation
-    window.history.replaceState(null, '', currentUrl.toString());
-  }, [sorting, filters]); // Removed searchParams - only sync when sort/filters change locally
+    window.history.replaceState(null, "", currentUrl.toString());
+  }, [sorting, filters]);
 
-  const handleSortingChange = (updaterOrValue: SortingState | ((old: SortingState) => SortingState)) => {
+  const handleSortingChange = (
+    updaterOrValue: SortingState | ((old: SortingState) => SortingState)
+  ) => {
     setSorting(updaterOrValue);
   };
 
   const handleToggleFilterValue = (field: string, value: FilterValue) => {
-    setFilters(prev => toggleFilterValue(prev, field, value));
+    setFilters((prev) => toggleFilterValue(prev, field, value));
   };
 
   const handleClearFilterField = (field: string) => {
-    setFilters(prev => clearFilterField(prev, field));
+    setFilters((prev) => clearFilterField(prev, field));
   };
 
   const handleClearAllFilters = () => {
@@ -787,13 +195,11 @@ function TransactionsSection({
   };
 
   const handleMonthChange = (newMonth: MonthState) => {
-    // Update URL with new month - this triggers a loader re-run via React Router
-    setSearchParams(prev => {
+    setSearchParams((prev) => {
       const next = new URLSearchParams(prev);
-      next.set('month', serializeMonth(newMonth));
+      next.set("month", serializeMonth(newMonth));
       return next;
     });
-    // Reset to first page when month changes
     setPage(0);
   };
 
@@ -803,13 +209,9 @@ function TransactionsSection({
     setSyncError(null);
 
     try {
-      // Use month prop directly (already in YYYY-MM format from loader)
       const result = await api.syncPlaidMonthTransactions(month);
-      setSyncStatus(
-        `Successfully synced ${result.success.transactions} transaction(s)!`
-      );
+      setSyncStatus(`Successfully synced ${result.success.transactions} transaction(s)!`);
 
-      // Revalidate to refresh data without full page reload
       setTimeout(() => {
         revalidator.revalidate();
         setSyncStatus("");
@@ -824,46 +226,83 @@ function TransactionsSection({
   };
 
   return (
-    <div className="card">
-      <div className="card-header">
-        <h2>Transactions</h2>
+    <>
+      <div className="page-head">
+        <span className="eyebrow">Ledger</span>
+        <h2 className="page-title">Transactions</h2>
       </div>
 
-      <MonthNavigator
-        currentMonth={currentMonth}
-        onMonthChange={handleMonthChange}
-        onSync={handleSyncMonth}
-        isSyncing={isSyncing}
-      />
+      <div className="summary-bar">
+        <div className="summary-item">
+          <span className="eyebrow">Net</span>
+          <span className={`summary-value ${summary.net >= 0 ? "positive" : "negative"}`}>
+            {formatAmount(summary.net)}
+          </span>
+        </div>
+        <div className="summary-item">
+          <span className="eyebrow">Inflows</span>
+          <span className="summary-value positive">{formatAmount(summary.inflow)}</span>
+        </div>
+        <div className="summary-item">
+          <span className="eyebrow">Outflows</span>
+          <span className="summary-value negative">{formatAmount(summary.outflow)}</span>
+        </div>
+        <div className="summary-divider" />
+        <div className="summary-item">
+          <span className="eyebrow">Transactions</span>
+          <span className="summary-value">{summary.count}</span>
+        </div>
+      </div>
 
-      {syncStatus && <div className="status-banner">{syncStatus}</div>}
-      {syncError && <div className="error-banner">{syncError}</div>}
-      <ErrorDisplay error={error} onDismiss={() => setError(null)} />
+      <div className="card">
+        <MonthNavigator
+          currentMonth={currentMonth}
+          onMonthChange={handleMonthChange}
+          onSync={handleSyncMonth}
+          isSyncing={isSyncing}
+        />
 
-      <FilterBar
-        filters={filterConfigs}
-        filterState={filters}
-        onToggleValue={handleToggleFilterValue}
-        onClearField={handleClearFilterField}
-        onClearAll={handleClearAllFilters}
-      />
+        {syncStatus && <div className="status-banner">{syncStatus}</div>}
+        {syncError && <div className="error-banner">{syncError}</div>}
+        <ErrorDisplay error={error} onDismiss={() => setError(null)} />
 
-      <OptimisticTransactionTable
-        transactions={filteredTransactions}
-        categories={categories}
-        page={page}
-        pageSize={pageSize}
-        sorting={sorting}
-        onSortingChange={handleSortingChange}
-      />
+        <FilterBar
+          filters={filterConfigs}
+          filterState={filters}
+          onToggleValue={handleToggleFilterValue}
+          onClearField={handleClearFilterField}
+          onClearAll={handleClearAllFilters}
+        />
 
-      <Pagination
-        currentPage={page}
-        pageSize={pageSize}
-        totalItems={filteredTransactions.length}
-        onPageChange={setPage}
-        onPageSizeChange={setPageSize}
-      />
-    </div>
+        {filteredTransactions.length === 0 ? (
+          <div className="empty-state">
+            <div className="empty-state-title">No transactions this month</div>
+            <p>
+              Use the month controls to browse another period, or sync this month
+              to pull the latest activity from your connected accounts.
+            </p>
+          </div>
+        ) : (
+          <>
+            <OptimisticTransactionTable
+              transactions={filteredTransactions}
+              categories={categories}
+              page={page}
+              pageSize={pageSize}
+              sorting={sorting}
+              onSortingChange={handleSortingChange}
+            />
+
+            <Pagination
+              currentPage={page}
+              pageSize={pageSize}
+              totalItems={filteredTransactions.length}
+              onPageChange={setPage}
+              onPageSizeChange={setPageSize}
+            />
+          </>
+        )}
+      </div>
+    </>
   );
 }

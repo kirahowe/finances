@@ -15,8 +15,21 @@ import "./styles/base/typography.css";
 import "./styles/components/common.css";
 import "./styles/components/category-dropdown.css";
 import "./styles/layouts/container.css";
+import "./styles/layouts/app-shell.css";
 
-export const links: Route.LinksFunction = () => [];
+export const links: Route.LinksFunction = () => [
+  { rel: "preconnect", href: "https://fonts.googleapis.com" },
+  { rel: "preconnect", href: "https://fonts.gstatic.com", crossOrigin: "anonymous" },
+  {
+    rel: "stylesheet",
+    href:
+      "https://fonts.googleapis.com/css2?" +
+      "family=Fraunces:ital,opsz,wght@0,9..144,400;0,9..144,500;0,9..144,600;1,9..144,400" +
+      "&family=Hanken+Grotesk:wght@400;500;600;700" +
+      "&family=IBM+Plex+Mono:wght@400;500;600" +
+      "&display=swap",
+  },
+];
 
 export function Layout({ children }: { children: React.ReactNode }) {
   return (

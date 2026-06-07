@@ -2,7 +2,7 @@ import { test, expect } from '@playwright/test';
 
 test.describe('Rapid Categorization Workflow', () => {
   test('filters categories and navigates with Enter key', async ({ page }) => {
-    await page.goto('/?view=transactions');
+    await page.goto('/');
 
     // Wait for transactions to load
     await expect(page.locator('table')).toBeVisible();
@@ -32,7 +32,7 @@ test.describe('Rapid Categorization Workflow', () => {
   });
 
   test('whitespace-insensitive filtering works', async ({ page }) => {
-    await page.goto('/?view=transactions');
+    await page.goto('/');
 
     // Wait for transactions to load
     await expect(page.locator('table')).toBeVisible();

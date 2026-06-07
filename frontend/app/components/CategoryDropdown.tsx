@@ -156,7 +156,7 @@ export function CategoryDropdown({
               index === highlightedIndex ? 'highlighted' : ''
             }`}
             onClick={() => handleOptionClick(option.id)}
-            onMouseEnter={() => setHighlightedIndex(index)}
+            onMouseMove={() => setHighlightedIndex(index)}
           >
             {option.name}
           </li>
