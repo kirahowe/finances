@@ -11,9 +11,9 @@ import {
 import { useFetcher } from 'react-router';
 import type { Transaction, Category, Split } from '../lib/api';
 import { formatAmount, formatDate } from '../lib/format';
-import { isSplitBalanced } from '../lib/splitMath';
 import { CategoryDropdown } from './CategoryDropdown';
 import '../styles/components/split-rows.css';
+import '../styles/components/transfer-modal.css';
 
 // Branch/split marker shown on each line of a split transaction.
 function SplitIcon({ drift }: { drift?: boolean }) {
@@ -45,6 +45,8 @@ interface OptimisticTransactionTableProps {
   sorting: SortingState;
   onSortingChange: OnChangeFn<SortingState>;
   onSplit?: (transaction: Transaction) => void;
+  onMatch?: (transaction: Transaction) => void;
+  onUnmatch?: (transaction: Transaction) => void;
 }
 
 export function OptimisticTransactionTable({
@@ -55,6 +57,8 @@ export function OptimisticTransactionTable({
   sorting,
   onSortingChange,
   onSplit,
+  onMatch,
+  onUnmatch,
 }: OptimisticTransactionTableProps) {
   const [editingTransactionId, setEditingTransactionId] = useState<number | null>(null);
   const fetcher = useFetcher();
@@ -93,6 +97,47 @@ export function OptimisticTransactionTable({
       id: categoryRef?.['db/id'] || null,
       name: categoryRef?.['category/name'] || 'Uncategorized'
     };
+  };
+
+  // Transfer affordance for a row's category cell: a persistent badge + unmatch on
+  // a matched transfer, otherwise a quiet "Match" action (and an "unmatched" marker
+  // for transfer-categorized rows with no counterpart).
+  const renderTransferAffordance = (transaction: Transaction) => {
+    const pair = transaction['transaction/transfer-pair'];
+    if (pair) {
+      const partnerName = pair['transaction/account']?.['account/external-name'] ?? 'another account';
+      return (
+        <button
+          type="button"
+          className="transfer-badge"
+          title={`Transfer with ${partnerName} (${formatAmount(pair['transaction/amount'])}) — click to unmatch`}
+          onClick={() => onUnmatch?.(transaction)}
+        >
+          <span aria-hidden="true">⇄</span>
+          <span className="sr-only">Unmatch transfer</span>
+        </button>
+      );
+    }
+    const isTransferType = transaction['transaction/category']?.['category/type'] === 'transfer';
+    return (
+      <>
+        {isTransferType && (
+          <span className="transfer-unmatched" title="Transfer with no matched counterpart">
+            unmatched
+          </span>
+        )}
+        {onMatch && (
+          <button
+            type="button"
+            className="transfer-action"
+            onClick={() => onMatch(transaction)}
+            title="Match as a transfer"
+          >
+            Match
+          </button>
+        )}
+      </>
+    );
   };
 
   const handleCategoryChange = (transactionId: number, categoryId: number | null) => {
@@ -225,6 +270,7 @@ export function OptimisticTransactionTable({
             >
               {optimisticCategory.name}
             </button>
+            {renderTransferAffordance(transaction)}
             {onSplit && (
               <button
                 type="button"
@@ -318,12 +364,10 @@ export function OptimisticTransactionTable({
           }
 
           // Split transaction: a context "parent" row (date/account/payee, but no
-          // amount/category to avoid showing the total twice) followed by one muted
-          // line per part carrying just the amount + category.
-          const drift = !isSplitBalanced(
-            tx['transaction/amount'],
-            parts.map((s) => s['split/amount'])
-          );
+          // amount to avoid showing the total twice) followed by one muted line per
+          // part carrying just the amount + category. Drift is the server's
+          // bigdec-exact verdict, not a lossy client re-derivation.
+          const drift = tx['transaction/splits-balanced'] === false;
           const lastIdx = parts.length - 1;
           return (
             <Fragment key={row.id}>

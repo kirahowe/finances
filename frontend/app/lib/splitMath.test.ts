@@ -5,10 +5,16 @@ import {
   remainingCents,
   fillRemainingCents,
   canConfirm,
-  isSplitBalanced,
+  rowSignedCents,
+  isWholeCents,
 } from './splitMath';
 
 const row = (amount: string, categoryId: number | null = 1) => ({ amount, categoryId });
+const seeded = (seedCents: number, amount: string, categoryId: number | null = 1) => ({
+  amount,
+  categoryId,
+  seedCents,
+});
 
 describe('parseMagnitudeCents', () => {
   it('parses amounts as positive magnitudes', () => {
@@ -100,16 +106,48 @@ describe('canConfirm', () => {
   });
 });
 
-describe('isSplitBalanced', () => {
-  it('is true when signed parts reconcile to the parent', () => {
-    expect(isSplitBalanced(-100, [-60, -40])).toBe(true);
+describe('rowSignedCents', () => {
+  it('carries a typed magnitude into the parent sign', () => {
+    expect(rowSignedCents(-100, row('60'))).toBe(-6000);
+    expect(rowSignedCents(100, row('60'))).toBe(6000);
   });
 
-  it('is exact for fractional cents (would fail with naive floats)', () => {
-    expect(isSplitBalanced(-0.3, [-0.1, -0.2])).toBe(true);
+  it('keeps a seeded part’s own sign (mixed-sign split)', () => {
+    expect(rowSignedCents(-100, seeded(2000, '20'))).toBe(2000);
+    expect(rowSignedCents(-100, seeded(-12000, '120'))).toBe(-12000);
   });
 
-  it('is false after the parent amount drifts', () => {
-    expect(isSplitBalanced(-105, [-60, -40])).toBe(false);
+  it('is null for a blank/unparseable amount', () => {
+    expect(rowSignedCents(-100, row(''))).toBeNull();
+    expect(rowSignedCents(-100, row('abc'))).toBeNull();
+  });
+});
+
+describe('mixed-sign splits', () => {
+  // A part stored as +20 against a -100 parent (e.g. a purchase with a rebate line).
+  const mixed = [seeded(-12000, '120'), seeded(2000, '20')];
+
+  it('reconciles a seeded mixed-sign set as balanced', () => {
+    expect(remainingCents(-100, mixed)).toBe(0);
+    expect(canConfirm(-100, mixed)).toBe(true);
+  });
+
+  it('re-normalizes a part to the parent sign once its magnitude is edited', () => {
+    // The +20 row is retyped (seedCents cleared): it becomes an expense, breaking balance.
+    expect(rowSignedCents(-100, row('20'))).toBe(-2000);
+    expect(canConfirm(-100, [seeded(-12000, '120'), row('20')])).toBe(false);
+  });
+});
+
+describe('isWholeCents / canConfirm precision guard', () => {
+  it('accepts whole-cent parents', () => {
+    expect(isWholeCents(-100)).toBe(true);
+    expect(isWholeCents(-0.3)).toBe(true);
+  });
+
+  it('rejects a sub-cent parent the 2-decimal editor cannot reconcile', () => {
+    expect(isWholeCents(-100.005)).toBe(false);
+    // Even when the cent-rounded magnitudes look balanced, the editor refuses to save.
+    expect(canConfirm(-100.005, [row('60'), row('40')])).toBe(false);
   });
 });

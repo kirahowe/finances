@@ -5,6 +5,8 @@ import { useSearchParams, useRevalidator } from "react-router";
 import { SiteHeader } from "../components/SiteHeader";
 import { OptimisticTransactionTable } from "../components/OptimisticTransactionTable";
 import { SplitTransactionModal } from "../components/SplitTransactionModal";
+import { TransferReviewModal } from "../components/TransferReviewModal";
+import { MatchTransferModal } from "../components/MatchTransferModal";
 import { ErrorDisplay } from "../components/ErrorDisplay";
 import { Pagination } from "../components/Pagination";
 import { FilterBar, type FilterConfig } from "../components/FilterBar";
@@ -24,11 +26,13 @@ import {
   type FilterValue,
 } from "../lib/filterState";
 import { extractFilterOptions, applyFilters } from "../lib/filterOptions";
+import { shouldHideTransfer } from "../lib/transferMatch";
 import "../styles/pages/dashboard.css";
 import "../styles/components/pagination.css";
 import "../styles/components/category-button.css";
 import "../styles/components/filter.css";
 import "../styles/components/month-navigator.css";
+import "../styles/components/transfer-modal.css";
 
 export function meta({}: Route.MetaArgs) {
   return [
@@ -100,6 +104,11 @@ function TransactionsSection({
   const [pageSize, setPageSize] = useState<PageSize>(25);
   const [error, setError] = useState<string | null>(null);
   const [splitTx, setSplitTx] = useState<Transaction | null>(null);
+  const [matchTx, setMatchTx] = useState<Transaction | null>(null);
+  const [reviewing, setReviewing] = useState(false);
+  const [hideTransfers, setHideTransfers] = useState(
+    () => searchParams.get("hideTransfers") === "1"
+  );
   const [isSyncing, setIsSyncing] = useState(false);
   const [syncStatus, setSyncStatus] = useState<string>("");
   const [syncError, setSyncError] = useState<string | null>(null);
@@ -137,13 +146,14 @@ function TransactionsSection({
     ];
   }, [transactions]);
 
-  // Apply filters to transactions
+  // Apply filters to transactions, then optionally hide matched transfers.
   const filteredTransactions = useMemo(() => {
-    return applyFilters(transactions, filters, {
+    const filtered = applyFilters(transactions, filters, {
       account: (tx: Transaction) => tx["transaction/account"]?.["db/id"],
       category: (tx: Transaction) => tx["transaction/category"]?.["db/id"],
     });
-  }, [transactions, filters]);
+    return hideTransfers ? filtered.filter((tx) => !shouldHideTransfer(tx)) : filtered;
+  }, [transactions, filters, hideTransfers]);
 
   // Month figures derived from the currently-visible (filtered) set.
   const summary = useMemo(() => {
@@ -175,8 +185,23 @@ function TransactionsSection({
       currentUrl.searchParams.delete("filters");
     }
 
+    if (hideTransfers) {
+      currentUrl.searchParams.set("hideTransfers", "1");
+    } else {
+      currentUrl.searchParams.delete("hideTransfers");
+    }
+
     window.history.replaceState(null, "", currentUrl.toString());
-  }, [sorting, filters]);
+  }, [sorting, filters, hideTransfers]);
+
+  const handleUnmatchTransfer = async (transaction: Transaction) => {
+    try {
+      await api.unmatchTransfer(transaction["db/id"]);
+      revalidator.revalidate();
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Failed to unmatch transfer");
+    }
+  };
 
   const handleSortingChange = (
     updaterOrValue: SortingState | ((old: SortingState) => SortingState)
@@ -276,6 +301,28 @@ function TransactionsSection({
           onClearAll={handleClearAllFilters}
         />
 
+        <div className="transfer-controls">
+          <label className="transfer-toggle">
+            <input
+              type="checkbox"
+              checked={hideTransfers}
+              onChange={(e) => {
+                setHideTransfers(e.target.checked);
+                setPage(0);
+              }}
+            />
+            <span>Hide transfers</span>
+          </label>
+          <div className="transfer-controls-spacer" />
+          <button
+            type="button"
+            className="button button-secondary"
+            onClick={() => setReviewing(true)}
+          >
+            Find transfers
+          </button>
+        </div>
+
         {filteredTransactions.length === 0 ? (
           <div className="empty-state">
             <div className="empty-state-title">No transactions this month</div>
@@ -294,6 +341,8 @@ function TransactionsSection({
               sorting={sorting}
               onSortingChange={handleSortingChange}
               onSplit={setSplitTx}
+              onMatch={setMatchTx}
+              onUnmatch={handleUnmatchTransfer}
             />
 
             <Pagination
@@ -309,11 +358,33 @@ function TransactionsSection({
 
       {splitTx && (
         <SplitTransactionModal
+          key={splitTx['db/id']}
           transaction={splitTx}
           categories={categories}
           onClose={() => setSplitTx(null)}
           onSaved={() => {
             setSplitTx(null);
+            revalidator.revalidate();
+          }}
+        />
+      )}
+
+      {reviewing && (
+        <TransferReviewModal
+          onClose={() => setReviewing(false)}
+          onApplied={() => {
+            setReviewing(false);
+            revalidator.revalidate();
+          }}
+        />
+      )}
+
+      {matchTx && (
+        <MatchTransferModal
+          transaction={matchTx}
+          onClose={() => setMatchTx(null)}
+          onSaved={() => {
+            setMatchTx(null);
             revalidator.revalidate();
           }}
         />

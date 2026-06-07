@@ -19,6 +19,8 @@ const CategorySchema = z.object({
 const CategoryRefSchema = z.object({
   'db/id': z.number(),
   'category/name': z.string(),
+  // Drives the transfer hide rule: only :transfer / uncategorized legs are hidden.
+  'category/type': z.enum(CATEGORY_TYPES).optional(),
 });
 
 // Institution reference (nested in accounts)
@@ -54,6 +56,17 @@ const AccountRefSchema = z.object({
   'account/institution': InstitutionRefSchema.optional(),
 });
 
+// A split part's category ref. Unlike a transaction's, this tolerates an
+// unresolved ref: a category deleted (or never existing) between page-load and
+// save pulls back as { 'db/id' } with no name. Keeping `category/name` optional
+// means one such row degrades to "Uncategorized" instead of failing the whole
+// list parse.
+const SplitCategoryRefSchema = z.object({
+  'db/id': z.number(),
+  'category/name': z.string().optional(),
+  'category/type': z.enum(CATEGORY_TYPES).optional(),
+});
+
 // One part of a split transaction (nested in transactions).
 // `split/amount` is read back as a JS number (lossy double) for DISPLAY ONLY;
 // the authoritative bigdec value lives in the backend.
@@ -62,10 +75,22 @@ const SplitSchema = z.object({
   'split/amount': z.number(),
   'split/order': z.number().optional(),
   'split/memo': z.string().nullable().optional(),
-  'split/category': CategoryRefSchema.nullable().optional(),
+  'split/category': SplitCategoryRefSchema.nullable().optional(),
 });
 
 export type Split = z.infer<typeof SplitSchema>;
+
+// Self-contained snapshot of the matched partner transaction, so the table can
+// apply the hide rule and show partner info without the partner being loaded.
+const TransferPairRefSchema = z.object({
+  'db/id': z.number(),
+  'transaction/amount': z.number(),
+  'transaction/posted-date': z.string().optional(),
+  'transaction/category': CategoryRefSchema.nullable().optional(),
+  'transaction/account': AccountRefSchema.nullable().optional(),
+});
+
+export type TransferPairRef = z.infer<typeof TransferPairRefSchema>;
 
 const TransactionSchema = z.object({
   'db/id': z.number(),
@@ -76,7 +101,32 @@ const TransactionSchema = z.object({
   'transaction/category': CategoryRefSchema.nullable().optional(),
   'transaction/account': AccountRefSchema.nullable().optional(),
   'transaction/splits': z.array(SplitSchema).optional(),
+  // Server-computed (bigdec-exact) reconciliation verdict; absent when unsplit.
+  'transaction/splits-balanced': z.boolean().optional(),
+  'transaction/transfer-pair': TransferPairRefSchema.nullable().optional(),
 });
+
+// One leg of a transfer suggestion / a manual-match candidate.
+const SuggestionTxSchema = z.object({
+  'db/id': z.number(),
+  'transaction/amount': z.number(),
+  'transaction/payee': z.string().nullable().optional(),
+  'transaction/posted-date': z.string().optional(),
+  'transaction/account': AccountRefSchema.nullable().optional(),
+  'transaction/category': CategoryRefSchema.nullable().optional(),
+});
+
+export type SuggestionTx = z.infer<typeof SuggestionTxSchema>;
+
+// A proposed transfer pair from GET /api/transfers/suggestions.
+const TransferSuggestionSchema = z.object({
+  outflow: SuggestionTxSchema,
+  inflow: SuggestionTxSchema,
+  amount: z.number(),
+  'day-diff': z.number(),
+});
+
+export type TransferSuggestion = z.infer<typeof TransferSuggestionSchema>;
 
 const StatsSchema = z.object({
   institutions: z.number(),
@@ -448,6 +498,59 @@ export const api = {
       throw new Error(json.error || `HTTP ${response.status}: ${response.statusText}`);
     }
     const result = ApiResponseSchema(TransactionSchema).parse(json);
+    return result.data;
+  },
+
+  // ── Transfer matching ──────────────────────────────────────────────────────
+
+  // Proposed transfer pairs across all accounts (nothing is linked yet).
+  async getTransferSuggestions(): Promise<TransferSuggestion[]> {
+    const response = await fetch(routes.transfers.suggestions());
+    const json = await response.json();
+    const result = ApiResponseSchema(z.array(TransferSuggestionSchema)).parse(json);
+    return result.data;
+  },
+
+  // Link two transactions as a transfer pair.
+  async confirmTransfer(outflowId: number, inflowId: number): Promise<void> {
+    const response = await fetch(routes.transfers.confirm(), {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ outflowId, inflowId }),
+    });
+    const json = await response.json();
+    if (!response.ok || !json.success) {
+      throw new Error(json.error || `HTTP ${response.status}: ${response.statusText}`);
+    }
+  },
+
+  // Remove a transaction's transfer link (both legs).
+  async unmatchTransfer(transactionId: number): Promise<void> {
+    const response = await fetch(routes.transfers.unmatch(transactionId), { method: 'DELETE' });
+    const json = await response.json();
+    if (!response.ok || !json.success) {
+      throw new Error(json.error || `HTTP ${response.status}: ${response.statusText}`);
+    }
+  },
+
+  // Record a rejected pair so auto-match won't re-propose it.
+  async rejectTransfer(aId: number, bId: number): Promise<void> {
+    const response = await fetch(routes.transfers.reject(), {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ aId, bId }),
+    });
+    const json = await response.json();
+    if (!response.ok || !json.success) {
+      throw new Error(json.error || `HTTP ${response.status}: ${response.statusText}`);
+    }
+  },
+
+  // Counterpart candidates for manually matching one transaction.
+  async getMatchCandidates(transactionId: number): Promise<SuggestionTx[]> {
+    const response = await fetch(routes.transfers.candidates(transactionId));
+    const json = await response.json();
+    const result = ApiResponseSchema(z.array(SuggestionTxSchema)).parse(json);
     return result.data;
   },
 

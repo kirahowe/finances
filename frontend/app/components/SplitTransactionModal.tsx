@@ -6,8 +6,9 @@ import {
   remainingCents,
   canConfirm,
   fillRemainingCents,
-  parseMagnitudeCents,
   centsToAmountString,
+  toCents,
+  rowSignedCents,
 } from '../lib/splitMath';
 import '../styles/components/split-modal.css';
 
@@ -23,6 +24,9 @@ interface SplitRow {
   amount: string;
   categoryId: number | null;
   memo: string;
+  // Signed cents from a stored split, retained until the magnitude is edited so a
+  // mixed-sign part is not silently normalized to the parent's sign on re-save.
+  seedCents: number | null;
 }
 
 let rowSeq = 0;
@@ -31,6 +35,7 @@ const newRow = (patch: Partial<SplitRow> = {}): SplitRow => ({
   amount: '',
   categoryId: null,
   memo: '',
+  seedCents: null,
   ...patch,
 });
 
@@ -41,8 +46,11 @@ function seedRows(transaction: Transaction): SplitRow[] {
       .sort((a, b) => (a['split/order'] ?? 0) - (b['split/order'] ?? 0))
       .map((s) =>
         newRow({
-          // Stored amounts are signed; the editor shows positive magnitudes.
-          amount: String(Math.abs(s['split/amount'])),
+          // Stored amounts are signed; the editor shows a 2-decimal positive
+          // magnitude (toFixed avoids float artifacts that fail the amount regex)
+          // and keeps the original signed cents so the sign survives a round-trip.
+          amount: Math.abs(s['split/amount']).toFixed(2),
+          seedCents: toCents(s['split/amount']),
           categoryId: s['split/category']?.['db/id'] ?? null,
           memo: s['split/memo'] ?? '',
         })
@@ -71,9 +79,22 @@ export function SplitTransactionModal({
     };
   }, []);
 
+  // Escape closes the modal — but defer to an open category dropdown, which owns
+  // the first Escape to close itself.
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === 'Escape' && editingKey === null) onClose();
+    };
+    document.addEventListener('keydown', onKey);
+    return () => document.removeEventListener('keydown', onKey);
+  }, [onClose, editingKey]);
+
   const parentAmount = transaction['transaction/amount'];
   const sign = parentAmount < 0 ? -1 : 1;
   const signChar = sign < 0 ? '−' : '+';
+  // A seeded part can oppose the parent's sign (mixed-sign split); show its own.
+  const rowSignChar = (row: SplitRow) =>
+    row.seedCents != null ? (row.seedCents < 0 ? '−' : '+') : signChar;
   const alreadySplit = (transaction['transaction/splits']?.length ?? 0) > 0;
   const remaining = remainingCents(parentAmount, rows);
   const balanced = remaining === 0;
@@ -89,7 +110,7 @@ export function SplitTransactionModal({
 
   const fillRow = (key: string, index: number) => {
     const target = fillRemainingCents(parentAmount, rows, index);
-    if (target > 0) updateRow(key, { amount: centsToAmountString(target) });
+    if (target > 0) updateRow(key, { amount: centsToAmountString(target), seedCents: null });
   };
 
   const save = async (splits: Array<{ amount: string; categoryId: number | null; memo?: string }>) => {
@@ -108,8 +129,9 @@ export function SplitTransactionModal({
     if (!canConfirm(parentAmount, rows)) return;
     save(
       rows.map((r) => ({
-        // Apply the transaction's sign to the entered magnitude.
-        amount: centsToAmountString(sign * (parseMagnitudeCents(r.amount) ?? 0)),
+        // Signed cents: a seeded part keeps its stored sign; an entered magnitude
+        // takes the parent's sign.
+        amount: centsToAmountString(rowSignedCents(parentAmount, r) ?? 0),
         categoryId: r.categoryId,
         memo: r.memo.trim() || undefined,
       }))
@@ -118,7 +140,13 @@ export function SplitTransactionModal({
 
   return (
     <div className="modal-backdrop" onClick={onClose}>
-      <div className="modal-content split-modal-content" onClick={(e) => e.stopPropagation()}>
+      <div
+        className="modal-content split-modal-content"
+        role="dialog"
+        aria-modal="true"
+        aria-label="Split transaction"
+        onClick={(e) => e.stopPropagation()}
+      >
         <h2>Split transaction</h2>
         <p className="split-modal-sub">
           <span>{transaction['transaction/payee']}</span>
@@ -142,7 +170,7 @@ export function SplitTransactionModal({
           <div className="split-row" key={row.key}>
             <div className="split-amount-cell">
               <span className="split-amount-sign" aria-hidden="true">
-                {signChar}
+                {rowSignChar(row)}
               </span>
               <input
                 className="form-input split-amount-input numeric"
@@ -152,7 +180,7 @@ export function SplitTransactionModal({
                 placeholder="0.00"
                 autoFocus={index === 0}
                 value={row.amount}
-                onChange={(e) => updateRow(row.key, { amount: e.target.value })}
+                onChange={(e) => updateRow(row.key, { amount: e.target.value, seedCents: null })}
               />
               <button
                 type="button"
@@ -195,9 +223,10 @@ export function SplitTransactionModal({
             />
             <button
               type="button"
-              className="bulk-remove-button"
+              className="split-remove-button"
               aria-label="Remove part"
-              title="Remove part"
+              title={rows.length <= 2 ? 'A split needs at least 2 parts' : 'Remove part'}
+              disabled={rows.length <= 2}
               onClick={() => removeRow(row.key)}
             >
               ×

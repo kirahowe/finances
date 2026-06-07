@@ -130,3 +130,26 @@
   gap: var(--spacing-md);
   margin-top: var(--spacing-lg);
 }
+
+/* Remove-part (×) control. Disabled at the 2-part floor a split requires. */
+.split-remove-button {
+  background: none;
+  border: none;
+  color: var(--color-text-muted);
+  cursor: pointer;
+  font-size: 1.1rem;
+  line-height: 1;
+  padding: var(--spacing-xs) var(--spacing-sm);
+  border-radius: var(--radius-sm);
+  transition: color 0.15s var(--ease-out), background-color 0.15s var(--ease-out);
+}
+
+.split-remove-button:hover:not(:disabled) {
+  color: var(--color-negative);
+  background-color: var(--color-error-bg);
+}
+
+.split-remove-button:disabled {
+  opacity: 0.3;
+  cursor: default;
+}

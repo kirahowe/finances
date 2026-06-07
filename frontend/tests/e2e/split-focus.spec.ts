@@ -6,7 +6,7 @@ import { test, expect } from '@playwright/test';
 test('split modal category dropdown navigates with arrow keys after click-to-open', async ({
   page,
 }) => {
-  await page.goto('/');
+  await page.goto('/?month=2025-01');
   await expect(page.locator('table')).toBeVisible();
 
   const firstRow = page.locator('tbody tr').first();
@@ -37,6 +37,10 @@ test('split modal category dropdown navigates with arrow keys after click-to-ope
 
   expect(secondText).not.toBe(firstText);
 
-  // Close without saving — leave the DB untouched.
+  // The first Escape closes the open dropdown...
   await page.keyboard.press('Escape');
+  await expect(input).toBeHidden();
+  // ...and a second Escape closes the modal (no save — DB untouched).
+  await page.keyboard.press('Escape');
+  await expect(modal).toBeHidden();
 });
