@@ -2,6 +2,7 @@ import { useState, useEffect } from 'react';
 import { api, type Transaction, type Category } from '../lib/api';
 import { CategoryDropdown } from './CategoryDropdown';
 import { formatAmount } from '../lib/format';
+import { useBodyScrollLock } from '../lib/useBodyScrollLock';
 import {
   remainingCents,
   canConfirm,
@@ -9,6 +10,7 @@ import {
   centsToAmountString,
   toCents,
   rowSignedCents,
+  sortSplits,
 } from '../lib/splitMath';
 import '../styles/components/split-modal.css';
 
@@ -42,9 +44,7 @@ const newRow = (patch: Partial<SplitRow> = {}): SplitRow => ({
 function seedRows(transaction: Transaction): SplitRow[] {
   const splits = transaction['transaction/splits'];
   if (splits && splits.length > 0) {
-    return [...splits]
-      .sort((a, b) => (a['split/order'] ?? 0) - (b['split/order'] ?? 0))
-      .map((s) =>
+    return sortSplits(splits).map((s) =>
         newRow({
           // Stored amounts are signed; the editor shows a 2-decimal positive
           // magnitude (toFixed avoids float artifacts that fail the amount regex)
@@ -71,13 +71,7 @@ export function SplitTransactionModal({
   const [error, setError] = useState<string | null>(null);
 
   // Keep the page behind the modal from scrolling while it's open.
-  useEffect(() => {
-    const previous = document.body.style.overflow;
-    document.body.style.overflow = 'hidden';
-    return () => {
-      document.body.style.overflow = previous;
-    };
-  }, []);
+  useBodyScrollLock();
 
   // Escape closes the modal — but defer to an open category dropdown, which owns
   // the first Escape to close itself.
@@ -99,6 +93,9 @@ export function SplitTransactionModal({
   const remaining = remainingCents(parentAmount, rows);
   const balanced = remaining === 0;
   const confirmable = canConfirm(parentAmount, rows) && !submitting;
+  // Each row's fill target, computed once per render rather than re-scanning all
+  // rows inside every row's disabled={} (which was O(rows²) per render).
+  const fillTargets = rows.map((_, i) => fillRemainingCents(parentAmount, rows, i));
 
   const categoryName = (id: number | null) =>
     (id !== null && categories.find((c) => c['db/id'] === id)?.['category/name']) || 'Uncategorized';
@@ -108,8 +105,7 @@ export function SplitTransactionModal({
 
   const removeRow = (key: string) => setRows((prev) => prev.filter((r) => r.key !== key));
 
-  const fillRow = (key: string, index: number) => {
-    const target = fillRemainingCents(parentAmount, rows, index);
+  const fillRow = (key: string, target: number) => {
     if (target > 0) updateRow(key, { amount: centsToAmountString(target), seedCents: null });
   };
 
@@ -186,8 +182,8 @@ export function SplitTransactionModal({
                 type="button"
                 className="split-fill-button"
                 title="Fill with the remaining balance"
-                disabled={fillRemainingCents(parentAmount, rows, index) <= 0}
-                onClick={() => fillRow(row.key, index)}
+                disabled={fillTargets[index] <= 0}
+                onClick={() => fillRow(row.key, fillTargets[index])}
               >
                 rest
               </button>

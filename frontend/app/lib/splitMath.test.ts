@@ -7,6 +7,7 @@ import {
   canConfirm,
   rowSignedCents,
   isWholeCents,
+  sortSplits,
 } from './splitMath';
 
 const row = (amount: string, categoryId: number | null = 1) => ({ amount, categoryId });
@@ -103,6 +104,24 @@ describe('canConfirm', () => {
 
   it('rejects unbalanced rows', () => {
     expect(canConfirm(-100, [row('60'), row('30')])).toBe(false);
+  });
+});
+
+describe('sortSplits', () => {
+  it('orders parts by split/order without mutating the input', () => {
+    const parts = [
+      { 'split/order': 2, id: 'c' },
+      { 'split/order': 0, id: 'a' },
+      { 'split/order': 1, id: 'b' },
+    ];
+    expect(sortSplits(parts).map((p) => p.id)).toEqual(['a', 'b', 'c']);
+    // original array is untouched
+    expect(parts.map((p) => p.id)).toEqual(['c', 'a', 'b']);
+  });
+
+  it('treats a missing order as 0', () => {
+    const parts = [{ 'split/order': 1, id: 'b' }, { id: 'a' }];
+    expect(sortSplits(parts).map((p) => p.id)).toEqual(['a', 'b']);
   });
 });
 

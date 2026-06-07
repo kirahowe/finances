@@ -1,4 +1,4 @@
-import { useState, Fragment } from 'react';
+import { useState, useMemo, Fragment } from 'react';
 import {
   useReactTable,
   getCoreRowModel,
@@ -11,6 +11,7 @@ import {
 import { useFetcher } from 'react-router';
 import type { Transaction, Category, Split } from '../lib/api';
 import { formatAmount, formatDate } from '../lib/format';
+import { sortSplits } from '../lib/splitMath';
 import { CategoryDropdown } from './CategoryDropdown';
 import { RowActionsMenu, type RowAction } from './RowActionsMenu';
 import '../styles/components/split-rows.css';
@@ -63,6 +64,17 @@ export function OptimisticTransactionTable({
 }: OptimisticTransactionTableProps) {
   const [editingTransactionId, setEditingTransactionId] = useState<number | null>(null);
   const fetcher = useFetcher();
+
+  // Sort each split's parts once per data change, not on every render (which is
+  // re-triggered by unrelated state like editing or fetcher activity).
+  const sortedPartsByTx = useMemo(() => {
+    const byId = new Map<number, Split[]>();
+    for (const tx of transactions) {
+      const parts = tx['transaction/splits'];
+      if (parts && parts.length > 0) byId.set(tx['db/id'], sortSplits(parts));
+    }
+    return byId;
+  }, [transactions]);
 
   const columnHelper = createColumnHelper<Transaction>();
 
@@ -338,11 +350,7 @@ export function OptimisticTransactionTable({
       <tbody>
         {displayRows.map((row) => {
           const tx = row.original;
-          const txSplits = tx['transaction/splits'];
-          const parts =
-            txSplits && txSplits.length > 0
-              ? [...txSplits].sort((a, b) => (a['split/order'] ?? 0) - (b['split/order'] ?? 0))
-              : null;
+          const parts = sortedPartsByTx.get(tx['db/id']) ?? null;
 
           // Unsplit transaction: one normal row.
           if (!parts) {

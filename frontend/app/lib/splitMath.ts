@@ -17,6 +17,11 @@ export interface SplitRowInput {
   seedCents?: number | null;
 }
 
+/** Split parts in stable display order (by :split/order). Does not mutate input. */
+export function sortSplits<T extends { 'split/order'?: number }>(parts: T[]): T[] {
+  return [...parts].sort((a, b) => (a['split/order'] ?? 0) - (b['split/order'] ?? 0));
+}
+
 const AMOUNT_RE = /^-?(\d+(\.\d{1,2})?|\.\d{1,2})$/;
 
 /** Parse a user-entered amount to a positive magnitude in integer cents, or null if malformed. */

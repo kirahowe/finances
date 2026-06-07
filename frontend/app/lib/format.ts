@@ -1,9 +1,12 @@
+// Constructed once; building an Intl.NumberFormat per call is comparatively
+// expensive and formatAmount runs once per amount cell on every table render.
+const currencyFormatter = new Intl.NumberFormat('en-CA', {
+  style: 'currency',
+  currency: 'CAD',
+});
+
 export function formatAmount(amount: number): string {
-  const formatter = new Intl.NumberFormat('en-CA', {
-    style: 'currency',
-    currency: 'CAD',
-  });
-  return formatter.format(amount);
+  return currencyFormatter.format(amount);
 }
 
 export function formatDate(dateString: string): string {

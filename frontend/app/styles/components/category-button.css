@@ -28,8 +28,8 @@
   cursor: default;
 }
 
-/* Category cell: the category button plus a quiet "Split" affordance that
-   surfaces on row hover (kept in layout so the row never shifts). */
+/* Category cell: the category button alongside any quiet status marker (e.g. a
+   transfer badge). Row actions live in the row menu, not here. */
 .category-cell-content {
   display: flex;
   align-items: center;
@@ -40,43 +40,4 @@
   flex: 1 1 auto;
   width: auto;
   min-width: 0;
-}
-
-.split-action {
-  flex: 0 0 auto;
-  background: none;
-  border: none;
-  color: var(--color-text-muted);
-  cursor: pointer;
-  font-family: var(--font-body);
-  font-size: 0.66rem;
-  font-weight: 600;
-  text-transform: uppercase;
-  letter-spacing: 0.08em;
-  padding: 0.15rem 0.35rem;
-  border-radius: var(--radius-sm);
-  opacity: 0;
-  transition: opacity 0.15s var(--ease-out), color 0.15s var(--ease-out),
-    background-color 0.15s var(--ease-out);
-}
-
-.table tbody tr:hover .split-action,
-.split-action:focus-visible {
-  opacity: 1;
-}
-
-.split-action:hover {
-  color: var(--color-primary);
-  background-color: var(--color-accent-soft);
-}
-
-/* A transaction that has been split shows "Split (N)" in place of a category. */
-.category-button.split-summary {
-  color: var(--color-primary);
-  font-weight: 600;
-}
-
-.split-badge {
-  color: var(--color-negative);
-  font-weight: 700;
 }
