@@ -225,7 +225,7 @@ export default function PlaidTest({ loaderData }: Route.ComponentProps) {
           </div>
         )}
 
-        {exchangeResult && (
+        {!!exchangeResult && (
           <div className="response-section">
             <h3>Exchange Result</h3>
             <p className="summary">Access token obtained and stored in database</p>
@@ -259,7 +259,7 @@ export default function PlaidTest({ loaderData }: Route.ComponentProps) {
           </button>
         </div>
 
-        {accounts && (
+        {!!accounts && (
           <div className="response-section">
             <h3>Accounts</h3>
             <p className="summary">
@@ -272,7 +272,7 @@ export default function PlaidTest({ loaderData }: Route.ComponentProps) {
           </div>
         )}
 
-        {transactions && (
+        {!!transactions && (
           <div className="response-section">
             <h3>Transactions</h3>
             <p className="summary">

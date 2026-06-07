@@ -6,6 +6,7 @@ import {
   flexRender,
   createColumnHelper,
   type SortingState,
+  type OnChangeFn,
 } from '@tanstack/react-table';
 import { useFetcher } from 'react-router';
 import type { Transaction, Category } from '../lib/api';
@@ -18,7 +19,7 @@ interface OptimisticTransactionTableProps {
   page?: number;
   pageSize?: number;
   sorting: SortingState;
-  onSortingChange: (sorting: SortingState) => void;
+  onSortingChange: OnChangeFn<SortingState>;
 }
 
 export function OptimisticTransactionTable({

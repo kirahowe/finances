@@ -6,6 +6,7 @@ import {
   flexRender,
   createColumnHelper,
   type SortingState,
+  type OnChangeFn,
 } from '@tanstack/react-table';
 import type { Transaction, Category } from '../lib/api';
 import { formatAmount, formatDate } from '../lib/format';
@@ -19,7 +20,7 @@ interface TransactionTableProps {
   page?: number;
   pageSize?: number;
   sorting: SortingState;
-  onSortingChange: (sorting: SortingState) => void;
+  onSortingChange: OnChangeFn<SortingState>;
 }
 
 export function TransactionTable({
