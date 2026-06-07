@@ -124,8 +124,8 @@
   [{:keys [db-conn]}]
   (fn [request]
     (let [db-id (-> request :path-params :id parse-long)]
-      (if (db-categories/has-transactions? db-conn db-id)
-        (throw (ex-info "Cannot delete category with assigned transactions"
+      (if (db-categories/in-use? db-conn db-id)
+        (throw (ex-info "Cannot delete category that is assigned to transactions or splits"
                         {:type :bad-request}))
         (do
           (db-categories/delete! db-conn db-id)

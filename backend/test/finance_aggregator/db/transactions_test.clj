@@ -8,6 +8,135 @@
 
 (use-fixtures :each setup/with-empty-db)
 
+(defn- make-category! [name ident]
+  (:db/id (categories/create! setup/*test-conn*
+                              {:category/name name :category/type :expense :category/ident ident})))
+
+(defn- make-tx!
+  "Create an institution/account/transaction and return the transaction's :db/id.
+   `tx-attrs` is merged over the base transaction map (e.g. to set :transaction/amount)."
+  [external-id tx-attrs]
+  (d/transact! setup/*test-conn* [{:institution/id (str "inst-" external-id)
+                                   :institution/name "Test Bank"}])
+  (d/transact! setup/*test-conn* [{:account/external-id (str "acct-" external-id)
+                                   :account/external-name "Test Account"
+                                   :account/institution [:institution/id (str "inst-" external-id)]}])
+  (d/transact! setup/*test-conn*
+               [(merge {:transaction/external-id external-id
+                        :transaction/account [:account/external-id (str "acct-" external-id)]
+                        :transaction/amount -100.00M
+                        :transaction/payee "Costco"
+                        :transaction/posted-date (java.util.Date.)}
+                       tx-attrs)])
+  (:db/id (d/pull (d/db setup/*test-conn*) '[:db/id] [:transaction/external-id external-id])))
+
+(defn- split-eids [tx-id]
+  (d/q '[:find [?s ...] :in $ ?tx :where [?tx :transaction/splits ?s]]
+       (d/db setup/*test-conn*) tx-id))
+
+(defn- sorted-splits [pulled]
+  (sort-by :split/order (:transaction/splits pulled)))
+
+(deftest set-splits-test
+  (testing "happy path: stores parts with bigdec amounts, category refs and order"
+    (let [groceries (make-category! "Groceries" :category/groceries)
+          household (make-category! "Household" :category/household)
+          tx-id (make-tx! "tx-split-1" {:transaction/amount -100.00M})
+          updated (transactions/set-splits! setup/*test-conn* tx-id
+                                            [{:amount "-60.00" :category-id groceries}
+                                             {:amount "-40.00" :category-id household :memo "paper towels"}])
+          parts (sorted-splits updated)]
+      (is (= 2 (count parts)))
+      (is (== -60.00M (:split/amount (first parts))))
+      (is (== -40.00M (:split/amount (second parts))))
+      (is (= [0 1] (map :split/order parts)))
+      (is (= groceries (get-in (first parts) [:split/category :db/id])))
+      (is (= household (get-in (second parts) [:split/category :db/id])))
+      (is (= "paper towels" (:split/memo (second parts))))))
+
+  (testing "the original transaction is never mutated"
+    (let [a (make-category! "A" :category/a)
+          b (make-category! "B" :category/b)
+          cat (make-category! "Orig" :category/orig)
+          tx-id (make-tx! "tx-split-2" {:transaction/amount -100.00M :transaction/category cat})]
+      (transactions/set-splits! setup/*test-conn* tx-id
+                                [{:amount "-60.00" :category-id a} {:amount "-40.00" :category-id b}])
+      (let [tx (d/pull (d/db setup/*test-conn*)
+                       '[:transaction/external-id :transaction/amount
+                         {:transaction/category [:db/id]}] tx-id)]
+        (is (= "tx-split-2" (:transaction/external-id tx)))
+        (is (== -100.00M (:transaction/amount tx)))
+        (is (= cat (get-in tx [:transaction/category :db/id]))))))
+
+  (testing "replace: setting new splits removes the old part entities"
+    (let [a (make-category! "A2" :category/a2)
+          b (make-category! "B2" :category/b2)
+          c (make-category! "C2" :category/c2)
+          tx-id (make-tx! "tx-split-3" {:transaction/amount -90.00M})
+          first-eids (do (transactions/set-splits! setup/*test-conn* tx-id
+                                                   [{:amount "-50.00" :category-id a}
+                                                    {:amount "-40.00" :category-id b}])
+                         (split-eids tx-id))]
+      (transactions/set-splits! setup/*test-conn* tx-id
+                                [{:amount "-30.00" :category-id a}
+                                 {:amount "-30.00" :category-id b}
+                                 {:amount "-30.00" :category-id c}])
+      (is (= 3 (count (split-eids tx-id))))
+      (is (not-any? (set first-eids) (split-eids tx-id)))
+      (doseq [eid first-eids]
+        (is (nil? (:split/amount (d/pull (d/db setup/*test-conn*) '[:split/amount] eid)))))))
+
+  (testing "clear: an empty vector removes all parts, leaving the transaction"
+    (let [a (make-category! "A3" :category/a3)
+          b (make-category! "B3" :category/b3)
+          tx-id (make-tx! "tx-split-4" {:transaction/amount -100.00M})]
+      (transactions/set-splits! setup/*test-conn* tx-id
+                                [{:amount "-60.00" :category-id a} {:amount "-40.00" :category-id b}])
+      (transactions/set-splits! setup/*test-conn* tx-id [])
+      (is (empty? (split-eids tx-id)))
+      (is (== -100.00M (:transaction/amount (d/pull (d/db setup/*test-conn*) '[:transaction/amount] tx-id))))))
+
+  (testing "non-reconciling splits throw :bad-request and write nothing"
+    (let [a (make-category! "A4" :category/a4)
+          b (make-category! "B4" :category/b4)
+          tx-id (make-tx! "tx-split-5" {:transaction/amount -100.00M})]
+      (is (thrown-with-msg? clojure.lang.ExceptionInfo #"add up"
+                            (transactions/set-splits! setup/*test-conn* tx-id
+                                                      [{:amount "-60.00" :category-id a}
+                                                       {:amount "-30.00" :category-id b}])))
+      (is (empty? (split-eids tx-id)))))
+
+  (testing "a missing transaction throws :not-found"
+    (is (thrown-with-msg? clojure.lang.ExceptionInfo #"not found"
+                          (transactions/set-splits! setup/*test-conn* 999999
+                                                    [{:amount "-1.00" :category-id 1}
+                                                     {:amount "-1.00" :category-id 2}]))))
+
+  (testing "a provider re-sync (upsert by external-id) does not clobber splits"
+    (let [a (make-category! "A5" :category/a5)
+          b (make-category! "B5" :category/b5)
+          tx-id (make-tx! "tx-split-6" {:transaction/amount -100.00M})]
+      (transactions/set-splits! setup/*test-conn* tx-id
+                                [{:amount "-60.00" :category-id a} {:amount "-40.00" :category-id b}])
+      ;; Re-sync the same provider map (no :transaction/splits key), then again with a changed payee.
+      (d/transact! setup/*test-conn* [{:transaction/external-id "tx-split-6"
+                                       :transaction/amount -100.00M
+                                       :transaction/payee "Costco Wholesale"}])
+      (is (= 2 (count (split-eids tx-id))))
+      (is (= "Costco Wholesale"
+             (:transaction/payee (d/pull (d/db setup/*test-conn*) '[:transaction/payee] tx-id))))))
+
+  (testing "retracting the transaction cascades to its split parts (component)"
+    (let [a (make-category! "A6" :category/a6)
+          b (make-category! "B6" :category/b6)
+          tx-id (make-tx! "tx-split-7" {:transaction/amount -100.00M})
+          _ (transactions/set-splits! setup/*test-conn* tx-id
+                                      [{:amount "-60.00" :category-id a} {:amount "-40.00" :category-id b}])
+          eids (split-eids tx-id)]
+      (d/transact! setup/*test-conn* [[:db/retractEntity tx-id]])
+      (doseq [eid eids]
+        (is (nil? (:split/amount (d/pull (d/db setup/*test-conn*) '[:split/amount] eid))))))))
+
 (deftest update-transaction-category-test
   (testing "assigns a category to a transaction"
     ;;  First create a category

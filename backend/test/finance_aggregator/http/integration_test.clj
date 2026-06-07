@@ -6,6 +6,7 @@
   (:require
    [clojure.test :refer [deftest is testing use-fixtures]]
    [finance-aggregator.http.router :as router]
+   [finance-aggregator.db.categories :as categories]
    [finance-aggregator.test-utils.setup :as setup]
    [charred.api :as json]
    [datalevin.core :as d])
@@ -89,3 +90,56 @@
       (let [body (json/read-json (:body response) :key-fn keyword)
             data (:data body)]
         (is (= 3 (count data)))))))
+
+(defn- json-request [method uri body]
+  {:request-method method
+   :uri uri
+   :query-string nil
+   :headers {"content-type" "application/json"}
+   :body (json/write-json-str body)})
+
+(deftest full-stack-set-splits-test
+  (testing "Full HTTP stack: split a transaction, then see the parts on the list"
+    (let [g (:db/id (categories/create! setup/*test-conn*
+                                         {:category/name "Groceries" :category/type :expense
+                                          :category/ident :category/groceries}))
+          h (:db/id (categories/create! setup/*test-conn*
+                                         {:category/name "Household" :category/type :expense
+                                          :category/ident :category/household}))
+          _ (d/transact! setup/*test-conn*
+                         [(make-test-transaction "tx-split" "Costco" -100.00 (date-for 2025 1 15))])
+          tx-id (:db/id (d/pull (d/db setup/*test-conn*) '[:db/id] [:transaction/external-id "tx-split"]))
+          handler (create-test-handler)
+          ;; PUT the splits as real JSON (amounts as strings) through all middleware.
+          put-resp (handler (json-request :put (str "/api/transactions/" tx-id "/splits")
+                                          {:splits [{:amount "-60.00" :categoryId g}
+                                                    {:amount "-40.00" :categoryId h}]}))
+          put-body (json/read-json (:body put-resp) :key-fn keyword)]
+      (is (= 200 (:status put-resp)))
+      (is (true? (:success put-body)))
+      (is (= 2 (count (get-in put-body [:data :transaction/splits]))))
+
+      ;; The list endpoint now returns the parts via the extended pull pattern.
+      (let [list-resp (handler (make-request :get "/api/transactions"))
+            tx (->> (:data (json/read-json (:body list-resp) :key-fn keyword))
+                    (filter #(= "tx-split" (:transaction/external-id %)))
+                    first)]
+        (is (= 2 (count (:transaction/splits tx)))))))
+
+  (testing "Full HTTP stack: non-reconciling splits return a 400"
+    (let [a (:db/id (categories/create! setup/*test-conn*
+                                         {:category/name "A" :category/type :expense
+                                          :category/ident :category/a}))
+          b (:db/id (categories/create! setup/*test-conn*
+                                         {:category/name "B" :category/type :expense
+                                          :category/ident :category/b}))
+          _ (d/transact! setup/*test-conn*
+                         [(make-test-transaction "tx-bad" "Costco" -100.00 (date-for 2025 1 15))])
+          tx-id (:db/id (d/pull (d/db setup/*test-conn*) '[:db/id] [:transaction/external-id "tx-bad"]))
+          handler (create-test-handler)
+          resp (handler (json-request :put (str "/api/transactions/" tx-id "/splits")
+                                      {:splits [{:amount "-60.00" :categoryId a}
+                                                {:amount "-30.00" :categoryId b}]}))
+          body (json/read-json (:body resp) :key-fn keyword)]
+      (is (= 400 (:status resp)))
+      (is (false? (:success body))))))

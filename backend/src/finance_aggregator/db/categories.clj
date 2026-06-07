@@ -132,16 +132,18 @@
   [conn db-id]
   (d/transact! conn [[:db/retractEntity db-id]]))
 
-(defn has-transactions?
-  "Check if a category has any transactions assigned to it.
+(defn in-use?
+  "Whether a category is referenced by any transaction or split part. Deleting an
+   in-use category would orphan those refs, so callers should block on this.
    Conn is a datalevin connection (not an atom)."
   [conn category-id]
   (let [db (d/db conn)]
-    (not (empty? (d/q '[:find ?tx
-                        :in $ ?cat-id
-                        :where [?tx :transaction/category ?cat-id]]
-                      db
-                      category-id)))))
+    (boolean (seq (d/q '[:find ?e
+                         :in $ ?cat-id
+                         :where (or [?e :transaction/category ?cat-id]
+                                    [?e :split/category ?cat-id])]
+                       db
+                       category-id)))))
 
 (defn batch-update-sort-orders!
   "Batch update sort orders for multiple categories.

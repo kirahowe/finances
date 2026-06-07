@@ -150,7 +150,9 @@
 (def ^:private transactions-pull-pattern
   '[* {:transaction/category [:db/id :category/name]
        :transaction/account [:db/id :account/external-name
-                             {:account/institution [:db/id :institution/name]}]}])
+                             {:account/institution [:db/id :institution/name]}]
+       :transaction/splits [:db/id :split/amount :split/order :split/memo
+                            {:split/category [:db/id :category/name]}]}])
 
 (defn list-transactions-handler
   "Factory: creates handler for GET /api/transactions.

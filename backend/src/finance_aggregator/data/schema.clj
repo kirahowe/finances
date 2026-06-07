@@ -44,6 +44,15 @@
                                :db/cardinality :db.cardinality/many}  ; #{:income :transfer}
    :transaction/transfer-pair {:db/valueType :db.type/ref}   ; links paired transfers
    :transaction/user          {:db/valueType :db.type/ref}   ; ref to user (denormalized for query speed)
+   :transaction/splits        {:db/valueType   :db.type/ref
+                               :db/cardinality :db.cardinality/many
+                               :db/isComponent true}  ; user-authored parts; parent owns them, cascades on retractEntity
+
+   ;; Transaction split parts (sub-entities of a transaction; never imported/deduped)
+   :split/amount   {:db/valueType :db.type/bigdec}   ; signed, same convention as :transaction/amount
+   :split/category {:db/valueType :db.type/ref}
+   :split/memo     {:db/valueType :db.type/string}   ; optional
+   :split/order    {:db/valueType :db.type/long}     ; stable display order
 
    ;; Categories (user-defined)
    :category/name       {:db/valueType :db.type/string}

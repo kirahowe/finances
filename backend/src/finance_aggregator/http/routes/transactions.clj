@@ -14,4 +14,6 @@
   [deps]
   ["/transactions"
    ["/:id/category" {:put {:handler (handlers/update-transaction-category-handler deps)
-                           :name ::update-category}}]])
+                           :name ::update-category}}]
+   ["/:id/splits" {:put {:handler (handlers/set-transaction-splits-handler deps)
+                         :name ::set-splits}}]])

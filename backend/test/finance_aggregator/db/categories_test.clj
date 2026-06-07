@@ -124,10 +124,31 @@
       (let [fetched (categories/get-by-id setup/*test-conn* db-id)]
         (is (nil? fetched)))))
 
-  (testing "prevents deletion of category with assigned transactions"
-    ;; This test will need to be implemented after we have transaction support
-    ;; For now, we'll just document the requirement
-    (is true "TODO: Test prevention of deleting categories with transactions")))
+  (testing "in-use? is false for an unreferenced category"
+    (let [cat (categories/create! setup/*test-conn* {:category/name "Unused"
+                                                     :category/type :expense
+                                                     :category/ident :category/unused})]
+      (is (false? (categories/in-use? setup/*test-conn* (:db/id cat))))))
+
+  (testing "in-use? is true when a transaction references the category"
+    (let [cat (categories/create! setup/*test-conn* {:category/name "Groceries"
+                                                     :category/type :expense
+                                                     :category/ident :category/groceries})]
+      (d/transact! setup/*test-conn* [{:transaction/external-id "tx-cat-1"
+                                       :transaction/amount -10.00M
+                                       :transaction/category (:db/id cat)}])
+      (is (true? (categories/in-use? setup/*test-conn* (:db/id cat))))))
+
+  (testing "in-use? is true when only a split part references the category"
+    (let [cat (categories/create! setup/*test-conn* {:category/name "SplitOnly"
+                                                     :category/type :expense
+                                                     :category/ident :category/split-only})]
+      (d/transact! setup/*test-conn* [{:transaction/external-id "tx-cat-2"
+                                       :transaction/amount -10.00M
+                                       :transaction/splits [{:split/amount -10.00M
+                                                             :split/category (:db/id cat)
+                                                             :split/order 0}]}])
+      (is (true? (categories/in-use? setup/*test-conn* (:db/id cat)))))))
 
 (deftest get-category-by-ident-test
   (testing "retrieves category by ident"
