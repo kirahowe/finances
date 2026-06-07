@@ -36,10 +36,12 @@
   border-radius: var(--radius-sm);
   background: var(--color-pine);
   color: #fff;
-  font-family: var(--font-display);
-  font-size: 1rem;
-  font-weight: 600;
   box-shadow: var(--shadow-sm);
+}
+
+.wordmark-mark svg {
+  width: 1.05rem;
+  height: 1.05rem;
 }
 
 .wordmark-text {
