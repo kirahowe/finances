@@ -12,6 +12,7 @@ import { useFetcher } from 'react-router';
 import type { Transaction, Category, Split } from '../lib/api';
 import { formatAmount, formatDate } from '../lib/format';
 import { CategoryDropdown } from './CategoryDropdown';
+import { RowActionsMenu, type RowAction } from './RowActionsMenu';
 import '../styles/components/split-rows.css';
 import '../styles/components/transfer-modal.css';
 
@@ -99,45 +100,50 @@ export function OptimisticTransactionTable({
     };
   };
 
-  // Transfer affordance for a row's category cell: a persistent badge + unmatch on
-  // a matched transfer, otherwise a quiet "Match" action (and an "unmatched" marker
-  // for transfer-categorized rows with no counterpart).
-  const renderTransferAffordance = (transaction: Transaction) => {
+  // A quiet, non-interactive transfer status marker for the category cell: a badge
+  // on a matched transfer, or an "unmatched" hint on a transfer-categorized row
+  // with no counterpart. The match/unmatch *actions* live in the row menu.
+  const renderTransferStatus = (transaction: Transaction) => {
     const pair = transaction['transaction/transfer-pair'];
     if (pair) {
       const partnerName = pair['transaction/account']?.['account/external-name'] ?? 'another account';
       return (
-        <button
-          type="button"
+        <span
           className="transfer-badge"
-          title={`Transfer with ${partnerName} (${formatAmount(pair['transaction/amount'])}) — click to unmatch`}
-          onClick={() => onUnmatch?.(transaction)}
+          title={`Transfer with ${partnerName} (${formatAmount(pair['transaction/amount'])})`}
         >
           <span aria-hidden="true">⇄</span>
-          <span className="sr-only">Unmatch transfer</span>
-        </button>
+          <span className="sr-only">Matched transfer</span>
+        </span>
       );
     }
     const isTransferType = transaction['transaction/category']?.['category/type'] === 'transfer';
-    return (
-      <>
-        {isTransferType && (
-          <span className="transfer-unmatched" title="Transfer with no matched counterpart">
-            unmatched
-          </span>
-        )}
-        {onMatch && (
-          <button
-            type="button"
-            className="transfer-action"
-            onClick={() => onMatch(transaction)}
-            title="Match as a transfer"
-          >
-            Match
-          </button>
-        )}
-      </>
-    );
+    return isTransferType ? (
+      <span className="transfer-unmatched" title="Transfer with no matched counterpart">
+        unmatched
+      </span>
+    ) : null;
+  };
+
+  // Actions for a row's "⌄" menu: split/edit-split and match/unmatch, as available.
+  const rowActions = (transaction: Transaction): RowAction[] => {
+    const actions: RowAction[] = [];
+    const isSplit = (transaction['transaction/splits']?.length ?? 0) > 0;
+    // A $0 transaction can't be divided into non-zero parts, so don't offer it.
+    if (onSplit && transaction['transaction/amount'] !== 0) {
+      actions.push({
+        label: isSplit ? 'Edit split' : 'Split transaction',
+        onSelect: () => onSplit(transaction),
+      });
+    }
+    if (transaction['transaction/transfer-pair']) {
+      if (onUnmatch) {
+        actions.push({ label: 'Unmatch transfer', onSelect: () => onUnmatch(transaction), danger: true });
+      }
+    } else if (onMatch) {
+      actions.push({ label: 'Match as transfer', onSelect: () => onMatch(transaction) });
+    }
+    return actions;
   };
 
   const handleCategoryChange = (transactionId: number, categoryId: number | null) => {
@@ -179,16 +185,6 @@ export function OptimisticTransactionTable({
             >
               {split['split/category']?.['category/name'] ?? 'Uncategorized'}
             </button>
-            {onSplit && (
-              <button
-                type="button"
-                className="split-action"
-                onClick={() => onSplit(tx)}
-                title="Edit split"
-              >
-                Edit
-              </button>
-            )}
           </div>
         );
       default:
@@ -270,26 +266,24 @@ export function OptimisticTransactionTable({
             >
               {optimisticCategory.name}
             </button>
-            {renderTransferAffordance(transaction)}
-            {onSplit && (
-              <button
-                type="button"
-                className="split-action"
-                onClick={() => onSplit(transaction)}
-                title="Split this transaction"
-              >
-                Split
-              </button>
-            )}
+            {renderTransferStatus(transaction)}
           </div>
         );
       },
+    }),
+    columnHelper.display({
+      id: 'actions',
+      header: '',
+      cell: (info) => (
+        <RowActionsMenu actions={rowActions(info.row.original)} label="Transaction actions" />
+      ),
     }),
   ];
 
   const cellClassName = (columnId: string): string | undefined => {
     if (columnId === 'amount') return 'amount-cell';
     if (columnId === 'category') return 'category-cell';
+    if (columnId === 'actions') return 'actions-cell';
     return undefined;
   };
 
@@ -374,7 +368,9 @@ export function OptimisticTransactionTable({
               <tr className="is-split-parent">
                 {row.getVisibleCells().map((cell) => {
                   const id = cell.column.id;
-                  const blank = id === 'amount' || id === 'category';
+                  // Blank only the amount so the total isn't shown twice; the
+                  // category (with its own value + the row menu) stays available.
+                  const blank = id === 'amount';
                   return (
                     <td key={cell.id} className={cellClassName(id)}>
                       {blank ? null : flexRender(cell.column.columnDef.cell, cell.getContext())}

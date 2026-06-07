@@ -10,8 +10,8 @@ test('split modal category dropdown navigates with arrow keys after click-to-ope
   await expect(page.locator('table')).toBeVisible();
 
   const firstRow = page.locator('tbody tr').first();
-  await firstRow.hover();
-  await firstRow.getByRole('button', { name: 'Split', exact: true }).click();
+  await firstRow.getByRole('button', { name: 'Transaction actions' }).click();
+  await page.getByRole('menuitem', { name: 'Split transaction' }).click();
 
   const modal = page.locator('.split-modal-content');
   await expect(modal).toBeVisible();

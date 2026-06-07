@@ -245,7 +245,7 @@ describe('OptimisticTransactionTable', () => {
     expect(screen.getByText(formatAmount(-40))).toBeInTheDocument();
   });
 
-  it('offers an Edit affordance on split rows that opens the editor', async () => {
+  it('offers a row actions menu on split rows that opens the editor', async () => {
     const user = userEvent.setup();
     const onSplit = vi.fn();
     renderWithRouter(
@@ -258,15 +258,51 @@ describe('OptimisticTransactionTable', () => {
       />
     );
 
-    const editButtons = screen.getAllByRole('button', { name: 'Edit' });
-    expect(editButtons.length).toBe(2);
+    // A split renders one actions menu (on its parent row), not one per part.
+    const triggers = screen.getAllByRole('button', { name: 'Transaction actions' });
+    expect(triggers.length).toBe(1);
 
-    await user.click(editButtons[0]);
+    await user.click(triggers[0]);
+    await user.click(screen.getByRole('menuitem', { name: 'Edit split' }));
     expect(onSplit).toHaveBeenCalledWith(mockTransactionWithSplits[0]);
 
     // Clicking a part's category also opens the editor.
     await user.click(screen.getByRole('button', { name: 'Groceries' }));
     expect(onSplit).toHaveBeenCalledTimes(2);
+  });
+
+  it('puts split + transfer actions in the menu, gating split on a non-zero amount', async () => {
+    const user = userEvent.setup();
+    const onSplit = vi.fn();
+    const onMatch = vi.fn();
+    const zeroAndNormal: Transaction[] = [
+      { ...mockTransactions[0], 'db/id': 1, 'transaction/amount': -50 },
+      { ...mockTransactions[0], 'db/id': 2, 'transaction/amount': 0, 'transaction/payee': 'Zero' },
+    ];
+    renderWithRouter(
+      <OptimisticTransactionTable
+        transactions={zeroAndNormal}
+        categories={mockCategories}
+        sorting={[]}
+        onSortingChange={vi.fn()}
+        onSplit={onSplit}
+        onMatch={onMatch}
+      />
+    );
+
+    const triggers = screen.getAllByRole('button', { name: 'Transaction actions' });
+    expect(triggers.length).toBe(2);
+
+    // Non-zero row: both Split and Match are offered.
+    await user.click(triggers[0]);
+    expect(screen.getByRole('menuitem', { name: 'Split transaction' })).toBeInTheDocument();
+    expect(screen.getByRole('menuitem', { name: 'Match as transfer' })).toBeInTheDocument();
+    await user.keyboard('{Escape}');
+
+    // $0 row: Split is withheld (can't divide 0 into non-zero parts), Match remains.
+    await user.click(triggers[1]);
+    expect(screen.queryByRole('menuitem', { name: 'Split transaction' })).not.toBeInTheDocument();
+    expect(screen.getByRole('menuitem', { name: 'Match as transfer' })).toBeInTheDocument();
   });
 
   it('displays dash when transaction has no account', async () => {

@@ -4,7 +4,7 @@ import { test, expect } from '@playwright/test';
 // (amounts entered as positive magnitudes) and the per-row "rest" button that
 // fills a part with the remaining balance. Read-only — it cancels without saving.
 test('split modal: sign prefix and fill-remaining button balance the split', async ({ page }) => {
-  await page.goto('/');
+  await page.goto('/?month=2025-01');
   await expect(page.locator('table')).toBeVisible();
 
   // Find a transaction big enough to split into two non-zero parts.
@@ -20,8 +20,8 @@ test('split modal: sign prefix and fill-remaining button balance the split', asy
   }
   expect(target, 'expected a transaction >= $5 to split').not.toBeNull();
 
-  await target!.hover();
-  await target!.getByRole('button', { name: 'Split', exact: true }).click();
+  await target!.getByRole('button', { name: 'Transaction actions' }).click();
+  await page.getByRole('menuitem', { name: 'Split transaction' }).click();
 
   const modal = page.locator('.split-modal-content');
   await expect(modal).toBeVisible();

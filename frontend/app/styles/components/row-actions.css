@@ -1,0 +1,76 @@
+/* Per-row actions: a quiet caret trigger that opens a small menu, so row actions
+   (split, match, …) live in one place instead of crowding the cells. */
+.row-actions {
+  position: relative;
+  display: inline-flex;
+  justify-content: flex-end;
+}
+
+.row-actions-trigger {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 1.75rem;
+  height: 1.75rem;
+  padding: 0;
+  background: none;
+  border: none;
+  border-radius: var(--radius-sm);
+  color: var(--color-text-muted);
+  cursor: pointer;
+  transition: color 0.15s var(--ease-out), background-color 0.15s var(--ease-out);
+}
+
+.row-actions-trigger:hover,
+.row-actions-trigger[aria-expanded='true'] {
+  color: var(--color-primary);
+  background-color: var(--color-accent-soft);
+}
+
+/* Portaled to <body>; positioned via inline top/right from the trigger's rect. */
+.row-actions-menu {
+  position: fixed;
+  z-index: 1000;
+  min-width: 11rem;
+  margin: 0;
+  padding: var(--spacing-xs);
+  list-style: none;
+  background: var(--color-surface);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-sm);
+  box-shadow: var(--shadow-md);
+}
+
+.row-actions-item {
+  display: block;
+  width: 100%;
+  text-align: left;
+  background: none;
+  border: none;
+  border-radius: var(--radius-sm);
+  padding: var(--spacing-sm);
+  font-family: var(--font-body);
+  font-size: 0.85rem;
+  color: var(--color-text);
+  cursor: pointer;
+  transition: background-color 0.12s var(--ease-out), color 0.12s var(--ease-out);
+}
+
+.row-actions-item:hover,
+.row-actions-item:focus-visible {
+  background-color: var(--color-accent-soft);
+  color: var(--color-primary);
+}
+
+.row-actions-item.is-danger:hover,
+.row-actions-item.is-danger:focus-visible {
+  background-color: var(--color-error-bg);
+  color: var(--color-error-text);
+}
+
+/* Trailing actions column hugs its content on the right. */
+.actions-cell {
+  width: 1px;
+  text-align: right;
+  white-space: nowrap;
+}
