@@ -2,8 +2,6 @@ import { describe, it, expect } from 'vitest';
 import {
   filterCategories,
   getSelectedIndex,
-  getNextIndex,
-  getPreviousIndex,
 } from '../../app/lib/categoryFiltering';
 import type { Category } from '../../app/lib/api';
 
@@ -149,50 +147,6 @@ describe('categoryFiltering', () => {
 
     it('returns -1 when categoryId is null', () => {
       const result = getSelectedIndex(mockCategories, null);
-      expect(result).toBe(-1);
-    });
-  });
-
-  describe('getNextIndex', () => {
-    it('returns the next index when not at the end', () => {
-      const result = getNextIndex(1, 4);
-      expect(result).toBe(2);
-    });
-
-    it('wraps to 0 when at the end', () => {
-      const result = getNextIndex(3, 4);
-      expect(result).toBe(0);
-    });
-
-    it('handles single item list', () => {
-      const result = getNextIndex(0, 1);
-      expect(result).toBe(0);
-    });
-
-    it('handles empty list', () => {
-      const result = getNextIndex(-1, 0);
-      expect(result).toBe(-1);
-    });
-  });
-
-  describe('getPreviousIndex', () => {
-    it('returns the previous index when not at the beginning', () => {
-      const result = getPreviousIndex(2, 4);
-      expect(result).toBe(1);
-    });
-
-    it('wraps to end when at the beginning', () => {
-      const result = getPreviousIndex(0, 4);
-      expect(result).toBe(3);
-    });
-
-    it('handles single item list', () => {
-      const result = getPreviousIndex(0, 1);
-      expect(result).toBe(0);
-    });
-
-    it('handles empty list', () => {
-      const result = getPreviousIndex(-1, 0);
       expect(result).toBe(-1);
     });
   });

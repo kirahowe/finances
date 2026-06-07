@@ -172,12 +172,12 @@ describe('TransactionTable', () => {
     await user.click(categoryButtons[0]);
 
     // Should show a dropdown with input and list
-    const input = screen.getByRole('textbox');
+    const input = screen.getByRole('combobox');
     expect(input).toBeInTheDocument();
     expect(input).toHaveFocus();
 
     // Should show category list (check for list items, not all text occurrences)
-    const listItems = screen.getAllByRole('listitem');
+    const listItems = screen.getAllByRole('option');
     expect(listItems.length).toBeGreaterThanOrEqual(3);
     expect(screen.getByText('Uncategorized')).toBeInTheDocument();
   });

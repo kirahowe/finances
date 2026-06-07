@@ -33,7 +33,7 @@ describe('CategoryDropdown', () => {
       />
     );
 
-    const input = screen.getByRole('textbox');
+    const input = screen.getByRole('combobox');
     expect(input).toBeInTheDocument();
     expect(input).toHaveFocus();
   });
@@ -78,7 +78,7 @@ describe('CategoryDropdown', () => {
       />
     );
 
-    const input = screen.getByRole('textbox');
+    const input = screen.getByRole('combobox');
     await user.type(input, 'gro');
 
     expect(screen.getByText('Groceries')).toBeInTheDocument();
@@ -148,8 +148,7 @@ describe('CategoryDropdown', () => {
       />
     );
 
-    const input = screen.getByRole('textbox');
-    await user.type(input, '{ArrowDown}');
+    await user.keyboard('{ArrowDown}');
 
     const firstOption = screen.getByText('Uncategorized').closest('li');
     expect(firstOption).toHaveClass('highlighted');
@@ -167,8 +166,7 @@ describe('CategoryDropdown', () => {
       />
     );
 
-    const input = screen.getByRole('textbox');
-    await user.type(input, '{ArrowUp}');
+    await user.keyboard('{ArrowUp}');
 
     const lastOption = screen.getByText('Salary').closest('li');
     expect(lastOption).toHaveClass('highlighted');
@@ -187,9 +185,8 @@ describe('CategoryDropdown', () => {
       />
     );
 
-    const input = screen.getByRole('textbox');
-    await user.type(input, '{ArrowDown}');
-    await user.type(input, '{Enter}');
+    await user.keyboard('{ArrowDown}');
+    await user.keyboard('{Enter}');
 
     expect(onSelect).toHaveBeenCalledWith(null); // Uncategorized
   });
@@ -207,8 +204,7 @@ describe('CategoryDropdown', () => {
       />
     );
 
-    const input = screen.getByRole('textbox');
-    await user.type(input, '{Escape}');
+    await user.keyboard('{Escape}');
 
     expect(onClose).toHaveBeenCalled();
   });
@@ -246,7 +242,7 @@ describe('CategoryDropdown', () => {
       />
     );
 
-    const input = screen.getByRole('textbox');
+    const input = screen.getByRole('combobox');
     await user.type(input, '{ArrowDown}');
     await user.type(input, 'g');
 
@@ -264,7 +260,7 @@ describe('CategoryDropdown', () => {
       />
     );
 
-    const input = screen.getByRole('textbox');
+    const input = screen.getByRole('combobox');
     expect(input).toHaveAttribute('placeholder', 'Uncategorized');
   });
 
@@ -278,7 +274,7 @@ describe('CategoryDropdown', () => {
       />
     );
 
-    const input = screen.getByRole('textbox');
+    const input = screen.getByRole('combobox');
     expect(input).toHaveAttribute('placeholder', 'Gas');
   });
 
@@ -292,7 +288,7 @@ describe('CategoryDropdown', () => {
       />
     );
 
-    const input = screen.getByRole('textbox');
+    const input = screen.getByRole('combobox');
     expect(input).toHaveAttribute('placeholder', 'Uncategorized');
   });
 });

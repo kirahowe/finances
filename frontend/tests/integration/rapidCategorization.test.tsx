@@ -69,11 +69,11 @@ describe('Rapid Categorization Workflow', () => {
     await user.click(categoryButtons[0]);
 
     // Type to filter categories
-    const input = screen.getByRole('textbox');
+    const input = screen.getByRole('combobox');
     await user.type(input, 'gro');
 
     // Should only show Groceries
-    const listItems = screen.getAllByRole('listitem');
+    const listItems = screen.getAllByRole('option');
     expect(listItems).toHaveLength(2); // Uncategorized + Groceries
     expect(screen.getByText('Groceries')).toBeInTheDocument();
     expect(screen.queryByText('Gas')).not.toBeInTheDocument();
@@ -98,28 +98,28 @@ describe('Rapid Categorization Workflow', () => {
     const categoryButtons = screen.getAllByRole('button', { name: 'Uncategorized' });
     await user.click(categoryButtons[0]);
 
-    const input = screen.getByRole('textbox');
+    const input = screen.getByRole('combobox');
 
     // Press ArrowDown to highlight first item (Uncategorized)
-    await user.type(input, '{ArrowDown}');
+    await user.keyboard('{ArrowDown}');
 
-    let highlightedItem = screen.getAllByRole('listitem').find(item =>
+    let highlightedItem = screen.getAllByRole('option').find(item =>
       item.className.includes('highlighted')
     );
     expect(highlightedItem).toHaveTextContent('Uncategorized');
 
     // Press ArrowDown again to highlight Groceries
-    await user.type(input, '{ArrowDown}');
+    await user.keyboard('{ArrowDown}');
 
-    highlightedItem = screen.getAllByRole('listitem').find(item =>
+    highlightedItem = screen.getAllByRole('option').find(item =>
       item.className.includes('highlighted')
     );
     expect(highlightedItem).toHaveTextContent('Groceries');
 
     // Press ArrowUp to go back to Uncategorized
-    await user.type(input, '{ArrowUp}');
+    await user.keyboard('{ArrowUp}');
 
-    highlightedItem = screen.getAllByRole('listitem').find(item =>
+    highlightedItem = screen.getAllByRole('option').find(item =>
       item.className.includes('highlighted')
     );
     expect(highlightedItem).toHaveTextContent('Uncategorized');
@@ -143,12 +143,12 @@ describe('Rapid Categorization Workflow', () => {
     const categoryButtons = screen.getAllByRole('button', { name: 'Uncategorized' });
     await user.click(categoryButtons[0]);
 
-    const input = screen.getByRole('textbox');
+    const input = screen.getByRole('combobox');
 
     // Navigate to Groceries and select it
-    await user.type(input, '{ArrowDown}');
-    await user.type(input, '{ArrowDown}');
-    await user.type(input, '{Enter}');
+    await user.keyboard('{ArrowDown}');
+    await user.keyboard('{ArrowDown}');
+    await user.keyboard('{Enter}');
 
     // Should have called onCategoryChange with Groceries ID
     expect(onCategoryChange).toHaveBeenCalledWith(1, 1);
@@ -173,14 +173,14 @@ describe('Rapid Categorization Workflow', () => {
     await user.click(categoryButtons[0]);
 
     // Input should be visible
-    expect(screen.getByRole('textbox')).toBeInTheDocument();
+    expect(screen.getByRole('combobox')).toBeInTheDocument();
 
     // Press Escape to close
-    const input = screen.getByRole('textbox');
-    await user.type(input, '{Escape}');
+    const input = screen.getByRole('combobox');
+    await user.keyboard('{Escape}');
 
     // Input should be gone
-    expect(screen.queryByRole('textbox')).not.toBeInTheDocument();
+    expect(screen.queryByRole('combobox')).not.toBeInTheDocument();
 
     // Should not have changed category
     expect(onCategoryChange).not.toHaveBeenCalled();
@@ -208,14 +208,14 @@ describe('Rapid Categorization Workflow', () => {
     await user.click(categoryButtons[0]);
 
     // Input should be visible
-    expect(screen.getByRole('textbox')).toBeInTheDocument();
+    expect(screen.getByRole('combobox')).toBeInTheDocument();
 
     // Click outside
     const outsideElement = screen.getByTestId('outside');
     await user.click(outsideElement);
 
     // Input should be gone
-    expect(screen.queryByRole('textbox')).not.toBeInTheDocument();
+    expect(screen.queryByRole('combobox')).not.toBeInTheDocument();
 
     // Should not have changed category
     expect(onCategoryChange).not.toHaveBeenCalled();
@@ -240,32 +240,32 @@ describe('Rapid Categorization Workflow', () => {
     await user.click(categoryButtons[0]);
 
     // Filter input should be visible
-    let input = screen.getByRole('textbox');
+    let input = screen.getByRole('combobox');
     expect(input).toBeInTheDocument();
 
     // Navigate to Groceries and press Enter
-    await user.type(input, '{ArrowDown}');
-    await user.type(input, '{ArrowDown}');
-    await user.type(input, '{Enter}');
+    await user.keyboard('{ArrowDown}');
+    await user.keyboard('{ArrowDown}');
+    await user.keyboard('{Enter}');
 
     // First transaction should be categorized
     expect(onCategoryChange).toHaveBeenCalledWith(1, 1);
 
     // Dropdown for NEXT transaction should now be open
-    input = screen.getByRole('textbox');
+    input = screen.getByRole('combobox');
     expect(input).toBeInTheDocument();
 
     // Navigate to Gas and press Enter
-    await user.type(input, '{ArrowDown}');
-    await user.type(input, '{ArrowDown}');
-    await user.type(input, '{ArrowDown}');
-    await user.type(input, '{Enter}');
+    await user.keyboard('{ArrowDown}');
+    await user.keyboard('{ArrowDown}');
+    await user.keyboard('{ArrowDown}');
+    await user.keyboard('{Enter}');
 
     // Second transaction should be categorized
     expect(onCategoryChange).toHaveBeenCalledWith(2, 2);
 
     // Dropdown for THIRD transaction should now be open
-    input = screen.getByRole('textbox');
+    input = screen.getByRole('combobox');
     expect(input).toBeInTheDocument();
   });
 
@@ -288,7 +288,7 @@ describe('Rapid Categorization Workflow', () => {
     await user.click(categoryButtons[0]);
 
     // Input should be visible
-    expect(screen.getByRole('textbox')).toBeInTheDocument();
+    expect(screen.getByRole('combobox')).toBeInTheDocument();
 
     // Click on Groceries option
     const groceriesOption = screen.getByText('Groceries');
@@ -298,7 +298,7 @@ describe('Rapid Categorization Workflow', () => {
     expect(onCategoryChange).toHaveBeenCalledWith(1, 1);
 
     // Dropdown should be closed (no input visible)
-    expect(screen.queryByRole('textbox')).not.toBeInTheDocument();
+    expect(screen.queryByRole('combobox')).not.toBeInTheDocument();
   });
 
   it('does not navigate past last transaction', async () => {
@@ -331,15 +331,15 @@ describe('Rapid Categorization Workflow', () => {
     await user.click(categoryButton);
 
     // Navigate to Groceries and press Enter
-    const input = screen.getByRole('textbox');
-    await user.type(input, '{ArrowDown}');
-    await user.type(input, '{ArrowDown}');
-    await user.type(input, '{Enter}');
+    const input = screen.getByRole('combobox');
+    await user.keyboard('{ArrowDown}');
+    await user.keyboard('{ArrowDown}');
+    await user.keyboard('{Enter}');
 
     // Transaction should be categorized
     expect(onCategoryChange).toHaveBeenCalledWith(1, 1);
 
     // Dropdown should be closed since there's no next transaction
-    expect(screen.queryByRole('textbox')).not.toBeInTheDocument();
+    expect(screen.queryByRole('combobox')).not.toBeInTheDocument();
   });
 });

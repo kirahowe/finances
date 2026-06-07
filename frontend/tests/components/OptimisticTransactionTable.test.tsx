@@ -112,11 +112,11 @@ describe('OptimisticTransactionTable', () => {
     await user.click(categoryButton);
 
     // Dropdown should appear with filter input
-    const input = screen.getByRole('textbox');
+    const input = screen.getByRole('combobox');
     expect(input).toBeInTheDocument();
 
     // All categories should be available in the list
-    const listItems = screen.getAllByRole('listitem');
+    const listItems = screen.getAllByRole('option');
     expect(listItems.length).toBe(3); // Uncategorized, Groceries, Salary
     expect(screen.getByText('Uncategorized')).toBeInTheDocument();
   });
@@ -138,7 +138,7 @@ describe('OptimisticTransactionTable', () => {
     await user.click(categoryButton);
 
     // Should show dropdown
-    const input = screen.getByRole('textbox');
+    const input = screen.getByRole('combobox');
     expect(input).toBeInTheDocument();
 
     // Click on a category in the list

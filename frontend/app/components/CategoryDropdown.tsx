@@ -1,7 +1,7 @@
-import { useState, useRef, useEffect } from 'react';
+import { useEffect, useRef, useState } from 'react';
+import { useCombobox } from 'downshift';
 import type { Category } from '../lib/api';
 import { filterCategories, getSelectedIndex } from '../lib/categoryFiltering';
-import { handleKeyboardNavigation } from '../lib/keyboardNavigation';
 
 interface CategoryDropdownProps {
   categories: Category[];
@@ -11,6 +11,23 @@ interface CategoryDropdownProps {
   onClose: () => void;
 }
 
+interface CategoryOption {
+  id: number | null;
+  name: string;
+}
+
+const UNCATEGORIZED: CategoryOption = { id: null, name: 'Uncategorized' };
+
+// "Uncategorized" leads the list so the category can always be cleared, even
+// while filtering. Matching categories follow.
+function getOptions(categories: Category[], filter: string): CategoryOption[] {
+  const matched = filterCategories(categories, filter).map((cat) => ({
+    id: cat['db/id'],
+    name: cat['category/name'],
+  }));
+  return [UNCATEGORIZED, ...matched];
+}
+
 export function CategoryDropdown({
   categories,
   selectedCategoryId,
@@ -18,152 +35,83 @@ export function CategoryDropdown({
   onSelectAndNext,
   onClose,
 }: CategoryDropdownProps) {
-  const [filter, setFilter] = useState('');
-  const [highlightedIndex, setHighlightedIndex] = useState(() => {
-    // Initialize highlighted index to the selected category
-    // Start at -1 if no category is selected (user must navigate)
-    if (selectedCategoryId === null) {
-      return -1;
-    } else {
-      const filteredCategories = filterCategories(categories, '');
-      const selectedIdx = getSelectedIndex(filteredCategories, selectedCategoryId);
-      return selectedIdx >= 0 ? selectedIdx + 1 : 0; // +1 for "Uncategorized" option
-    }
-  });
+  const [items, setItems] = useState<CategoryOption[]>(() => getOptions(categories, ''));
   const inputRef = useRef<HTMLInputElement>(null);
-  const dropdownRef = useRef<HTMLDivElement>(null);
-  const previousFilterRef = useRef('');
 
-  // Filter categories based on input
-  const filteredCategories = filterCategories(categories, filter);
+  // Offset by 1 for the leading "Uncategorized" option present at open.
+  const selectedIndex = getSelectedIndex(categories, selectedCategoryId);
+  const initialHighlightedIndex = selectedIndex >= 0 ? selectedIndex + 1 : -1;
 
-  // Add "Uncategorized" option at the beginning
-  const options = [
-    { id: null, name: 'Uncategorized' },
-    ...filteredCategories.map((cat) => ({
-      id: cat['db/id'],
-      name: cat['category/name'],
-    })),
-  ];
+  const selectedCategoryName =
+    selectedCategoryId === null
+      ? 'Uncategorized'
+      : categories.find((cat) => cat['db/id'] === selectedCategoryId)?.['category/name'] ??
+        'Uncategorized';
 
-  // Reset highlighted index to first visible item when filter changes
-  useEffect(() => {
-    if (filter !== previousFilterRef.current) {
-      previousFilterRef.current = filter;
-      // Only reset if we're actually filtering (not on initial render or clear)
-      if (filter.length > 0 && options.length > 0) {
-        // If there are filtered categories, highlight the first one (index 1)
-        // Otherwise, highlight "Uncategorized" (index 0)
-        setHighlightedIndex(filteredCategories.length > 0 ? 1 : 0);
-      }
-    }
-  }, [filter, options.length, filteredCategories.length]);
+  const { getMenuProps, getInputProps, getItemProps, getLabelProps, highlightedIndex } =
+    useCombobox<CategoryOption>({
+      items,
+      initialIsOpen: true,
+      defaultHighlightedIndex: 0,
+      initialHighlightedIndex,
+      itemToString: () => '',
+      // While filtering, highlight the first matching category (after the
+      // leading "Uncategorized") so Enter picks the match, not Uncategorized.
+      stateReducer: (_state, { type, changes }) => {
+        if (type === useCombobox.stateChangeTypes.InputChange) {
+          const filter = changes.inputValue ?? '';
+          const hasMatch = filter.trim().length > 0 && filterCategories(categories, filter).length > 0;
+          return { ...changes, highlightedIndex: hasMatch ? 1 : 0 };
+        }
+        return changes;
+      },
+      onInputValueChange: ({ inputValue }) => setItems(getOptions(categories, inputValue ?? '')),
+      onSelectedItemChange: ({ selectedItem, type }) => {
+        if (!selectedItem) return;
+        // Enter confirms and advances to the next row; click just selects.
+        if (type === useCombobox.stateChangeTypes.InputKeyDownEnter && onSelectAndNext) {
+          onSelectAndNext(selectedItem.id);
+        } else {
+          onSelect(selectedItem.id);
+        }
+      },
+      onIsOpenChange: ({ isOpen, type }) => {
+        if (isOpen) return;
+        if (
+          type === useCombobox.stateChangeTypes.InputKeyDownEscape ||
+          type === useCombobox.stateChangeTypes.InputBlur
+        ) {
+          onClose();
+        }
+      },
+    });
 
-  // Focus input on mount
   useEffect(() => {
     inputRef.current?.focus();
   }, []);
 
-  // Handle click outside
-  useEffect(() => {
-    function handleClickOutside(event: MouseEvent) {
-      if (
-        dropdownRef.current &&
-        !dropdownRef.current.contains(event.target as Node)
-      ) {
-        onClose();
-      }
-    }
-
-    document.addEventListener('mousedown', handleClickOutside);
-    return () => {
-      document.removeEventListener('mousedown', handleClickOutside);
-    };
-  }, [onClose]);
-
-  // Scroll highlighted item into view
-  useEffect(() => {
-    if (highlightedIndex >= 0 && highlightedIndex < options.length) {
-      const highlightedElement = dropdownRef.current?.querySelector(
-        `li[data-index="${highlightedIndex}"]`
-      ) as HTMLElement | null;
-
-      if (highlightedElement && typeof highlightedElement.scrollIntoView === 'function') {
-        highlightedElement.scrollIntoView({ block: 'nearest' });
-      }
-    }
-  }, [highlightedIndex, options.length]);
-
-  const handleKeyDown = (e: React.KeyboardEvent) => {
-    const result = handleKeyboardNavigation(
-      e.key,
-      options.length,
-      highlightedIndex
-    );
-
-    switch (result.action) {
-      case 'next':
-      case 'previous':
-        e.preventDefault();
-        setHighlightedIndex(result.highlightedIndex);
-        break;
-
-      case 'select':
-        e.preventDefault();
-        if (result.highlightedIndex >= 0 && result.highlightedIndex < options.length) {
-          // Use onSelectAndNext if provided (for Enter key navigation), otherwise use onSelect
-          if (onSelectAndNext) {
-            onSelectAndNext(options[result.highlightedIndex].id);
-          } else {
-            onSelect(options[result.highlightedIndex].id);
-          }
-        }
-        break;
-
-      case 'close':
-        e.preventDefault();
-        onClose();
-        break;
-    }
-  };
-
-  const handleOptionClick = (categoryId: number | null) => {
-    onSelect(categoryId);
-  };
-
-  // Find the selected category name for the placeholder
-  const selectedCategoryName = selectedCategoryId === null
-    ? 'Uncategorized'
-    : categories.find(cat => cat['db/id'] === selectedCategoryId)?.['category/name'] || 'Uncategorized';
-
   return (
-    <div className="category-dropdown" ref={dropdownRef}>
+    <div className="category-dropdown">
+      <label {...getLabelProps()} className="sr-only">
+        Category
+      </label>
       <input
-        ref={inputRef}
-        type="text"
+        {...getInputProps({ ref: inputRef })}
         className="category-dropdown-input"
-        value={filter}
-        onChange={(e) => setFilter(e.target.value)}
-        onKeyDown={handleKeyDown}
         placeholder={selectedCategoryName}
       />
-      <ul className="category-dropdown-list">
-        {options.map((option, index) => (
+      <ul {...getMenuProps()} className="category-dropdown-list">
+        {items.map((item, index) => (
           <li
-            key={option.id ?? 'uncategorized'}
-            data-index={index}
+            key={item.id ?? 'uncategorized'}
             className={`category-dropdown-item ${
               index === highlightedIndex ? 'highlighted' : ''
             }`}
-            onClick={() => handleOptionClick(option.id)}
-            onMouseMove={() => setHighlightedIndex(index)}
+            {...getItemProps({ item, index })}
           >
-            {option.name}
+            {item.name}
           </li>
         ))}
-        {options.length === 0 && (
-          <li className="category-dropdown-item empty">No categories found</li>
-        )}
       </ul>
     </div>
   );
