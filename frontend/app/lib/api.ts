@@ -54,6 +54,19 @@ const AccountRefSchema = z.object({
   'account/institution': InstitutionRefSchema.optional(),
 });
 
+// One part of a split transaction (nested in transactions).
+// `split/amount` is read back as a JS number (lossy double) for DISPLAY ONLY;
+// the authoritative bigdec value lives in the backend.
+const SplitSchema = z.object({
+  'db/id': z.number(),
+  'split/amount': z.number(),
+  'split/order': z.number().optional(),
+  'split/memo': z.string().nullable().optional(),
+  'split/category': CategoryRefSchema.nullable().optional(),
+});
+
+export type Split = z.infer<typeof SplitSchema>;
+
 const TransactionSchema = z.object({
   'db/id': z.number(),
   'transaction/amount': z.number(),
@@ -62,6 +75,7 @@ const TransactionSchema = z.object({
   'transaction/posted-date': z.string(),
   'transaction/category': CategoryRefSchema.nullable().optional(),
   'transaction/account': AccountRefSchema.nullable().optional(),
+  'transaction/splits': z.array(SplitSchema).optional(),
 });
 
 const StatsSchema = z.object({
@@ -414,6 +428,25 @@ export const api = {
       body: JSON.stringify({ categoryId }),
     });
     const json = await response.json();
+    const result = ApiResponseSchema(TransactionSchema).parse(json);
+    return result.data;
+  },
+
+  // Replace a transaction's splits (an empty array un-splits it). Amounts are
+  // sent as strings so the backend can reconcile them exactly as bigdec.
+  async setTransactionSplits(
+    transactionId: number,
+    splits: Array<{ amount: string; categoryId: number | null; memo?: string }>
+  ): Promise<Transaction> {
+    const response = await fetch(routes.transactions.setSplits(transactionId), {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ splits }),
+    });
+    const json = await response.json();
+    if (!response.ok || !json.success) {
+      throw new Error(json.error || `HTTP ${response.status}: ${response.statusText}`);
+    }
     const result = ApiResponseSchema(TransactionSchema).parse(json);
     return result.data;
   },

@@ -88,6 +88,8 @@ export const routes = {
       buildUrlWithParams(['api', 'transactions'], params),
     updateCategory: (transactionId: number) =>
       buildUrl('api', 'transactions', transactionId, 'category'),
+    setSplits: (transactionId: number) =>
+      buildUrl('api', 'transactions', transactionId, 'splits'),
   },
 
   // Generic providers (secrets-based, e.g. Lunchflow)
