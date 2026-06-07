@@ -4,12 +4,14 @@ import { api, type Stats, type Category, type Account, type Transaction } from "
 import { useSearchParams, useFetcher, useNavigation, useRevalidator } from "react-router";
 import { OptimisticTransactionTable } from "../components/OptimisticTransactionTable";
 import { CategoryTable } from "../components/CategoryTable";
+import { BulkCategoryModal } from "../components/BulkCategoryModal";
 import { LoadingIndicator } from "../components/LoadingIndicator";
 import { ErrorDisplay } from "../components/ErrorDisplay";
 import { Pagination } from "../components/Pagination";
 import { FilterBar, type FilterConfig } from "../components/FilterBar";
 import { MonthNavigator } from "../components/MonthNavigator";
 import { ManualAccountModal } from "../components/ManualAccountModal";
+import { LunchflowConnectionModal } from "../components/LunchflowConnectionModal";
 import { CsvImportWizard } from "../components/CsvImportWizard";
 import { generateCategoryIdent } from "../lib/identGenerator";
 import type { CategoryDraft } from "../lib/categoryDraft";
@@ -26,9 +28,11 @@ import { extractFilterOptions, applyFilters } from "../lib/filterOptions";
 import "../styles/pages/dashboard.css";
 import "../styles/components/pagination.css";
 import "../styles/components/category-button.css";
+import "../styles/components/category-table.css";
 import "../styles/components/filter.css";
 import "../styles/components/month-navigator.css";
 import "../styles/components/csv-import.css";
+import "../styles/components/provider-connection.css";
 
 export function meta({}: Route.MetaArgs) {
   return [
@@ -117,13 +121,23 @@ export async function action({ request }: Route.ActionArgs) {
     const name = formData.get("name") as string;
     const type = formData.get("type") as CategoryType;
     const ident = formData.get("ident") as string | undefined;
-    await api.createCategory({ name, type, ident: ident || undefined });
+    const parentId = formData.get("parentId");
+    await api.createCategory({
+      name,
+      type,
+      ident: ident || undefined,
+      parentId: parentId ? parseInt(parentId as string) : undefined,
+    });
   } else if (intent === "update-category") {
     const id = parseInt(formData.get("id") as string);
     const name = formData.get("name") as string;
     const type = formData.get("type") as CategoryType;
     const ident = formData.get("ident") as string | undefined;
-    await api.updateCategory(id, { name, type, ident: ident || undefined });
+    // The edit form always submits parentId: "" means top-level (clear), a
+    // number sets the parent.
+    const parentIdRaw = formData.get("parentId") as string;
+    const parentId = parentIdRaw === "" ? null : parseInt(parentIdRaw);
+    await api.updateCategory(id, { name, type, ident: ident || undefined, parentId });
   } else if (intent === "delete-category") {
     const id = parseInt(formData.get("id") as string);
     await api.deleteCategory(id);
@@ -223,12 +237,14 @@ export default function Home({ loaderData }: Route.ComponentProps) {
 
 function CategoriesSection({ categories }: { categories: Category[] }) {
   const [editingCategory, setEditingCategory] = useState<Category | null>(null);
+  const [showBulkModal, setShowBulkModal] = useState(false);
   const [newCategoryIds, setNewCategoryIds] = useState<number[]>([]);
   const [optimisticCategories, setOptimisticCategories] = useState<Category[]>([]);
   const [localCategories, setLocalCategories] = useState<Category[]>([]);
   const nextTempIdRef = useRef(-1);
   const originalCategoriesRef = useRef(categories);
   const fetcher = useFetcher();
+  const revalidator = useRevalidator();
 
   // Update original categories ref when server data changes
   useEffect(() => {
@@ -287,24 +303,31 @@ function CategoriesSection({ categories }: { categories: Category[] }) {
       'db/id': tempId,
       'category/name': draft.name,
       'category/type': draft.type,
+      ...(draft.parentId !== null ? { 'category/parent': { 'db/id': draft.parentId } } : {}),
     };
 
     setOptimisticCategories((prev) => [...prev, optimisticCategory]);
 
     const ident = generateCategoryIdent(draft.name);
-    fetcher.submit(
-      {
-        intent: "create-category",
-        name: draft.name,
-        type: draft.type,
-        ident,
-      },
-      { method: "post" }
-    );
+    const submission: Record<string, string> = {
+      intent: "create-category",
+      name: draft.name,
+      type: draft.type,
+      ident,
+    };
+    if (draft.parentId !== null) {
+      submission.parentId = String(draft.parentId);
+    }
+    fetcher.submit(submission, { method: "post" });
   };
 
   const handleCloseForm = () => {
     setEditingCategory(null);
+  };
+
+  const handleBulkCreated = () => {
+    setShowBulkModal(false);
+    revalidator.revalidate();
   };
 
   // Debounced batch update for reordering
@@ -346,12 +369,22 @@ function CategoriesSection({ categories }: { categories: Category[] }) {
         onDelete={handleDelete}
         onCreate={handleCreate}
         onReorder={handleReorder}
+        onBulkAdd={() => setShowBulkModal(true)}
       />
 
       {editingCategory && (
         <CategoryForm
           category={editingCategory}
+          categories={allCategories}
           onClose={handleCloseForm}
+        />
+      )}
+
+      {showBulkModal && (
+        <BulkCategoryModal
+          existingCategories={allCategories}
+          onClose={() => setShowBulkModal(false)}
+          onCreated={handleBulkCreated}
         />
       )}
     </div>
@@ -360,9 +393,11 @@ function CategoriesSection({ categories }: { categories: Category[] }) {
 
 function CategoryForm({
   category,
+  categories,
   onClose,
 }: {
   category: Category | null;
+  categories: Category[];
   onClose: () => void;
 }) {
   const fetcher = useFetcher();
@@ -370,6 +405,18 @@ function CategoryForm({
   const [name, setName] = useState(category?.["category/name"] || "");
 
   const generatedIdent = generateCategoryIdent(name);
+
+  // A category with its own sub-categories can't also become a child
+  // (single-level hierarchy).
+  const hasChildren = category
+    ? categories.some((c) => c["category/parent"]?.["db/id"] === category["db/id"])
+    : false;
+
+  // Only persisted top-level categories (excluding this one) are eligible
+  // parents; unsaved categories (negative temp id) have no real id to reference.
+  const parentOptions = categories.filter(
+    (c) => !c["category/parent"] && c["db/id"] !== category?.["db/id"] && c["db/id"] > 0
+  );
 
   const handleSubmit = () => {
     // Close modal after submission (works with fetcher)
@@ -433,6 +480,31 @@ function CategoryForm({
             </select>
           </div>
 
+          <div className="form-group">
+            <label className="form-label" htmlFor="parentId">
+              Parent
+            </label>
+            <select
+              className="form-select"
+              id="parentId"
+              name="parentId"
+              defaultValue={category?.["category/parent"]?.["db/id"]?.toString() ?? ""}
+              disabled={hasChildren}
+            >
+              <option value="">No parent</option>
+              {parentOptions.map((option) => (
+                <option key={option["db/id"]} value={option["db/id"]}>
+                  {option["category/name"]}
+                </option>
+              ))}
+            </select>
+            {hasChildren && (
+              <p className="bulk-modal-hint">
+                This category has sub-categories, so it can't become a child.
+              </p>
+            )}
+          </div>
+
           <div className="form-actions">
             <button type="button" className="button button-secondary" onClick={onClose}>
               Cancel
@@ -449,6 +521,7 @@ function CategoryForm({
 
 function AccountsSection({ accounts }: { accounts: Account[] }) {
   const [showManualAccountModal, setShowManualAccountModal] = useState(false);
+  const [showLunchflowModal, setShowLunchflowModal] = useState(false);
   const [importAccountId, setImportAccountId] = useState<number | null>(null);
   const [syncingProvider, setSyncingProvider] = useState<string | null>(null);
   const [syncError, setSyncError] = useState<string | null>(null);
@@ -497,6 +570,12 @@ function AccountsSection({ accounts }: { accounts: Account[] }) {
             disabled={!isReady || isLinking}
           >
             {isLinking ? "Linking..." : "Link Bank Account"}
+          </button>
+          <button
+            className="button"
+            onClick={() => setShowLunchflowModal(true)}
+          >
+            Connect Lunchflow
           </button>
           <button
             className="button"
@@ -580,6 +659,17 @@ function AccountsSection({ accounts }: { accounts: Account[] }) {
 
       {showManualAccountModal && (
         <ManualAccountModal onClose={() => setShowManualAccountModal(false)} />
+      )}
+
+      {showLunchflowModal && (
+        <LunchflowConnectionModal
+          existingAccounts={accounts}
+          onClose={() => setShowLunchflowModal(false)}
+          onConnected={() => {
+            setShowLunchflowModal(false);
+            revalidator.revalidate();
+          }}
+        />
       )}
 
       {importAccountId && importAccount && (
