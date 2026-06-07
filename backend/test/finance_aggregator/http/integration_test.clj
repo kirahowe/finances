@@ -98,6 +98,48 @@
    :headers {"content-type" "application/json"}
    :body (json/write-json-str body)})
 
+(defn- make-account! [external-id name]
+  (d/transact! setup/*test-conn* [{:institution/id (str "inst-" external-id) :institution/name "Bank"}])
+  (d/transact! setup/*test-conn* [{:account/external-id external-id :account/external-name name
+                                   :account/institution [:institution/id (str "inst-" external-id)]}])
+  (:db/id (d/pull (d/db setup/*test-conn*) '[:db/id] [:account/external-id external-id])))
+
+(deftest full-stack-transfer-matching-test
+  (testing "suggest -> confirm -> list carries the pair -> unmatch clears it"
+    (let [checking (make-account! "chk" "Checking")
+          savings (make-account! "sav" "Savings")
+          _ (d/transact! setup/*test-conn*
+                         [(assoc (make-test-transaction "tf-out" "Transfer" -100.00 (date-for 2025 1 15))
+                                 :transaction/account checking)
+                          (assoc (make-test-transaction "tf-in" "Transfer" 100.00 (date-for 2025 1 16))
+                                 :transaction/account savings)])
+          out-id (:db/id (d/pull (d/db setup/*test-conn*) '[:db/id] [:transaction/external-id "tf-out"]))
+          in-id (:db/id (d/pull (d/db setup/*test-conn*) '[:db/id] [:transaction/external-id "tf-in"]))
+          handler (create-test-handler)
+          suggest (handler (make-request :get "/api/transfers/suggestions"))
+          suggest-body (json/read-json (:body suggest) :key-fn keyword)]
+      (is (= 200 (:status suggest)))
+      (is (= 1 (count (:data suggest-body))))
+
+      (let [confirm (handler (json-request :post "/api/transfers" {:outflowId out-id :inflowId in-id}))]
+        (is (= 200 (:status confirm))))
+
+      ;; The list endpoint now carries the partner snapshot on both legs.
+      (let [txns (:data (json/read-json (:body (handler (make-request :get "/api/transactions"))) :key-fn keyword))
+            out-tx (first (filter #(= "tf-out" (:transaction/external-id %)) txns))]
+        (is (= in-id (get-in out-tx [:transaction/transfer-pair :db/id]))))
+
+      ;; A confirmed pair is no longer suggested.
+      (let [again (handler (make-request :get "/api/transfers/suggestions"))]
+        (is (empty? (:data (json/read-json (:body again) :key-fn keyword)))))
+
+      ;; Unmatch clears the link on both legs.
+      (is (= 200 (:status (handler (make-request :delete (str "/api/transfers/" out-id))))))
+      (let [out-tx (->> (:data (json/read-json (:body (handler (make-request :get "/api/transactions"))) :key-fn keyword))
+                        (filter #(= "tf-out" (:transaction/external-id %)))
+                        first)]
+        (is (nil? (:transaction/transfer-pair out-tx)))))))
+
 (deftest full-stack-set-splits-test
   (testing "Full HTTP stack: split a transaction, then see the parts on the list"
     (let [g (:db/id (categories/create! setup/*test-conn*
@@ -123,8 +165,29 @@
       (let [list-resp (handler (make-request :get "/api/transactions"))
             tx (->> (:data (json/read-json (:body list-resp) :key-fn keyword))
                     (filter #(= "tx-split" (:transaction/external-id %)))
-                    first)]
-        (is (= 2 (count (:transaction/splits tx)))))))
+                    first)
+            parts (sort-by :split/order (:transaction/splits tx))]
+        (is (= 2 (count parts)))
+        ;; Each part's category ref must resolve to a real category. A dangling ref
+        ;; (db/id with no category/name) would crash the client's schema parse.
+        (is (every? #(get-in % [:split/category :category/name]) parts))
+        ;; The list carries the server-computed reconciliation flag.
+        (is (true? (:transaction/splits-balanced tx))))))
+
+  (testing "Full HTTP stack: a non-existent split category returns 400"
+    (let [g (:db/id (categories/create! setup/*test-conn*
+                                         {:category/name "Groceries2" :category/type :expense
+                                          :category/ident :category/groceries2}))
+          _ (d/transact! setup/*test-conn*
+                         [(make-test-transaction "tx-badcat" "Costco" -100.00 (date-for 2025 1 15))])
+          tx-id (:db/id (d/pull (d/db setup/*test-conn*) '[:db/id] [:transaction/external-id "tx-badcat"]))
+          handler (create-test-handler)
+          resp (handler (json-request :put (str "/api/transactions/" tx-id "/splits")
+                                      {:splits [{:amount "-60.00" :categoryId g}
+                                                {:amount "-40.00" :categoryId 999999}]}))
+          body (json/read-json (:body resp) :key-fn keyword)]
+      (is (= 400 (:status resp)))
+      (is (false? (:success body)))))
 
   (testing "Full HTTP stack: non-reconciling splits return a 400"
     (let [a (:db/id (categories/create! setup/*test-conn*

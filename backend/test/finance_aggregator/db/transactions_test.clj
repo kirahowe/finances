@@ -137,6 +137,56 @@
       (doseq [eid eids]
         (is (nil? (:split/amount (d/pull (d/db setup/*test-conn*) '[:split/amount] eid))))))))
 
+(deftest set-splits-category-existence-test
+  (testing "a category id that does not exist is rejected with :bad-request and writes nothing"
+    (let [a (make-category! "A7" :category/a7)
+          tx-id (make-tx! "tx-split-8" {:transaction/amount -100.00M})]
+      (is (thrown-with-msg? clojure.lang.ExceptionInfo #"existing category"
+                            (transactions/set-splits! setup/*test-conn* tx-id
+                                                      [{:amount "-60.00" :category-id a}
+                                                       {:amount "-40.00" :category-id 999999}])))
+      (is (empty? (split-eids tx-id)))))
+
+  (testing "an id that points at a non-category entity (e.g. an account) is rejected"
+    (let [a (make-category! "A8" :category/a8)
+          tx-id (make-tx! "tx-split-9" {:transaction/amount -100.00M})
+          acct-id (:db/id (d/pull (d/db setup/*test-conn*) '[:db/id]
+                                  [:account/external-id "acct-tx-split-9"]))]
+      (is (thrown-with-msg? clojure.lang.ExceptionInfo #"existing category"
+                            (transactions/set-splits! setup/*test-conn* tx-id
+                                                      [{:amount "-60.00" :category-id a}
+                                                       {:amount "-40.00" :category-id acct-id}])))
+      (is (empty? (split-eids tx-id))))))
+
+(deftest set-splits-balance-annotation-test
+  (testing "the returned transaction is annotated balanced when its parts reconcile"
+    (let [a (make-category! "BA" :category/ba)
+          b (make-category! "BB" :category/bb)
+          tx-id (make-tx! "tx-bal-1" {:transaction/amount -100.00M})
+          updated (transactions/set-splits! setup/*test-conn* tx-id
+                                            [{:amount "-60.00" :category-id a}
+                                             {:amount "-40.00" :category-id b}])]
+      (is (true? (:transaction/splits-balanced updated)))))
+
+  (testing "drift after the parent amount changes is reported as not balanced"
+    (let [a (make-category! "BC" :category/bc)
+          b (make-category! "BD" :category/bd)
+          tx-id (make-tx! "tx-bal-2" {:transaction/amount -100.00M})]
+      (transactions/set-splits! setup/*test-conn* tx-id
+                                [{:amount "-60.00" :category-id a}
+                                 {:amount "-40.00" :category-id b}])
+      ;; A re-sync overwrites the parent amount in place; the stored parts no longer reconcile.
+      (d/transact! setup/*test-conn* [{:transaction/external-id "tx-bal-2" :transaction/amount -105.00M}])
+      (let [tx (transactions/with-split-balance
+                (d/pull (d/db setup/*test-conn*) transactions/splits-pull-pattern tx-id))]
+        (is (false? (:transaction/splits-balanced tx))))))
+
+  (testing "a transaction with no splits is not annotated"
+    (let [tx-id (make-tx! "tx-bal-3" {:transaction/amount -100.00M})
+          tx (transactions/with-split-balance
+              (d/pull (d/db setup/*test-conn*) transactions/splits-pull-pattern tx-id))]
+      (is (not (contains? tx :transaction/splits-balanced))))))
+
 (deftest update-transaction-category-test
   (testing "assigns a category to a transaction"
     ;;  First create a category
