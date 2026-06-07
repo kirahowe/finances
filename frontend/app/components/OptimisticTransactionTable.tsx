@@ -153,12 +153,7 @@ export function OptimisticTransactionTable({
           <button
             className="category-button"
             onClick={() => setEditingTransactionId(transaction['db/id'])}
-            onKeyDown={(e) => {
-              if (e.key === 'Enter') {
-                e.preventDefault();
-                setEditingTransactionId(transaction['db/id']);
-              }
-            }}
+            onFocus={() => setEditingTransactionId(transaction['db/id'])}
             disabled={isUpdating}
           >
             {optimisticCategory.name}
@@ -168,6 +163,12 @@ export function OptimisticTransactionTable({
       },
     }),
   ];
+
+  const cellClassName = (columnId: string): string | undefined => {
+    if (columnId === 'amount') return 'amount-cell';
+    if (columnId === 'category') return 'category-cell';
+    return undefined;
+  };
 
   const table = useReactTable({
     data: transactions,
@@ -197,6 +198,7 @@ export function OptimisticTransactionTable({
             {headerGroup.headers.map((header) => (
               <th
                 key={header.id}
+                className={cellClassName(header.column.id)}
                 onClick={header.column.getToggleSortingHandler()}
                 style={{
                   cursor: header.column.getCanSort() ? 'pointer' : 'default',
@@ -220,7 +222,7 @@ export function OptimisticTransactionTable({
         {displayRows.map((row) => (
           <tr key={row.id}>
             {row.getVisibleCells().map((cell) => (
-              <td key={cell.id}>
+              <td key={cell.id} className={cellClassName(cell.column.id)}>
                 {flexRender(cell.column.columnDef.cell, cell.getContext())}
               </td>
             ))}
