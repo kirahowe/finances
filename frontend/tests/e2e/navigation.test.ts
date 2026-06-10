@@ -1,4 +1,9 @@
 import { test, expect } from '@playwright/test';
+import { resetSeed } from './helpers';
+
+test.beforeEach(async ({ request }) => {
+  await resetSeed(request);
+});
 
 test.describe('Navigation', () => {
   test('home page loads the transactions workspace', async ({ page }) => {
@@ -19,7 +24,10 @@ test.describe('Navigation', () => {
   test('can return to transactions from setup', async ({ page }) => {
     await page.goto('/setup');
     await page.getByRole('link', { name: 'Transactions' }).click();
-    await expect(page).toHaveURL('/');
+    // The transactions view restores its default sort into the URL (?sort=date:asc).
+    // Assert that specific default is restored (`:` may be percent-encoded as %3A),
+    // not merely that *some* query string is present.
+    await expect(page).toHaveURL(/\/\?sort=date(:|%3A)asc$/);
     await expect(page.getByRole('heading', { name: 'Transactions' })).toBeVisible();
   });
 

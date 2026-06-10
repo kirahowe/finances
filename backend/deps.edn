@@ -83,4 +83,10 @@
   :cli {:extra-paths ["env/dev/resources"]}
 
   ;; Production config (for Docker builds, uses env/prod/resources/config.edn)
-  :prod {:extra-paths ["env/prod/resources"]}}}
+  :prod {:extra-paths ["env/prod/resources"]}
+
+  ;; End-to-end test server: seeded, deterministic DB, no Plaid/secrets needed.
+  ;; Run: clojure -M:e2e -m finance-aggregator.dev.e2e-server
+  :e2e {:extra-paths ["env/e2e/src"]
+        :jvm-opts ["-Djava.library.path=/opt/homebrew/opt/libomp/lib"
+                   "-Djna.library.path=/opt/homebrew/opt/libomp/lib"]}}}

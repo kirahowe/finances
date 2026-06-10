@@ -1,8 +1,15 @@
 import { test, expect } from '@playwright/test';
+import { resetSeed } from './helpers';
+
+// This spec commits categories (Enter), so reset the shared backend before each
+// test to keep it isolated from other specs.
+test.beforeEach(async ({ request }) => {
+  await resetSeed(request);
+});
 
 test.describe('Rapid Categorization Workflow', () => {
   test('filters categories and navigates with Enter key', async ({ page }) => {
-    await page.goto('/');
+    await page.goto('/?month=2025-01');
 
     // Wait for transactions to load
     await expect(page.locator('table')).toBeVisible();
@@ -32,7 +39,7 @@ test.describe('Rapid Categorization Workflow', () => {
   });
 
   test('whitespace-insensitive filtering works', async ({ page }) => {
-    await page.goto('/');
+    await page.goto('/?month=2025-01');
 
     // Wait for transactions to load
     await expect(page.locator('table')).toBeVisible();
