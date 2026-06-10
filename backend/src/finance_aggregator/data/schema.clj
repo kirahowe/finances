@@ -42,7 +42,9 @@
    :transaction/provider      {:db/valueType :db.type/keyword}  ; :plaid, :lunchflow, :manual, ... (provenance)
    :transaction/tags          {:db/valueType   :db.type/keyword
                                :db/cardinality :db.cardinality/many}  ; #{:income :transfer}
-   :transaction/transfer-pair {:db/valueType :db.type/ref}   ; links paired transfers
+   :transaction/transfer-pair {:db/valueType :db.type/ref}   ; links paired transfers (set on both legs)
+   :transaction/transfer-rejected {:db/valueType   :db.type/ref
+                                   :db/cardinality :db.cardinality/many}  ; pairs the user rejected; written symmetrically so auto-match won't re-propose
    :transaction/user          {:db/valueType :db.type/ref}   ; ref to user (denormalized for query speed)
    :transaction/splits        {:db/valueType   :db.type/ref
                                :db/cardinality :db.cardinality/many

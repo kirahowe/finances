@@ -1,13 +1,22 @@
 (ns finance-aggregator.utils
   (:require
    [tick.core :as t])
-  (:import [java.util Date]
+  (:import [java.time ZoneOffset]
+           [java.util Date]
            [java.util.regex Pattern]))
 
 (defn epoch->date
   "Converts Unix epoch timestamp to a date in UTC."
   [timestamp]
   (-> timestamp (* 1000) t/instant Date/from))
+
+(defn date->epoch-day
+  "Calendar day (as an epoch-day long) of a java.util.Date interpreted in UTC, or
+   nil when the date is nil. Use to bucket transactions by day independent of
+   time-of-day."
+  [^Date d]
+  (when d
+    (.toEpochDay (.toLocalDate (.atZone (.toInstant d) ZoneOffset/UTC)))))
 
 (defn- ->epoch
   "Convert an Instant to epoch."
