@@ -13,7 +13,15 @@
  */
 function getApiBase(): string {
   if (typeof window !== 'undefined') {
-    return window.location.protocol + '//' + window.location.hostname + ':8080';
+    const { protocol, hostname, port } = window.location;
+    // The e2e suite serves the frontend on :5174 against the seeded backend on
+    // :8081; normal dev/prod talk to the backend on :8080.
+    const apiPort = port === '5174' ? '8081' : '8080';
+    return `${protocol}//${hostname}:${apiPort}`;
+  }
+  // SSR (Node): honor an explicit override (used by the e2e dev server).
+  if (typeof process !== 'undefined' && process.env.VITE_API_BASE) {
+    return process.env.VITE_API_BASE;
   }
   return 'http://localhost:8080';
 }
@@ -90,6 +98,16 @@ export const routes = {
       buildUrl('api', 'transactions', transactionId, 'category'),
     setSplits: (transactionId: number) =>
       buildUrl('api', 'transactions', transactionId, 'splits'),
+  },
+
+  // Transfer matching
+  transfers: {
+    suggestions: () => buildUrl('api', 'transfers', 'suggestions'),
+    confirm: () => buildUrl('api', 'transfers'),
+    unmatch: (transactionId: number) => buildUrl('api', 'transfers', transactionId),
+    reject: () => buildUrl('api', 'transfers', 'reject'),
+    candidates: (transactionId: number) =>
+      buildUrlWithParams(['api', 'transfers', 'candidates'], { transactionId }),
   },
 
   // Generic providers (secrets-based, e.g. Lunchflow)

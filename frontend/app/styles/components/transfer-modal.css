@@ -1,0 +1,183 @@
+/* ── Toolbar controls (Hide transfers toggle + Find transfers button) ───────── */
+.transfer-controls {
+  display: flex;
+  align-items: center;
+  gap: var(--spacing-md);
+  margin-bottom: var(--spacing-md);
+}
+
+.transfer-toggle {
+  display: flex;
+  align-items: center;
+  gap: var(--spacing-xs);
+  font-size: 0.8rem;
+  color: var(--color-text-muted);
+  cursor: pointer;
+  user-select: none;
+}
+
+.transfer-toggle input {
+  cursor: pointer;
+}
+
+.transfer-controls-spacer {
+  flex: 1 1 auto;
+}
+
+/* ── Review / match modal ───────────────────────────────────────────────────── */
+.transfer-modal-content {
+  max-width: 620px;
+  width: 90vw;
+}
+
+.transfer-modal-hint {
+  margin: calc(-1 * var(--spacing-sm)) 0 var(--spacing-lg);
+  font-size: 0.8rem;
+  color: var(--color-text-muted);
+}
+
+.transfer-empty {
+  padding: var(--spacing-lg) 0;
+  text-align: center;
+  color: var(--color-text-muted);
+  font-size: 0.9rem;
+}
+
+.transfer-suggestion-list {
+  display: flex;
+  flex-direction: column;
+  gap: var(--spacing-xs);
+  max-height: 50vh;
+  overflow-y: auto;
+}
+
+.transfer-suggestion {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr) auto auto;
+  align-items: center;
+  gap: var(--spacing-sm);
+  padding: var(--spacing-sm);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-sm);
+}
+
+.transfer-suggestion.is-rejected {
+  opacity: 0.5;
+}
+
+.transfer-suggestion.is-rejected .transfer-suggestion-route {
+  text-decoration: line-through;
+}
+
+.transfer-suggestion-check {
+  cursor: pointer;
+}
+
+.transfer-suggestion-body {
+  min-width: 0;
+}
+
+.transfer-suggestion-route {
+  display: flex;
+  align-items: center;
+  gap: var(--spacing-xs);
+  font-size: 0.9rem;
+  color: var(--color-ink);
+}
+
+.transfer-arrow {
+  color: var(--color-text-muted);
+}
+
+.transfer-suggestion-meta {
+  font-size: 0.72rem;
+  color: var(--color-text-muted);
+  margin-top: 0.1rem;
+}
+
+.transfer-suggestion-amount {
+  font-size: 0.9rem;
+  white-space: nowrap;
+}
+
+.transfer-reject-button {
+  background: none;
+  border: none;
+  color: var(--color-text-muted);
+  cursor: pointer;
+  font-family: var(--font-body);
+  font-size: 0.66rem;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  padding: 0.2rem 0.35rem;
+  border-radius: var(--radius-sm);
+  white-space: nowrap;
+  transition: background-color 0.15s var(--ease-out), color 0.15s var(--ease-out);
+}
+
+.transfer-reject-button:hover {
+  color: var(--color-negative);
+  background-color: var(--color-accent-soft);
+}
+
+/* A candidate row in the manual-match modal is a full-width clickable button. */
+.transfer-candidate {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: center;
+  gap: var(--spacing-sm);
+  width: 100%;
+  text-align: left;
+  padding: var(--spacing-sm);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-sm);
+  background: none;
+  cursor: pointer;
+  font-family: inherit;
+  transition: background-color 0.15s var(--ease-out), border-color 0.15s var(--ease-out);
+}
+
+.transfer-candidate:hover:not(:disabled) {
+  background-color: var(--color-accent-soft);
+  border-color: #cfe1d8;
+}
+
+.transfer-candidate:disabled {
+  opacity: 0.5;
+  cursor: default;
+}
+
+.transfer-modal-actions {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: var(--spacing-md);
+  margin-top: var(--spacing-lg);
+}
+
+/* ── Row affordances (in the transactions table category cell) ───────────────── */
+
+/* Persistent, non-interactive badge marking a matched transfer. The unmatch
+   action lives in the row menu, so this is a status indicator, not a button. */
+.transfer-badge {
+  flex: 0 0 auto;
+  color: var(--color-primary);
+  font-size: 0.85rem;
+  line-height: 1;
+  padding: 0.1rem 0.25rem;
+}
+
+/* Marker for a transfer-typed transaction with no matched counterpart. */
+.transfer-unmatched {
+  flex: 0 0 auto;
+  font-size: 0.6rem;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  color: var(--color-text-muted);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-sm);
+  padding: 0.05rem 0.3rem;
+  white-space: nowrap;
+}

@@ -26,7 +26,6 @@ import {
   type FilterValue,
 } from "../lib/filterState";
 import { extractFilterOptions, applyFilters } from "../lib/filterOptions";
-import { shouldHideTransfer } from "../lib/transferMatch";
 import "../styles/pages/dashboard.css";
 import "../styles/components/pagination.css";
 import "../styles/components/category-button.css";
@@ -152,7 +151,7 @@ function TransactionsSection({
       account: (tx: Transaction) => tx["transaction/account"]?.["db/id"],
       category: (tx: Transaction) => tx["transaction/category"]?.["db/id"],
     });
-    return hideTransfers ? filtered.filter((tx) => !shouldHideTransfer(tx)) : filtered;
+    return hideTransfers ? filtered.filter((tx) => !tx['transaction/transfer-hidden']) : filtered;
   }, [transactions, filters, hideTransfers]);
 
   // Month figures derived from the currently-visible (filtered) set.
@@ -372,10 +371,7 @@ function TransactionsSection({
       {reviewing && (
         <TransferReviewModal
           onClose={() => setReviewing(false)}
-          onApplied={() => {
-            setReviewing(false);
-            revalidator.revalidate();
-          }}
+          onApplied={() => revalidator.revalidate()}
         />
       )}
 

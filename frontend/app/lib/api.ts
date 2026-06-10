@@ -86,7 +86,6 @@ const TransferPairRefSchema = z.object({
   'db/id': z.number(),
   'transaction/amount': z.number(),
   'transaction/posted-date': z.string().optional(),
-  'transaction/category': CategoryRefSchema.nullable().optional(),
   'transaction/account': AccountRefSchema.nullable().optional(),
 });
 
@@ -104,6 +103,8 @@ const TransactionSchema = z.object({
   // Server-computed (bigdec-exact) reconciliation verdict; absent when unsplit.
   'transaction/splits-balanced': z.boolean().optional(),
   'transaction/transfer-pair': TransferPairRefSchema.nullable().optional(),
+  // Server-computed: true when the Hide-transfers toggle should remove this row.
+  'transaction/transfer-hidden': z.boolean().optional(),
 });
 
 // One leg of a transfer suggestion / a manual-match candidate.
@@ -507,6 +508,9 @@ export const api = {
   async getTransferSuggestions(): Promise<TransferSuggestion[]> {
     const response = await fetch(routes.transfers.suggestions());
     const json = await response.json();
+    if (!response.ok || !json.success) {
+      throw new Error(json.error || `HTTP ${response.status}: ${response.statusText}`);
+    }
     const result = ApiResponseSchema(z.array(TransferSuggestionSchema)).parse(json);
     return result.data;
   },
@@ -550,6 +554,9 @@ export const api = {
   async getMatchCandidates(transactionId: number): Promise<SuggestionTx[]> {
     const response = await fetch(routes.transfers.candidates(transactionId));
     const json = await response.json();
+    if (!response.ok || !json.success) {
+      throw new Error(json.error || `HTTP ${response.status}: ${response.statusText}`);
+    }
     const result = ApiResponseSchema(z.array(SuggestionTxSchema)).parse(json);
     return result.data;
   },
