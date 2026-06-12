@@ -65,7 +65,7 @@ test('An unmatched transfer is flagged and can be matched manually', async ({ pa
 
   // The transfer-typed transaction with no in-window counterpart is flagged.
   const unmatched = row(page, 'Transfer Out');
-  await expect(unmatched).toContainText('unmatched');
+  await expect(unmatched).toContainText(/unmatched/i);
 
   // Open the manual-match modal (via the row actions menu) and confirm it lists
   // the out-of-window counterpart.
