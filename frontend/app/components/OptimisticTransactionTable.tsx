@@ -133,9 +133,9 @@ export function OptimisticTransactionTable({
     };
   };
 
-  // A quiet, non-interactive transfer status marker for the category cell: a badge
-  // on a matched transfer, or an "unmatched" hint on a transfer-categorized row
-  // with no counterpart. The match/unmatch *actions* live in the row menu.
+  // A quiet, non-interactive transfer status pill for the category cell: "Matched"
+  // on a matched transfer, or "Unmatched" on a transfer-categorized row with no
+  // counterpart. The match/unmatch *actions* live in the row menu.
   const renderTransferStatus = (transaction: Transaction) => {
     const pair = transaction['transaction/transfer-pair'];
     if (pair) {

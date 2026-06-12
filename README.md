@@ -5,7 +5,8 @@ A personal finance management application for aggregating transactions from mult
 ## Features
 
 - 🏦 **Multi-Institution Support** - Connect accounts via Plaid (12,000+ institutions)
-- 📊 **Transaction Management** - View, filter, and categorize transactions
+- 📊 **Transaction Management** - View, filter, sort, split, and categorize transactions
+- 🔁 **Transfer Tracking** - Match transfers between accounts and hide them from spending
 - 🏷️ **Smart Categorization** - Manual and automated transaction categorization
 - 📈 **Spending Analysis** - Track spending by category and time period
 - 🔐 **Secure** - Encrypted secrets, user-scoped data isolation
@@ -163,10 +164,11 @@ See [REPL Quick Reference](./doc/implementation/adr-003-backend/repl-quick-refer
 ## Current Status
 
 ### ✅ Completed
-- Frontend with React + Remix architecture
+- Frontend with React Router v7 (framework mode) architecture
 - Backend infrastructure with Integrant
-- Category management system
-- Transaction table with filtering
+- Category management system, including a parent/child hierarchy
+- Transaction table — filtering, sorting, pagination, transaction splits, and resizable/hideable columns (view state persisted in the URL)
+- Transfer tracking — auto-matching, manual match, and a hide-transfers toggle
 - Secrets management with age encryption
 - REPL-driven development workflow
 - **Plaid Integration Phase 1** - API client functions
