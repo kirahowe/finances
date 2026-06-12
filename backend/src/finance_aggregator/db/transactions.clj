@@ -1,6 +1,46 @@
 (ns finance-aggregator.db.transactions
   (:require [datalevin.core :as d]
+            [finance-aggregator.db.transfers :as db-transfers]
             [finance-aggregator.splits :as splits]))
+
+(def split-pull
+  "Pull sub-pattern for a transaction's split parts. Shared with the list endpoint
+   (handlers.entities) so the two views never drift."
+  [:db/id :split/amount :split/order :split/memo
+   {:split/category [:db/id :category/name]}])
+
+(def transaction-pull-pattern
+  "Canonical pull pattern for a transaction returned to the API. Shared by the list
+   endpoint (handlers.entities) and the single-transaction mutation endpoints so the
+   shapes never drift. The wildcard `*` returns a ref attribute as a bare {:db/id},
+   so :transaction/transfer-pair is expanded explicitly: the server-side hide rule
+   (db-transfers/with-transfer-hidden) reads the partner's category type, and the UI
+   renders the partner's amount and posted date."
+  ['* {:transaction/category [:db/id :category/name :category/type]
+       :transaction/account [:db/id :account/external-name
+                             {:account/institution [:db/id :institution/name]}]
+       :transaction/splits split-pull
+       :transaction/transfer-pair [:db/id :transaction/amount :transaction/posted-date
+                                   {:transaction/category [:db/id :category/name :category/type]}
+                                   {:transaction/account [:db/id :account/external-name]}]}])
+
+(defn with-split-balance
+  "Annotate a pulled transaction with :transaction/splits-balanced — the bigdec-exact
+   reconciliation verdict — when it has splits, so clients never re-derive drift from
+   lossy doubles. Transactions without splits are returned unchanged."
+  [tx]
+  (if-let [parts (seq (:transaction/splits tx))]
+    (assoc tx :transaction/splits-balanced
+           (splits/reconciled? (:transaction/amount tx) (map :split/amount parts)))
+    tx))
+
+(defn with-derived-fields
+  "Annotate a pulled transaction with the server-computed fields the API contract
+   promises: :transaction/splits-balanced and :transaction/transfer-hidden. Applied
+   uniformly by the list endpoint and the single-transaction mutation endpoints so the
+   response shape never drifts."
+  [tx]
+  (-> tx with-split-balance db-transfers/with-transfer-hidden))
 
 (defn update-category!
   "Update the category of a transaction.
@@ -12,31 +52,7 @@
                   ;; To remove, use retract operation
                   [[:db/retract tx-id :transaction/category]])]
     (d/transact! conn tx-data)
-    ;; Return the updated transaction with category info (minimal payload)
-    (let [db (d/db conn)]
-      (d/pull db '[* {:transaction/category [:db/id :category/name]
-                      :transaction/account [:db/id :account/external-name]}] tx-id))))
-
-(def split-pull
-  "Pull sub-pattern for a transaction's split parts. Shared with the list endpoint
-   (handlers.entities) so the two views never drift."
-  [:db/id :split/amount :split/order :split/memo
-   {:split/category [:db/id :category/name]}])
-
-(def splits-pull-pattern
-  ['* {:transaction/category [:db/id :category/name]
-       :transaction/account [:db/id :account/external-name]
-       :transaction/splits split-pull}])
-
-(defn with-split-balance
-  "Annotate a pulled transaction with :transaction/splits-balanced — the bigdec-exact
-   reconciliation verdict — when it has splits, so clients never re-derive drift from
-   lossy doubles. Transactions without splits are returned unchanged."
-  [tx]
-  (if-let [parts (seq (:transaction/splits tx))]
-    (assoc tx :transaction/splits-balanced
-           (splits/reconciled? (:transaction/amount tx) (map :split/amount parts)))
-    tx))
+    (with-derived-fields (d/pull (d/db conn) transaction-pull-pattern tx-id))))
 
 (defn- existing-category-ids
   "The subset of `ids` that are real category entities."
@@ -57,8 +73,8 @@
    otherwise.
 
    Conn is a datalevin connection (not an atom).
-   Returns the updated transaction pulled with its parts, annotated with
-   :transaction/splits-balanced."
+   Returns the updated transaction pulled with its parts and the derived API fields
+   (see with-derived-fields)."
   [conn tx-id splits]
   (let [db (d/db conn)
         parent (d/pull db '[:db/id :transaction/amount] tx-id)]
@@ -97,4 +113,4 @@
                                      (:memo s) (assoc :split/memo (:memo s))))
                                  splits))}])]
         (d/transact! conn (into retract-ops (or assert-ops [])))
-        (with-split-balance (d/pull (d/db conn) splits-pull-pattern tx-id))))))
+        (with-derived-fields (d/pull (d/db conn) transaction-pull-pattern tx-id))))))

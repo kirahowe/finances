@@ -178,14 +178,32 @@
       ;; A re-sync overwrites the parent amount in place; the stored parts no longer reconcile.
       (d/transact! setup/*test-conn* [{:transaction/external-id "tx-bal-2" :transaction/amount -105.00M}])
       (let [tx (transactions/with-split-balance
-                (d/pull (d/db setup/*test-conn*) transactions/splits-pull-pattern tx-id))]
+                (d/pull (d/db setup/*test-conn*) transactions/transaction-pull-pattern tx-id))]
         (is (false? (:transaction/splits-balanced tx))))))
 
   (testing "a transaction with no splits is not annotated"
     (let [tx-id (make-tx! "tx-bal-3" {:transaction/amount -100.00M})
           tx (transactions/with-split-balance
-              (d/pull (d/db setup/*test-conn*) transactions/splits-pull-pattern tx-id))]
+              (d/pull (d/db setup/*test-conn*) transactions/transaction-pull-pattern tx-id))]
       (is (not (contains? tx :transaction/splits-balanced))))))
+
+(deftest set-splits-transfer-pair-snapshot-test
+  (testing "splitting an already-matched transfer returns the partner amount in the snapshot"
+    ;; Same regression as update-category!: set-splits! pulled the partner via a
+    ;; wildcard, losing :transaction/amount and breaking the frontend's parse.
+    (let [a (make-category! "SA" :category/sa)
+          b (make-category! "SB" :category/sb)
+          out-id (make-tx! "tx-xfer-split-out" {:transaction/amount -100.00M})
+          in-id (make-tx! "tx-xfer-split-in" {:transaction/amount 100.00M})]
+      (d/transact! setup/*test-conn* [{:db/id out-id :transaction/transfer-pair in-id}
+                                      {:db/id in-id :transaction/transfer-pair out-id}])
+      (let [updated (transactions/set-splits! setup/*test-conn* out-id
+                                              [{:amount "-60.00" :category-id a}
+                                               {:amount "-40.00" :category-id b}])
+            pair (:transaction/transfer-pair updated)]
+        (is (= in-id (:db/id pair)))
+        (is (number? (:transaction/amount pair)))
+        (is (== 100.00M (:transaction/amount pair)))))))
 
 (deftest update-transaction-category-test
   (testing "assigns a category to a transaction"
@@ -226,6 +244,23 @@
             tx-after (d/pull db '[* {:transaction/category [*]}] tx-id)]
         (is (= category-id (get-in tx-after [:transaction/category :db/id])))
         (is (= "Groceries" (get-in tx-after [:transaction/category :category/name]))))))
+
+  (testing "the returned transfer-pair snapshot carries the partner amount, not a bare ref"
+    ;; Regression: the pull used a wildcard for :transaction/transfer-pair, which
+    ;; returns the partner as a bare {:db/id} with no amount. The frontend's Zod
+    ;; schema requires :transaction/amount on the snapshot, so categorizing an
+    ;; already-matched transfer returned a 200 the client then failed to parse —
+    ;; surfacing as an error even though the write had succeeded.
+    (let [category (make-category! "Transfer" :category/transfer)
+          out-id (make-tx! "tx-xfer-out" {:transaction/amount -500.00M})
+          in-id (make-tx! "tx-xfer-in" {:transaction/amount 500.00M})]
+      (d/transact! setup/*test-conn* [{:db/id out-id :transaction/transfer-pair in-id}
+                                      {:db/id in-id :transaction/transfer-pair out-id}])
+      (let [updated (transactions/update-category! setup/*test-conn* out-id category)
+            pair (:transaction/transfer-pair updated)]
+        (is (= in-id (:db/id pair)))
+        (is (number? (:transaction/amount pair)))
+        (is (== 500.00M (:transaction/amount pair))))))
 
   (testing "removes category from transaction"
     ;; Create category and transaction with category

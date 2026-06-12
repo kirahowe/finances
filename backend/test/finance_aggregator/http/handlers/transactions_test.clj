@@ -50,7 +50,7 @@
           response (call-splits tx-id [{:amount "-0.10" :categoryId a}
                                        {:amount "-0.20" :categoryId b}])
           ;; Pull the stored bigdec amounts straight from the DB and sum exactly.
-          stored (->> (d/pull (d/db setup/*test-conn*) db-transactions/splits-pull-pattern tx-id)
+          stored (->> (d/pull (d/db setup/*test-conn*) db-transactions/transaction-pull-pattern tx-id)
                       :transaction/splits
                       (map :split/amount))]
       (is (= 200 (:status response)))

@@ -13,7 +13,6 @@
   (:require
    [datalevin.core :as d]
    [finance-aggregator.db.transactions :as db-transactions]
-   [finance-aggregator.db.transfers :as db-transfers]
    [finance-aggregator.http.responses :as responses]
    [finance-aggregator.manual.service :as manual-service]
    [finance-aggregator.utils :as utils]))
@@ -149,17 +148,6 @@
         (responses/success-response {:success true})
         (responses/json-response {:error (:error result)} 400)))))
 
-(def ^:private transactions-pull-pattern
-  ['* {:transaction/category [:db/id :category/name :category/type]
-       :transaction/account [:db/id :account/external-name
-                             {:account/institution [:db/id :institution/name]}]
-       :transaction/splits db-transactions/split-pull
-       ;; Self-contained partner snapshot so the frontend can apply the hide rule
-       ;; and render partner info without the partner being in the current view.
-       :transaction/transfer-pair [:db/id :transaction/amount :transaction/posted-date
-                                   {:transaction/category [:db/id :category/name :category/type]}
-                                   {:transaction/account [:db/id :account/external-name]}]}])
-
 (defn list-transactions-handler
   "Factory: creates handler for GET /api/transactions.
 
@@ -188,19 +176,19 @@
                       [?e :transaction/external-id _]
                       [?e :transaction/posted-date ?date]
                       [(< ?date ?end)]]
-              raw-results (d/q query db transactions-pull-pattern end-date)
+              raw-results (d/q query db db-transactions/transaction-pull-pattern end-date)
               ;; Post-filter by start date
               results (filter #(not (.before (:transaction/posted-date %) start-date))
                               raw-results)]
           (responses/success-response
-           (mapv (comp db-transfers/with-transfer-hidden db-transactions/with-split-balance) results)))
+           (mapv db-transactions/with-derived-fields results)))
         ;; No filter - return all transactions
         (let [query '[:find [(pull ?e pattern) ...]
                       :in $ pattern
                       :where [?e :transaction/external-id _]]
-              results (d/q query db transactions-pull-pattern)]
+              results (d/q query db db-transactions/transaction-pull-pattern)]
           (responses/success-response
-           (mapv (comp db-transfers/with-transfer-hidden db-transactions/with-split-balance) results)))))))
+           (mapv db-transactions/with-derived-fields results)))))))
 
 (defn query-handler
   "Factory: creates handler for POST /api/query.
