@@ -27,6 +27,8 @@ export interface CategoryDropdownModel {
   items: DropdownOption[];
   /** Render model interleaving group headers with selectable option rows. */
   rows: CategoryDropdownRow[];
+  /** Ids of the categories rendered as non-selectable group headers. */
+  headerIds: Set<number>;
 }
 
 const UNCATEGORIZED: DropdownOption = { id: null, name: 'Uncategorized' };
@@ -150,5 +152,5 @@ export function buildCategoryDropdownRows(
     }
   }
 
-  return { items, rows };
+  return { items, rows, headerIds: headers };
 }

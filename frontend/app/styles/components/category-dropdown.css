@@ -52,6 +52,12 @@
   margin-top: 0;
 }
 
+/* Hidden for the first paint, before the input's rect has been measured and the
+   fixed coordinates applied — avoids a flash at the wrong position. */
+.category-dropdown-list-portal--measuring {
+  visibility: hidden;
+}
+
 .category-dropdown-item {
   padding: 0.4rem 0.6rem;
   border-radius: var(--radius-sm);

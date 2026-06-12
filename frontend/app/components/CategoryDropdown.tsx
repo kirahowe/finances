@@ -3,11 +3,7 @@ import { createPortal } from 'react-dom';
 import { useCombobox } from 'downshift';
 import type { Category } from '../lib/api';
 import { hasMatchingCategory } from '../lib/categoryFiltering';
-import {
-  buildCategoryDropdownRows,
-  headerCategoryIds,
-  type DropdownOption,
-} from '../lib/categoryHierarchy';
+import { buildCategoryDropdownRows, type DropdownOption } from '../lib/categoryHierarchy';
 
 interface CategoryDropdownProps {
   categories: Category[];
@@ -34,16 +30,16 @@ export function CategoryDropdown({
 
   // The grouped render model: `items` drives Downshift's keyboard navigation
   // (selectable only, so headers are skipped); `rows` interleaves the headers.
-  const { items, rows } = useMemo(
+  const { items, rows, headerIds } = useMemo(
     () => buildCategoryDropdownRows(categories, filter),
     [categories, filter]
   );
-  // Header categories aren't selectable, so highlight/"has match" reason only
-  // over the selectable categories.
-  const selectableCategories = useMemo(() => {
-    const headers = headerCategoryIds(categories);
-    return categories.filter((c) => !headers.has(c['db/id']));
-  }, [categories]);
+  // Header categories aren't selectable, so the reducer's "has match" check
+  // reasons only over the selectable categories.
+  const selectableCategories = useMemo(
+    () => categories.filter((c) => !headerIds.has(c['db/id'])),
+    [categories, headerIds]
+  );
 
   // Track the input's viewport position so the portaled list stays anchored to it
   // (including when the table scroll container scrolls).
@@ -115,8 +111,12 @@ export function CategoryDropdown({
   const menu = (
     <ul
       {...getMenuProps()}
-      className={`category-dropdown-list ${portalMenu ? 'category-dropdown-list-portal' : ''}`}
-      style={portalMenu ? (menuPos ? { ...menuPos } : { visibility: 'hidden' }) : undefined}
+      className={`category-dropdown-list ${portalMenu ? 'category-dropdown-list-portal' : ''} ${
+        portalMenu && !menuPos ? 'category-dropdown-list-portal--measuring' : ''
+      }`}
+      // Only the runtime rect coordinates stay inline; the hidden-while-measuring
+      // state is a CSS class (per the project's no-inline-styles rule).
+      style={portalMenu && menuPos ? menuPos : undefined}
     >
       {rows.map((row) =>
         row.kind === 'header' ? (
