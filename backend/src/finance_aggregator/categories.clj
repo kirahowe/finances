@@ -28,6 +28,14 @@
     child-has-children?
     "A category with sub-categories cannot become a child"))
 
+(defn validate-assignable
+  "Validate assigning a category directly to a transaction or split part. Pure: the
+   caller passes the resolved fact. A category that has sub-categories is a group
+   header, not an assignable category. Returns an error string, or nil when valid."
+  [has-children?]
+  (when has-children?
+    "Cannot assign a category that has sub-categories"))
+
 (defn validate-batch
   "Validate a create-many! batch for the single-level invariant. Pure - parent
    links are by within-batch :tempid. Returns an error string, or nil when valid.

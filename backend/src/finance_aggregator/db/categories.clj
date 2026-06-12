@@ -9,13 +9,25 @@
     (when (:category/name result)
       result)))
 
-(defn- has-children?
-  "Whether any category names db-id as its parent, in the given db snapshot."
+(defn has-children?
+  "Whether any category names db-id as its parent, in the given db snapshot.
+   A category with children is a group header and cannot be assigned directly."
   [db db-id]
   (boolean (seq (d/q '[:find [?c ...]
                        :in $ ?parent
                        :where [?c :category/parent ?parent]]
                      db db-id))))
+
+(defn- clear-category-assignments-ops
+  "Retract ops removing every transaction and split reference to `category-id`.
+   Run when a category gains its first child and becomes a group header: anything
+   still assigned to it is reset to uncategorized, as if it had never been set."
+  [db category-id]
+  (into
+   (mapv (fn [e] [:db/retract e :transaction/category category-id])
+         (d/q '[:find [?e ...] :in $ ?c :where [?e :transaction/category ?c]] db category-id))
+   (mapv (fn [e] [:db/retract e :split/category category-id])
+         (d/q '[:find [?e ...] :in $ ?c :where [?e :split/category ?c]] db category-id))))
 
 (defn- reject-bad-request! [message]
   (when message
@@ -29,13 +41,16 @@
    Returns the created entity as a map with :db/id.
    Conn is a datalevin connection (not an atom)."
   [conn category-data]
-  (when-let [parent-id (:category/parent category-data)]
-    (let [db (d/db conn)]
+  (let [parent-id (:category/parent category-data)
+        db (d/db conn)]
+    (when parent-id
       (reject-bad-request!
-       (cat/validate-parent parent-id (pull-category db parent-id) nil false))))
-  ;; If the ident already exists, this will fail with an exception
-  ;; which is what we want for the uniqueness test
-  (d/transact! conn [category-data])
+       (cat/validate-parent parent-id (pull-category db parent-id) nil false)))
+    ;; If the ident already exists this upserts; a non-upsert duplicate throws.
+    ;; A parent gains a child here, so it becomes a header — clear anything still
+    ;; assigned to it in the same transaction.
+    (d/transact! conn (cond-> [category-data]
+                        parent-id (into (clear-category-assignments-ops db parent-id)))))
   ;; Use pull to get the entity with :db/id included
   (let [ident (:category/ident category-data)
         db (d/db conn)]
@@ -108,22 +123,24 @@
    Returns the updated entity.
    Conn is a datalevin connection (not an atom)."
   [conn db-id updates]
-  (let [clear-parent? (and (contains? updates :category/parent)
+  (let [db (d/db conn)
+        clear-parent? (and (contains? updates :category/parent)
                            (nil? (:category/parent updates)))
         set-parent-id (when-not clear-parent? (:category/parent updates))]
     (when set-parent-id
-      (let [db (d/db conn)]
-        (reject-bad-request!
-         (cat/validate-parent set-parent-id (pull-category db set-parent-id)
-                              db-id (has-children? db db-id)))))
+      (reject-bad-request!
+       (cat/validate-parent set-parent-id (pull-category db set-parent-id)
+                            db-id (has-children? db db-id))))
     (let [set-updates (cond-> updates clear-parent? (dissoc :category/parent))
           tx-data (cond-> []
                     (seq set-updates) (conj (assoc set-updates :db/id db-id))
-                    clear-parent? (conj [:db/retract db-id :category/parent]))]
+                    clear-parent? (conj [:db/retract db-id :category/parent])
+                    ;; Setting a parent promotes it to a header — clear anything
+                    ;; still assigned to it.
+                    set-parent-id (into (clear-category-assignments-ops db set-parent-id)))]
       (when (seq tx-data)
         (d/transact! conn tx-data)))
-    (let [db (d/db conn)]
-      (d/pull db '[*] db-id))))
+    (d/pull (d/db conn) '[*] db-id)))
 
 (defn delete!
   "Delete a category by db/id.
