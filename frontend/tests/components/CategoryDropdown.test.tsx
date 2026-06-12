@@ -295,3 +295,73 @@ describe('CategoryDropdown', () => {
     expect(input).toHaveAttribute('placeholder', 'Uncategorized');
   });
 });
+
+describe('CategoryDropdown grouping', () => {
+  const hierarchical: Category[] = [
+    { 'db/id': 1, 'category/name': 'Food', 'category/type': 'expense', 'category/sort-order': 0 },
+    {
+      'db/id': 2,
+      'category/name': 'Groceries',
+      'category/type': 'expense',
+      'category/parent': { 'db/id': 1 },
+      'category/sort-order': 0,
+    },
+    {
+      'db/id': 3,
+      'category/name': 'Dining',
+      'category/type': 'expense',
+      'category/parent': { 'db/id': 1 },
+      'category/sort-order': 1,
+    },
+    { 'db/id': 4, 'category/name': 'Salary', 'category/type': 'income', 'category/sort-order': 1 },
+  ];
+
+  it('renders a parent with children as a non-selectable group header', () => {
+    render(
+      <CategoryDropdown
+        categories={hierarchical}
+        selectedCategoryId={null}
+        onSelect={vi.fn()}
+        onClose={vi.fn()}
+      />
+    );
+
+    const optionLabels = screen.getAllByRole('option').map((el) => el.textContent);
+    expect(optionLabels).toContain('Groceries');
+    expect(optionLabels).not.toContain('Food');
+    expect(screen.getByText('Food').closest('li')).toHaveClass('category-dropdown-group-header');
+  });
+
+  it('indents child categories beneath their parent header', () => {
+    render(
+      <CategoryDropdown
+        categories={hierarchical}
+        selectedCategoryId={null}
+        onSelect={vi.fn()}
+        onClose={vi.fn()}
+      />
+    );
+
+    expect(screen.getByText('Groceries').closest('li')).toHaveClass('category-dropdown-item--child');
+    // A childless top-level category stays a normal (non-indented) option.
+    expect(screen.getByText('Salary').closest('li')).not.toHaveClass('category-dropdown-item--child');
+  });
+
+  it('selects a child category on click', async () => {
+    const user = userEvent.setup();
+    const onSelect = vi.fn();
+
+    render(
+      <CategoryDropdown
+        categories={hierarchical}
+        selectedCategoryId={null}
+        onSelect={onSelect}
+        onClose={vi.fn()}
+      />
+    );
+
+    await user.click(screen.getByText('Groceries'));
+
+    expect(onSelect).toHaveBeenCalledWith(2);
+  });
+});

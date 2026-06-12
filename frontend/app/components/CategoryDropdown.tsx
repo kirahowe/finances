@@ -1,8 +1,13 @@
-import { useLayoutEffect, useRef, useState } from 'react';
+import { useLayoutEffect, useMemo, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 import { useCombobox } from 'downshift';
 import type { Category } from '../lib/api';
-import { filterCategories, getSelectedIndex, hasMatchingCategory } from '../lib/categoryFiltering';
+import { hasMatchingCategory } from '../lib/categoryFiltering';
+import {
+  buildCategoryDropdownRows,
+  headerCategoryIds,
+  type DropdownOption,
+} from '../lib/categoryHierarchy';
 
 interface CategoryDropdownProps {
   categories: Category[];
@@ -15,23 +20,6 @@ interface CategoryDropdownProps {
   portalMenu?: boolean;
 }
 
-interface CategoryOption {
-  id: number | null;
-  name: string;
-}
-
-const UNCATEGORIZED: CategoryOption = { id: null, name: 'Uncategorized' };
-
-// "Uncategorized" leads the list so the category can always be cleared, even
-// while filtering. Matching categories follow.
-function getOptions(categories: Category[], filter: string): CategoryOption[] {
-  const matched = filterCategories(categories, filter).map((cat) => ({
-    id: cat['db/id'],
-    name: cat['category/name'],
-  }));
-  return [UNCATEGORIZED, ...matched];
-}
-
 export function CategoryDropdown({
   categories,
   selectedCategoryId,
@@ -40,9 +28,22 @@ export function CategoryDropdown({
   onClose,
   portalMenu = false,
 }: CategoryDropdownProps) {
-  const [items, setItems] = useState<CategoryOption[]>(() => getOptions(categories, ''));
+  const [filter, setFilter] = useState('');
   const anchorRef = useRef<HTMLDivElement>(null);
   const [menuPos, setMenuPos] = useState<{ top: number; left: number; width: number } | null>(null);
+
+  // The grouped render model: `items` drives Downshift's keyboard navigation
+  // (selectable only, so headers are skipped); `rows` interleaves the headers.
+  const { items, rows } = useMemo(
+    () => buildCategoryDropdownRows(categories, filter),
+    [categories, filter]
+  );
+  // Header categories aren't selectable, so highlight/"has match" reason only
+  // over the selectable categories.
+  const selectableCategories = useMemo(() => {
+    const headers = headerCategoryIds(categories);
+    return categories.filter((c) => !headers.has(c['db/id']));
+  }, [categories]);
 
   // Track the input's viewport position so the portaled list stays anchored to it
   // (including when the table scroll container scrolls).
@@ -61,15 +62,16 @@ export function CategoryDropdown({
     };
   }, [portalMenu]);
 
-  // One pass over `categories` yields both the placeholder name and the
-  // highlight position (offset by 1 for the leading "Uncategorized" option).
-  const selectedIndex = getSelectedIndex(categories, selectedCategoryId);
+  // Placeholder shows the assigned category; the initial highlight points at its
+  // position in the selectable `items` list (-1 when none/uncategorized, so the
+  // first ArrowDown lands on "Uncategorized" rather than skipping past it).
   const selectedCategoryName =
-    selectedIndex >= 0 ? categories[selectedIndex]['category/name'] : 'Uncategorized';
-  const initialHighlightedIndex = selectedIndex >= 0 ? selectedIndex + 1 : -1;
+    categories.find((c) => c['db/id'] === selectedCategoryId)?.['category/name'] ?? 'Uncategorized';
+  const initialHighlightedIndex =
+    selectedCategoryId === null ? -1 : items.findIndex((o) => o.id === selectedCategoryId);
 
   const { getMenuProps, getInputProps, getItemProps, getLabelProps, highlightedIndex } =
-    useCombobox<CategoryOption>({
+    useCombobox<DropdownOption>({
       items,
       initialIsOpen: true,
       defaultHighlightedIndex: 0,
@@ -79,15 +81,15 @@ export function CategoryDropdown({
       // keystroke) so it never flickers through "Uncategorized" first. While
       // filtering, highlight the first matching category — index 1, after the
       // leading "Uncategorized" — so Enter picks the match, not Uncategorized.
-      // Only an existence check here; onInputValueChange builds the full list.
+      // Only an existence check here; onInputValueChange rebuilds the full list.
       stateReducer: (_state, { type, changes }) => {
         if (type === useCombobox.stateChangeTypes.InputChange) {
-          const hasMatch = hasMatchingCategory(categories, changes.inputValue ?? '');
+          const hasMatch = hasMatchingCategory(selectableCategories, changes.inputValue ?? '');
           return { ...changes, highlightedIndex: hasMatch ? 1 : 0 };
         }
         return changes;
       },
-      onInputValueChange: ({ inputValue }) => setItems(getOptions(categories, inputValue ?? '')),
+      onInputValueChange: ({ inputValue }) => setFilter(inputValue ?? ''),
       onSelectedItemChange: ({ selectedItem, type }) => {
         if (!selectedItem) return;
         // Enter confirms and advances to the next row; click just selects.
@@ -116,17 +118,23 @@ export function CategoryDropdown({
       className={`category-dropdown-list ${portalMenu ? 'category-dropdown-list-portal' : ''}`}
       style={portalMenu ? (menuPos ? { ...menuPos } : { visibility: 'hidden' }) : undefined}
     >
-      {items.map((item, index) => (
-        <li
-          key={item.id ?? 'uncategorized'}
-          className={`category-dropdown-item ${
-            index === highlightedIndex ? 'highlighted' : ''
-          }`}
-          {...getItemProps({ item, index })}
-        >
-          {item.name}
-        </li>
-      ))}
+      {rows.map((row) =>
+        row.kind === 'header' ? (
+          <li key={row.key} className="category-dropdown-group-header" role="presentation">
+            {row.name}
+          </li>
+        ) : (
+          <li
+            key={row.option.id ?? 'uncategorized'}
+            className={`category-dropdown-item ${
+              row.depth > 0 ? 'category-dropdown-item--child' : ''
+            } ${row.itemIndex === highlightedIndex ? 'highlighted' : ''}`}
+            {...getItemProps({ item: row.option, index: row.itemIndex })}
+          >
+            {row.option.name}
+          </li>
+        )
+      )}
     </ul>
   );
 

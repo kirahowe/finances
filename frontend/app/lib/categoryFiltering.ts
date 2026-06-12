@@ -12,6 +12,17 @@ function matchesQuery(category: Category, normalizedQuery: string): boolean {
 }
 
 /**
+ * Whether a single category matches the filter. A blank filter matches everything
+ * (unlike hasMatchingCategory, which only cares about a non-empty query).
+ */
+export function categoryMatchesFilter(category: Category, filter: string): boolean {
+  if (!filter.trim()) {
+    return true;
+  }
+  return matchesQuery(category, normalizeForFiltering(filter));
+}
+
+/**
  * Filters categories by name (case-insensitive and whitespace-insensitive)
  */
 export function filterCategories(
