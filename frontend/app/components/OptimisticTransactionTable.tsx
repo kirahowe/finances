@@ -1,4 +1,4 @@
-import { useState, useMemo, Fragment } from 'react';
+import { useState, useMemo, useRef, useEffect, useLayoutEffect, Fragment } from 'react';
 import {
   useReactTable,
   getCoreRowModel,
@@ -6,16 +6,21 @@ import {
   flexRender,
   createColumnHelper,
   type SortingState,
+  type VisibilityState,
+  type ColumnSizingState,
   type OnChangeFn,
 } from '@tanstack/react-table';
 import { useFetcher } from 'react-router';
 import type { Transaction, Category, Split } from '../lib/api';
 import { formatAmount, formatDate } from '../lib/format';
 import { sortSplits } from '../lib/splitMath';
+import { columnDefSizing } from '../lib/transactionColumns';
+import { useAutoColumnSizing } from '../lib/useAutoColumnSizing';
 import { CategoryDropdown } from './CategoryDropdown';
 import { RowActionsMenu, type RowAction } from './RowActionsMenu';
 import '../styles/components/split-rows.css';
 import '../styles/components/transfer-modal.css';
+import '../styles/components/transactions-table.css';
 
 // Branch/split marker shown on each line of a split transaction.
 function SplitIcon({ drift }: { drift?: boolean }) {
@@ -46,6 +51,12 @@ interface OptimisticTransactionTableProps {
   pageSize?: number;
   sorting: SortingState;
   onSortingChange: OnChangeFn<SortingState>;
+  // Column view state is controlled by the page (so it can live in the URL). When
+  // omitted, the table manages it internally with sensible defaults.
+  columnVisibility?: VisibilityState;
+  onColumnVisibilityChange?: OnChangeFn<VisibilityState>;
+  columnSizing?: ColumnSizingState;
+  onColumnSizingChange?: OnChangeFn<ColumnSizingState>;
   onSplit?: (transaction: Transaction) => void;
   onMatch?: (transaction: Transaction) => void;
   onUnmatch?: (transaction: Transaction) => void;
@@ -58,12 +69,22 @@ export function OptimisticTransactionTable({
   pageSize,
   sorting,
   onSortingChange,
+  // Default to empty objects (not undefined) so getSize()/visibility keep TanStack's
+  // own defaults; passing `undefined` for a state key would clobber them.
+  columnVisibility = {},
+  onColumnVisibilityChange,
+  columnSizing = {},
+  onColumnSizingChange,
   onSplit,
   onMatch,
   onUnmatch,
 }: OptimisticTransactionTableProps) {
   const [editingTransactionId, setEditingTransactionId] = useState<number | null>(null);
   const fetcher = useFetcher();
+  // Measured content-fit widths (stretched to fill), used as each column's default
+  // size. A user resize (columnSizing) overrides per-column. Not persisted — it's
+  // derived from the data + container width on each load.
+  const [autoSizing, setAutoSizing] = useState<Record<string, number>>({});
 
   // Sort each split's parts once per data change, not on every render (which is
   // re-triggered by unrelated state like editing or fetcher activity).
@@ -121,18 +142,17 @@ export function OptimisticTransactionTable({
       const partnerName = pair['transaction/account']?.['account/external-name'] ?? 'another account';
       return (
         <span
-          className="transfer-badge"
-          title={`Transfer with ${partnerName} (${formatAmount(pair['transaction/amount'])})`}
+          className="transfer-status transfer-status-matched"
+          title={`Matched transfer with ${partnerName} (${formatAmount(pair['transaction/amount'])})`}
         >
-          <span aria-hidden="true">⇄</span>
-          <span className="sr-only">Matched transfer</span>
+          Matched
         </span>
       );
     }
     const isTransferType = transaction['transaction/category']?.['category/type'] === 'transfer';
     return isTransferType ? (
-      <span className="transfer-unmatched" title="Transfer with no matched counterpart">
-        unmatched
+      <span className="transfer-status transfer-status-unmatched" title="Transfer with no matched counterpart">
+        Unmatched
       </span>
     ) : null;
   };
@@ -208,31 +228,37 @@ export function OptimisticTransactionTable({
     columnHelper.accessor('transaction/posted-date', {
       id: 'date',
       header: 'Date',
+      ...columnDefSizing('date', autoSizing['date']),
       cell: (info) => <span className="numeric">{formatDate(info.getValue())}</span>,
     }),
     columnHelper.accessor(row => row['transaction/account']?.['account/external-name'], {
       id: 'account',
       header: 'Account',
+      ...columnDefSizing('account', autoSizing['account']),
       cell: (info) => info.getValue() || '—',
     }),
     columnHelper.accessor(row => row['transaction/account']?.['account/institution']?.['institution/name'], {
       id: 'institution',
       header: 'Institution',
+      ...columnDefSizing('institution', autoSizing['institution']),
       cell: (info) => info.getValue() || '—',
     }),
     columnHelper.accessor('transaction/payee', {
       id: 'payee',
       header: 'Payee',
+      ...columnDefSizing('payee', autoSizing['payee']),
       cell: (info) => info.getValue(),
     }),
     columnHelper.accessor('transaction/description', {
       id: 'description',
       header: 'Description',
+      ...columnDefSizing('description', autoSizing['description']),
       cell: (info) => info.getValue() || '—',
     }),
     columnHelper.accessor('transaction/amount', {
       id: 'amount',
       header: 'Amount',
+      ...columnDefSizing('amount', autoSizing['amount']),
       cell: (info) => {
         const amount = info.getValue();
         return (
@@ -245,6 +271,7 @@ export function OptimisticTransactionTable({
     columnHelper.display({
       id: 'category',
       header: 'Category',
+      ...columnDefSizing('category', autoSizing['category']),
       cell: (info) => {
         const transaction = info.row.original;
         const isEditing = editingTransactionId === transaction['db/id'];
@@ -256,6 +283,7 @@ export function OptimisticTransactionTable({
             <CategoryDropdown
               categories={categories}
               selectedCategoryId={optimisticCategory.id}
+              portalMenu
               onSelect={(categoryId) => {
                 handleCategoryChange(transaction['db/id'], categoryId);
               }}
@@ -270,7 +298,7 @@ export function OptimisticTransactionTable({
         }
 
         return (
-          <div className="category-cell-content">
+          <div className="category-cell-stack">
             <button
               className="category-button"
               onClick={() => setEditingTransactionId(transaction['db/id'])}
@@ -286,6 +314,7 @@ export function OptimisticTransactionTable({
     columnHelper.display({
       id: 'actions',
       header: '',
+      ...columnDefSizing('actions'),
       cell: (info) => (
         <RowActionsMenu actions={rowActions(info.row.original)} label="Transaction actions" />
       ),
@@ -304,11 +333,47 @@ export function OptimisticTransactionTable({
     columns,
     state: {
       sorting,
+      columnVisibility,
+      columnSizing,
     },
     onSortingChange,
+    onColumnVisibilityChange,
+    onColumnSizingChange,
+    enableColumnResizing: true,
+    columnResizeMode: 'onChange',
     getCoreRowModel: getCoreRowModel(),
     getSortedRowModel: getSortedRowModel(),
   });
+
+  // A resize drag ends with a click that would otherwise toggle the header sort.
+  // Latch a flag while a column is resizing and clear it one tick after the drag
+  // ends, so the trailing click (which fires synchronously on mouseup) is swallowed
+  // but later header clicks still sort.
+  const justResizedRef = useRef(false);
+  const isResizing = !!table.getState().columnSizingInfo.isResizingColumn;
+  useEffect(() => {
+    if (isResizing) {
+      justResizedRef.current = true;
+      return;
+    }
+    if (justResizedRef.current) {
+      const timer = setTimeout(() => {
+        justResizedRef.current = false;
+      }, 0);
+      return () => clearTimeout(timer);
+    }
+  }, [isResizing]);
+
+  // Content-fit auto-sizing (and the double-click auto-fit) live in a hook so all DOM
+  // measurement stays out of the component. Re-measure whenever the visible rows
+  // change — data, columns, sort, or page — so the page on screen always fits (e.g. a
+  // large amount on a later page widens the amount column when you reach it) and the
+  // protected columns never clip.
+  const tableRef = useRef<HTMLTableElement>(null);
+  const { recompute, autoFitColumn } = useAutoColumnSizing(table, tableRef, setAutoSizing);
+  useLayoutEffect(() => {
+    recompute();
+  }, [recompute, transactions, columnVisibility, sorting, page, pageSize]);
 
   // Get sorted rows, then apply pagination if specified
   const sortedRows = table.getRowModel().rows;
@@ -320,88 +385,121 @@ export function OptimisticTransactionTable({
   const displayedTransactions = displayRows.map(row => row.original);
 
   return (
-    <table className="table">
-      <thead>
-        {table.getHeaderGroups().map((headerGroup) => (
-          <tr key={headerGroup.id}>
-            {headerGroup.headers.map((header) => (
-              <th
-                key={header.id}
-                className={cellClassName(header.column.id)}
-                onClick={header.column.getToggleSortingHandler()}
-                style={{
-                  cursor: header.column.getCanSort() ? 'pointer' : 'default',
-                  userSelect: 'none',
-                }}
-              >
-                {header.isPlaceholder
-                  ? null
-                  : flexRender(
-                      header.column.columnDef.header,
-                      header.getContext()
+    <div className="transactions-table-scroll">
+      {/* width:100% (from .table) lets the trailing auto-width spacer column absorb
+          any slack so the table fills the card; min-width keeps the real columns at
+          their exact pixel widths (no proportional reflow), scrolling when they
+          exceed the container. */}
+      <table ref={tableRef} className="table table-resizable" style={{ minWidth: table.getTotalSize() }}>
+        <colgroup>
+          {table.getVisibleLeafColumns().map((column) => (
+            <col key={column.id} style={{ width: column.getSize() }} />
+          ))}
+          <col className="table-spacer-col" />
+        </colgroup>
+        <thead>
+          {table.getHeaderGroups().map((headerGroup) => (
+            <tr key={headerGroup.id}>
+              {headerGroup.headers.map((header) => {
+                const canSort = header.column.getCanSort();
+                const thClass = [cellClassName(header.column.id), canSort ? 'th-sortable' : 'th-static']
+                  .filter(Boolean)
+                  .join(' ');
+                return (
+                  <th
+                    key={header.id}
+                    className={thClass}
+                    onClick={(e) => {
+                      // Don't sort on the click that ends a resize drag.
+                      if (justResizedRef.current) return;
+                      if (canSort) header.column.getToggleSortingHandler()?.(e);
+                    }}
+                  >
+                    {header.isPlaceholder
+                      ? null
+                      : flexRender(
+                          header.column.columnDef.header,
+                          header.getContext()
+                        )}
+                    {header.column.getIsSorted() === 'asc' && ' ↑'}
+                    {header.column.getIsSorted() === 'desc' && ' ↓'}
+                    {header.column.getCanResize() && (
+                      <div
+                        className={`col-resize-handle ${header.column.getIsResizing() ? 'is-resizing' : ''}`}
+                        onMouseDown={header.getResizeHandler()}
+                        onTouchStart={header.getResizeHandler()}
+                        onClick={(e) => e.stopPropagation()}
+                        onDoubleClick={() => autoFitColumn(header.column)}
+                        aria-hidden="true"
+                      />
                     )}
-                {header.column.getIsSorted() === 'asc' && ' ↑'}
-                {header.column.getIsSorted() === 'desc' && ' ↓'}
-              </th>
-            ))}
-          </tr>
-        ))}
-      </thead>
-      <tbody>
-        {displayRows.map((row) => {
-          const tx = row.original;
-          const parts = sortedPartsByTx.get(tx['db/id']) ?? null;
+                  </th>
+                );
+              })}
+              <th className="table-spacer-cell" aria-hidden="true" />
+            </tr>
+          ))}
+        </thead>
+        <tbody>
+          {displayRows.map((row) => {
+            const tx = row.original;
+            const parts = sortedPartsByTx.get(tx['db/id']) ?? null;
 
-          // Unsplit transaction: one normal row.
-          if (!parts) {
-            return (
-              <tr key={row.id}>
-                {row.getVisibleCells().map((cell) => (
-                  <td key={cell.id} className={cellClassName(cell.column.id)}>
-                    {flexRender(cell.column.columnDef.cell, cell.getContext())}
-                  </td>
-                ))}
-              </tr>
-            );
-          }
-
-          // Split transaction: a context "parent" row (date/account/payee, but no
-          // amount to avoid showing the total twice) followed by one muted line per
-          // part carrying just the amount + category. Drift is the server's
-          // bigdec-exact verdict, not a lossy client re-derivation.
-          const drift = tx['transaction/splits-balanced'] === false;
-          const lastIdx = parts.length - 1;
-          return (
-            <Fragment key={row.id}>
-              <tr className="is-split-parent">
-                {row.getVisibleCells().map((cell) => {
-                  const id = cell.column.id;
-                  // Blank only the amount so the total isn't shown twice; the
-                  // category (with its own value + the row menu) stays available.
-                  const blank = id === 'amount';
-                  return (
-                    <td key={cell.id} className={cellClassName(id)}>
-                      {blank ? null : flexRender(cell.column.columnDef.cell, cell.getContext())}
-                    </td>
-                  );
-                })}
-              </tr>
-              {parts.map((split, i) => (
-                <tr
-                  key={`${row.id}-part-${split['db/id'] ?? i}`}
-                  className={`split-child-row ${i === lastIdx ? 'is-last' : ''}`}
-                >
+            // Unsplit transaction: one normal row.
+            if (!parts) {
+              return (
+                <tr key={row.id}>
                   {row.getVisibleCells().map((cell) => (
                     <td key={cell.id} className={cellClassName(cell.column.id)}>
-                      {renderSplitChildCell(cell.column.id, split, tx, drift)}
+                      {flexRender(cell.column.columnDef.cell, cell.getContext())}
                     </td>
                   ))}
+                  <td className="table-spacer-cell" />
                 </tr>
-              ))}
-            </Fragment>
-          );
-        })}
-      </tbody>
-    </table>
+              );
+            }
+
+            // Split transaction: a context "parent" row (date/account/payee, but no
+            // amount to avoid showing the total twice) followed by one muted line per
+            // part carrying just the amount + category. Drift is the server's
+            // bigdec-exact verdict, not a lossy client re-derivation.
+            const drift = tx['transaction/splits-balanced'] === false;
+            const lastIdx = parts.length - 1;
+            return (
+              <Fragment key={row.id}>
+                <tr className="is-split-parent">
+                  {row.getVisibleCells().map((cell) => {
+                    const id = cell.column.id;
+                    // The parent carries context only: blank the amount (so the total
+                    // isn't shown twice) and the category (each part owns its own
+                    // category; the parent has none). The row menu stays available.
+                    const blank = id === 'amount' || id === 'category';
+                    return (
+                      <td key={cell.id} className={cellClassName(id)}>
+                        {blank ? null : flexRender(cell.column.columnDef.cell, cell.getContext())}
+                      </td>
+                    );
+                  })}
+                  <td className="table-spacer-cell" />
+                </tr>
+                {parts.map((split, i) => (
+                  <tr
+                    key={`${row.id}-part-${split['db/id'] ?? i}`}
+                    className={`split-child-row ${i === lastIdx ? 'is-last' : ''}`}
+                  >
+                    {row.getVisibleCells().map((cell) => (
+                      <td key={cell.id} className={cellClassName(cell.column.id)}>
+                        {renderSplitChildCell(cell.column.id, split, tx, drift)}
+                      </td>
+                    ))}
+                    <td className="table-spacer-cell" />
+                  </tr>
+                ))}
+              </Fragment>
+            );
+          })}
+        </tbody>
+      </table>
+    </div>
   );
 }

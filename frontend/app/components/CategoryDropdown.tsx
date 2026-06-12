@@ -1,4 +1,5 @@
-import { useState } from 'react';
+import { useLayoutEffect, useRef, useState } from 'react';
+import { createPortal } from 'react-dom';
 import { useCombobox } from 'downshift';
 import type { Category } from '../lib/api';
 import { filterCategories, getSelectedIndex, hasMatchingCategory } from '../lib/categoryFiltering';
@@ -9,6 +10,9 @@ interface CategoryDropdownProps {
   onSelect: (categoryId: number | null) => void;
   onSelectAndNext?: (categoryId: number | null) => void;
   onClose: () => void;
+  // When the table lives in a horizontal-scroll container the absolutely-positioned
+  // list would be clipped, so render it in a body portal with fixed coordinates.
+  portalMenu?: boolean;
 }
 
 interface CategoryOption {
@@ -34,8 +38,28 @@ export function CategoryDropdown({
   onSelect,
   onSelectAndNext,
   onClose,
+  portalMenu = false,
 }: CategoryDropdownProps) {
   const [items, setItems] = useState<CategoryOption[]>(() => getOptions(categories, ''));
+  const anchorRef = useRef<HTMLDivElement>(null);
+  const [menuPos, setMenuPos] = useState<{ top: number; left: number; width: number } | null>(null);
+
+  // Track the input's viewport position so the portaled list stays anchored to it
+  // (including when the table scroll container scrolls).
+  useLayoutEffect(() => {
+    if (!portalMenu) return;
+    const update = () => {
+      const rect = anchorRef.current?.getBoundingClientRect();
+      if (rect) setMenuPos({ top: rect.bottom + 4, left: rect.left, width: rect.width });
+    };
+    update();
+    window.addEventListener('scroll', update, true);
+    window.addEventListener('resize', update);
+    return () => {
+      window.removeEventListener('scroll', update, true);
+      window.removeEventListener('resize', update);
+    };
+  }, [portalMenu]);
 
   // One pass over `categories` yields both the placeholder name and the
   // highlight position (offset by 1 for the leading "Uncategorized" option).
@@ -84,8 +108,30 @@ export function CategoryDropdown({
       },
     });
 
+  // getMenuProps must be called every render and its ref attached, so the list is
+  // always rendered; when portaling it's hidden until its position is measured.
+  const menu = (
+    <ul
+      {...getMenuProps()}
+      className={`category-dropdown-list ${portalMenu ? 'category-dropdown-list-portal' : ''}`}
+      style={portalMenu ? (menuPos ? { ...menuPos } : { visibility: 'hidden' }) : undefined}
+    >
+      {items.map((item, index) => (
+        <li
+          key={item.id ?? 'uncategorized'}
+          className={`category-dropdown-item ${
+            index === highlightedIndex ? 'highlighted' : ''
+          }`}
+          {...getItemProps({ item, index })}
+        >
+          {item.name}
+        </li>
+      ))}
+    </ul>
+  );
+
   return (
-    <div className="category-dropdown">
+    <div className="category-dropdown" ref={anchorRef}>
       <label {...getLabelProps()} className="sr-only">
         Category
       </label>
@@ -94,19 +140,7 @@ export function CategoryDropdown({
         className="category-dropdown-input"
         placeholder={selectedCategoryName}
       />
-      <ul {...getMenuProps()} className="category-dropdown-list">
-        {items.map((item, index) => (
-          <li
-            key={item.id ?? 'uncategorized'}
-            className={`category-dropdown-item ${
-              index === highlightedIndex ? 'highlighted' : ''
-            }`}
-            {...getItemProps({ item, index })}
-          >
-            {item.name}
-          </li>
-        ))}
-      </ul>
+      {portalMenu ? createPortal(menu, document.body) : menu}
     </div>
   );
 }

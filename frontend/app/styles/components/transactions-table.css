@@ -1,0 +1,111 @@
+/* Transactions table: resizable columns.
+
+   Column widths are authoritative (set via a <colgroup> from TanStack's sizing
+   state) and the table's own width is their exact sum, so the table uses a fixed
+   layout and resizing a column changes only that column (no proportional reflow).
+   The table can therefore exceed the card, so it lives in a horizontal-scroll
+   container. That container forces overflow-y:auto, which would clip the in-cell
+   category dropdown — so that dropdown is portaled to <body> (see CategoryDropdown
+   portalMenu); the row-actions menu already portals. */
+.transactions-table-scroll {
+  overflow-x: auto;
+}
+
+.table.table-resizable {
+  table-layout: fixed;
+}
+
+/* Top-align cells: when a transfer row is taller (its category has a status pill
+   beneath), every other cell sits at the top rather than floating in the middle. */
+.table.table-resizable td {
+  vertical-align: top;
+}
+
+/* In fixed layout the colgroup owns the widths, so the ellipsis max-width:0 trick
+   from the shared .table rules is both unnecessary and confusing here. */
+.table.table-resizable td {
+  max-width: none;
+}
+
+.table.table-resizable .category-cell {
+  width: auto;
+  max-width: none;
+}
+
+/* The caret column hugs its button; overflow:visible + no left padding keeps the
+   caret from being clipped. */
+.table.table-resizable .actions-cell {
+  width: auto;
+  max-width: none;
+  overflow: visible;
+  padding-left: 0;
+}
+
+.table.table-resizable th {
+  position: relative;
+  user-select: none;
+}
+
+/* Trailing column with no width: in fixed layout it soaks up any width beyond the
+   real columns so the table fills the card, collapsing to 0 once they overflow. */
+.table-spacer-cell {
+  padding: 0;
+}
+
+/* Category is a protected (never-clipped) column, so its label stays on one line —
+   it clips with an ellipsis rather than wrapping, and measures correctly when
+   auto-sizing. (Other CategoryDropdown usages keep the default wrapping.) */
+.table.table-resizable .category-button {
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  word-wrap: normal;
+}
+
+.th-sortable {
+  cursor: pointer;
+}
+
+.th-static {
+  cursor: default;
+}
+
+/* Drag affordance on the right edge of each resizable header. */
+.col-resize-handle {
+  position: absolute;
+  top: 0;
+  right: 0;
+  height: 100%;
+  width: 7px;
+  cursor: col-resize;
+  user-select: none;
+  touch-action: none;
+  /* Hairline sits at the cell's right border; widen the hit area around it. */
+  background: linear-gradient(
+    to right,
+    transparent 0,
+    transparent 3px,
+    var(--color-border) 3px,
+    var(--color-border) 4px,
+    transparent 4px
+  );
+  opacity: 0;
+  transition: opacity 0.12s var(--ease-out);
+}
+
+.table.table-resizable th:hover .col-resize-handle {
+  opacity: 1;
+}
+
+.col-resize-handle:hover,
+.col-resize-handle.is-resizing {
+  opacity: 1;
+  background: linear-gradient(
+    to right,
+    transparent 0,
+    transparent 3px,
+    var(--color-primary) 3px,
+    var(--color-primary) 4px,
+    transparent 4px
+  );
+}

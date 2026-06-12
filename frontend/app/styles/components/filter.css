@@ -9,13 +9,18 @@
 
 .filter-bar-filters {
   display: flex;
+  align-items: center;
   gap: var(--spacing-sm);
   flex-wrap: wrap;
   flex: 1;
 }
 
-.filter-bar-clear-all {
+.filter-bar-actions {
   margin-left: auto;
+  display: flex;
+  align-items: center;
+  gap: var(--spacing-sm);
+  flex-wrap: wrap;
 }
 
 /* Filter Button Container */

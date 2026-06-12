@@ -1,3 +1,4 @@
+import type { ReactNode } from 'react';
 import { FilterButton } from './FilterButton';
 import type { FilterOption } from '../lib/filterOptions';
 import type { FilterValue, FilterState } from '../lib/filterState';
@@ -15,6 +16,10 @@ interface FilterBarProps {
   onToggleValue: (field: string, value: FilterValue) => void;
   onClearField: (field: string) => void;
   onClearAll: () => void;
+  // Controls rendered inline with the filter buttons (e.g. a Hide-transfers toggle).
+  inlineControls?: ReactNode;
+  // Controls aligned to the right, alongside Clear-all (e.g. Columns / Find transfers).
+  trailingControls?: ReactNode;
 }
 
 export function FilterBar({
@@ -23,6 +28,8 @@ export function FilterBar({
   onToggleValue,
   onClearField,
   onClearAll,
+  inlineControls,
+  trailingControls,
 }: FilterBarProps) {
   const hasFilters = hasActiveFilters(filterState);
 
@@ -39,16 +46,22 @@ export function FilterBar({
             onClear={() => onClearField(filter.field)}
           />
         ))}
+        {inlineControls}
       </div>
 
-      {hasFilters && (
-        <button
-          type="button"
-          className="button button-secondary filter-bar-clear-all"
-          onClick={onClearAll}
-        >
-          Clear all filters
-        </button>
+      {(hasFilters || trailingControls) && (
+        <div className="filter-bar-actions">
+          {hasFilters && (
+            <button
+              type="button"
+              className="button button-secondary filter-bar-clear-all"
+              onClick={onClearAll}
+            >
+              Clear all filters
+            </button>
+          )}
+          {trailingControls}
+        </div>
       )}
     </div>
   );
