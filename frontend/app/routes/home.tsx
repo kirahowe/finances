@@ -10,11 +10,19 @@ import { MatchTransferModal } from "../components/MatchTransferModal";
 import { ErrorDisplay } from "../components/ErrorDisplay";
 import { Pagination } from "../components/Pagination";
 import { FilterBar, type FilterConfig } from "../components/FilterBar";
+import { ColumnPicker } from "../components/ColumnPicker";
 import { MonthNavigator } from "../components/MonthNavigator";
 import { parseSortingState, serializeSortingState } from "../lib/sortingState";
+import {
+  parseColumnVisibility,
+  serializeColumnVisibility,
+  parseColumnSizing,
+  serializeColumnSizing,
+} from "../lib/columnState";
+import { HIDEABLE_COLUMNS, HIDEABLE_COLUMN_IDS } from "../lib/transactionColumns";
 import { parseMonthParam, serializeMonth, type MonthState } from "../lib/monthState";
-import type { SortingState } from "@tanstack/react-table";
-import type { PageSize } from "../lib/pagination";
+import type { SortingState, VisibilityState, ColumnSizingState } from "@tanstack/react-table";
+import { PAGE_SIZE_OPTIONS, calculateTotalPages, type PageSize } from "../lib/pagination";
 import { formatAmount } from "../lib/format";
 import {
   parseFilters,
@@ -99,8 +107,16 @@ function TransactionsSection({
 }) {
   const [searchParams, setSearchParams] = useSearchParams();
   const revalidator = useRevalidator();
-  const [page, setPage] = useState(0);
-  const [pageSize, setPageSize] = useState<PageSize>(25);
+  // page/pageSize live in the URL too, so a refresh restores the exact same view
+  // (same slice of rows) with no jitter. The URL is 1-indexed for readability.
+  const [page, setPage] = useState(() => {
+    const raw = Number(searchParams.get("page"));
+    return Number.isInteger(raw) && raw > 1 ? raw - 1 : 0;
+  });
+  const [pageSize, setPageSize] = useState<PageSize>(() => {
+    const raw = Number(searchParams.get("pageSize"));
+    return (PAGE_SIZE_OPTIONS as readonly number[]).includes(raw) ? (raw as PageSize) : 25;
+  });
   const [error, setError] = useState<string | null>(null);
   const [splitTx, setSplitTx] = useState<Transaction | null>(null);
   const [matchTx, setMatchTx] = useState<Transaction | null>(null);
@@ -123,6 +139,15 @@ function TransactionsSection({
   // Initialize filters from URL - single source of truth
   const [filters, setFilters] = useState<FilterState>(() =>
     parseFilters(searchParams.get("filters"))
+  );
+
+  // Column view state (which columns are shown, and any resized widths) also
+  // lives in the URL, consistent with sort/filters.
+  const [columnVisibility, setColumnVisibility] = useState<VisibilityState>(() =>
+    parseColumnVisibility(searchParams.get("cols"), HIDEABLE_COLUMN_IDS)
+  );
+  const [columnSizing, setColumnSizing] = useState<ColumnSizingState>(() =>
+    parseColumnSizing(searchParams.get("colw"))
   );
 
   // Extract filter options from all transactions
@@ -166,6 +191,14 @@ function TransactionsSection({
     return { count: filteredTransactions.length, inflow, outflow, net: inflow + outflow };
   }, [filteredTransactions]);
 
+  // Keep `page` in range if the visible set shrinks (filters, hide-transfers) or the
+  // URL carried a stale page beyond the available pages — otherwise the table would
+  // render an empty slice with no row to act on.
+  useEffect(() => {
+    const lastPage = Math.max(0, calculateTotalPages(filteredTransactions.length, pageSize) - 1);
+    if (page > lastPage) setPage(lastPage);
+  }, [filteredTransactions.length, pageSize, page]);
+
   // Sync URL when sorting or filters change (not month - that uses React Router navigation)
   useEffect(() => {
     const currentUrl = new URL(window.location.href);
@@ -190,8 +223,34 @@ function TransactionsSection({
       currentUrl.searchParams.delete("hideTransfers");
     }
 
+    const serializedCols = serializeColumnVisibility(columnVisibility);
+    if (serializedCols) {
+      currentUrl.searchParams.set("cols", serializedCols);
+    } else {
+      currentUrl.searchParams.delete("cols");
+    }
+
+    const serializedColw = serializeColumnSizing(columnSizing);
+    if (serializedColw) {
+      currentUrl.searchParams.set("colw", serializedColw);
+    } else {
+      currentUrl.searchParams.delete("colw");
+    }
+
+    if (pageSize !== 25) {
+      currentUrl.searchParams.set("pageSize", String(pageSize));
+    } else {
+      currentUrl.searchParams.delete("pageSize");
+    }
+
+    if (page > 0) {
+      currentUrl.searchParams.set("page", String(page + 1));
+    } else {
+      currentUrl.searchParams.delete("page");
+    }
+
     window.history.replaceState(null, "", currentUrl.toString());
-  }, [sorting, filters, hideTransfers]);
+  }, [sorting, filters, hideTransfers, columnVisibility, columnSizing, page, pageSize]);
 
   const handleUnmatchTransfer = async (transaction: Transaction) => {
     try {
@@ -221,11 +280,16 @@ function TransactionsSection({
   };
 
   const handleMonthChange = (newMonth: MonthState) => {
-    setSearchParams((prev) => {
-      const next = new URLSearchParams(prev);
-      next.set("month", serializeMonth(newMonth));
-      return next;
-    });
+    // Build from the live URL, not React Router's params: sort/filters/columns/page
+    // size are written straight to the address bar via history.replaceState (the sync
+    // effect above), so React Router's own searchParams are stale and would drop them
+    // on navigation.
+    const next = new URLSearchParams(window.location.search);
+    next.set("month", serializeMonth(newMonth));
+    // New month starts at the first page (the section remounts and re-reads `page`
+    // from the URL, so clear it rather than relying on setPage alone).
+    next.delete("page");
+    setSearchParams(next);
     setPage(0);
   };
 
@@ -298,29 +362,37 @@ function TransactionsSection({
           onToggleValue={handleToggleFilterValue}
           onClearField={handleClearFilterField}
           onClearAll={handleClearAllFilters}
+          inlineControls={
+            <label className="transfer-toggle">
+              <input
+                type="checkbox"
+                checked={hideTransfers}
+                onChange={(e) => {
+                  setHideTransfers(e.target.checked);
+                  setPage(0);
+                }}
+              />
+              <span>Hide transfers</span>
+            </label>
+          }
+          trailingControls={
+            <>
+              <ColumnPicker
+                columns={HIDEABLE_COLUMNS}
+                visibility={columnVisibility}
+                onChange={setColumnVisibility}
+                onResetWidths={() => setColumnSizing({})}
+              />
+              <button
+                type="button"
+                className="button button-secondary"
+                onClick={() => setReviewing(true)}
+              >
+                Find transfers
+              </button>
+            </>
+          }
         />
-
-        <div className="transfer-controls">
-          <label className="transfer-toggle">
-            <input
-              type="checkbox"
-              checked={hideTransfers}
-              onChange={(e) => {
-                setHideTransfers(e.target.checked);
-                setPage(0);
-              }}
-            />
-            <span>Hide transfers</span>
-          </label>
-          <div className="transfer-controls-spacer" />
-          <button
-            type="button"
-            className="button button-secondary"
-            onClick={() => setReviewing(true)}
-          >
-            Find transfers
-          </button>
-        </div>
 
         {filteredTransactions.length === 0 ? (
           <div className="empty-state">
@@ -339,6 +411,10 @@ function TransactionsSection({
               pageSize={pageSize}
               sorting={sorting}
               onSortingChange={handleSortingChange}
+              columnVisibility={columnVisibility}
+              onColumnVisibilityChange={setColumnVisibility}
+              columnSizing={columnSizing}
+              onColumnSizingChange={setColumnSizing}
               onSplit={setSplitTx}
               onMatch={setMatchTx}
               onUnmatch={handleUnmatchTransfer}
