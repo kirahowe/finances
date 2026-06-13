@@ -27,14 +27,6 @@
     (is (= "A category with sub-categories cannot become a child"
            (cat/validate-parent 10 {:db/id 10 :category/name "Food"} 20 true)))))
 
-(deftest validate-assignable-test
-  (testing "a category with no children is assignable"
-    (is (nil? (cat/validate-assignable false))))
-
-  (testing "a category with sub-categories is a header and rejected"
-    (is (= "Cannot assign a category that has sub-categories"
-           (cat/validate-assignable true)))))
-
 (deftest validate-batch-test
   (testing "valid: flat batch, no parents"
     (is (nil? (cat/validate-batch [{:tempid "a" :category/name "Salary"}

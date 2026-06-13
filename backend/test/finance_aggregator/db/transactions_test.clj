@@ -158,38 +158,6 @@
                                                        {:amount "-40.00" :category-id acct-id}])))
       (is (empty? (split-eids tx-id))))))
 
-(deftest assign-header-category-rejected-test
-  (testing "update-category! rejects assigning a category that has sub-categories"
-    (let [parent (categories/create! setup/*test-conn* {:category/name "Food"
-                                                        :category/type :expense
-                                                        :category/ident :category/food})
-          _child (categories/create! setup/*test-conn* {:category/name "Groceries"
-                                                       :category/type :expense
-                                                       :category/ident :category/groceries
-                                                       :category/parent (:db/id parent)})
-          tx-id (make-tx! "tx-header-1" {:transaction/amount -10.00M})]
-      (is (thrown-with-msg? clojure.lang.ExceptionInfo #"sub-categories"
-                            (transactions/update-category! setup/*test-conn* tx-id (:db/id parent))))
-      (is (nil? (:transaction/category
-                 (d/pull (d/db setup/*test-conn*) '[{:transaction/category [:db/id]}] tx-id)))
-          "the rejected assignment writes nothing")))
-
-  (testing "set-splits! rejects a split that references a header category"
-    (let [parent (categories/create! setup/*test-conn* {:category/name "Bills"
-                                                        :category/type :expense
-                                                        :category/ident :category/bills})
-          _child (categories/create! setup/*test-conn* {:category/name "Rent"
-                                                       :category/type :expense
-                                                       :category/ident :category/rent
-                                                       :category/parent (:db/id parent)})
-          leaf (make-category! "Misc" :category/misc)
-          tx-id (make-tx! "tx-header-2" {:transaction/amount -100.00M})]
-      (is (thrown-with-msg? clojure.lang.ExceptionInfo #"sub-categories"
-                            (transactions/set-splits! setup/*test-conn* tx-id
-                                                      [{:amount "-60.00" :category-id leaf}
-                                                       {:amount "-40.00" :category-id (:db/id parent)}])))
-      (is (empty? (split-eids tx-id)) "the rejected split write leaves no parts"))))
-
 (deftest set-splits-balance-annotation-test
   (testing "the returned transaction is annotated balanced when its parts reconcile"
     (let [a (make-category! "BA" :category/ba)

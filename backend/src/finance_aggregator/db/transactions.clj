@@ -1,7 +1,5 @@
 (ns finance-aggregator.db.transactions
   (:require [datalevin.core :as d]
-            [finance-aggregator.categories :as cat]
-            [finance-aggregator.db.categories :as db-categories]
             [finance-aggregator.db.transfers :as db-transfers]
             [finance-aggregator.splits :as splits]))
 
@@ -49,9 +47,6 @@
    Pass nil for category-id to remove the category.
    Conn is a datalevin connection (not an atom)."
   [conn tx-id category-id]
-  (when category-id
-    (when-let [err (cat/validate-assignable (db-categories/has-children? (d/db conn) category-id))]
-      (throw (ex-info err {:type :bad-request}))))
   (let [tx-data (if category-id
                   [{:db/id tx-id :transaction/category category-id}]
                   ;; To remove, use retract operation
@@ -91,11 +86,7 @@
       (when (and (seq cat-ids)
                  (not (every? (existing-category-ids db cat-ids) cat-ids)))
         (throw (ex-info "Every split must reference an existing category"
-                        {:type :bad-request})))
-      (when-let [err (some (fn [cid]
-                             (cat/validate-assignable (db-categories/has-children? db cid)))
-                           cat-ids)]
-        (throw (ex-info err {:type :bad-request}))))
+                        {:type :bad-request}))))
     ;; Re-read immediately before writing to narrow the read-modify-write window.
     ;; (Single-user app, so full serializability isn't worth a transaction fn.)
     ;; Confirm the transaction still exists and its parts still reconcile to the
