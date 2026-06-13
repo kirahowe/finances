@@ -12,14 +12,22 @@ function matchesQuery(category: Category, normalizedQuery: string): boolean {
 }
 
 /**
+ * Whether a piece of text matches the filter, using the same normalization as
+ * category filtering. A blank filter matches everything.
+ */
+export function textMatchesFilter(text: string, filter: string): boolean {
+  if (!filter.trim()) {
+    return true;
+  }
+  return normalizeForFiltering(text).includes(normalizeForFiltering(filter));
+}
+
+/**
  * Whether a single category matches the filter. A blank filter matches everything
  * (unlike hasMatchingCategory, which only cares about a non-empty query).
  */
 export function categoryMatchesFilter(category: Category, filter: string): boolean {
-  if (!filter.trim()) {
-    return true;
-  }
-  return matchesQuery(category, normalizeForFiltering(filter));
+  return textMatchesFilter(category['category/name'], filter);
 }
 
 /**

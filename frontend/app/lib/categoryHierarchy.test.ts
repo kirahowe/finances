@@ -1,14 +1,13 @@
 import { describe, it, expect } from 'vitest';
 import {
   orderCategoriesHierarchically,
-  headerCategoryIds,
-  buildCategoryDropdownRows,
-  type CategoryDropdownRow,
+  categoriesWithChildren,
+  buildCategoryDropdownModel,
+  type CategoryDropdownEntry,
 } from './categoryHierarchy';
 import type { Category } from './api';
 
-const optionNames = (rows: CategoryDropdownRow[]) =>
-  rows.flatMap((r) => (r.kind === 'option' ? [r.option.name] : []));
+const optionNames = (entries: CategoryDropdownEntry[]) => entries.map((e) => e.option.name);
 
 function cat(
   id: number,
@@ -73,52 +72,47 @@ describe('orderCategoriesHierarchically', () => {
   });
 });
 
-describe('headerCategoryIds', () => {
-  it('marks a category as a header only when a present child names it as parent', () => {
-    const cats = [
-      cat(1, 'Food'),
-      cat(2, 'Groceries', { parent: 1 }),
-      cat(3, 'Salary'),
-    ];
-    const headers = headerCategoryIds(cats);
-    expect(headers.has(1)).toBe(true);
-    expect(headers.has(3)).toBe(false);
+describe('categoriesWithChildren', () => {
+  it('marks a category as a parent only when a present child names it', () => {
+    const cats = [cat(1, 'Food'), cat(2, 'Groceries', { parent: 1 }), cat(3, 'Salary')];
+    const parents = categoriesWithChildren(cats);
+    expect(parents.has(1)).toBe(true);
+    expect(parents.has(3)).toBe(false);
   });
 
   it('ignores parent refs pointing at a missing category', () => {
-    expect(headerCategoryIds([cat(2, 'Groceries', { parent: 999 })]).size).toBe(0);
+    expect(categoriesWithChildren([cat(2, 'Groceries', { parent: 999 })]).size).toBe(0);
   });
 });
 
-describe('buildCategoryDropdownRows', () => {
+describe('buildCategoryDropdownModel', () => {
   it('leads with Uncategorized and keeps a flat list when there is no hierarchy', () => {
     const cats = [cat(1, 'Food', { sort: 0 }), cat(2, 'Salary', { sort: 1 })];
-    const { items, rows } = buildCategoryDropdownRows(cats, '');
-    expect(rows.every((r) => r.kind === 'option')).toBe(true);
-    expect(optionNames(rows)).toEqual(['Uncategorized', 'Food', 'Salary']);
-    // items and option rows stay index-aligned for Downshift navigation.
-    expect(items.map((o) => o.name)).toEqual(['Uncategorized', 'Food', 'Salary']);
-    rows.forEach((r) => {
-      if (r.kind === 'option') expect(items[r.itemIndex]).toBe(r.option);
-    });
+    const { entries } = buildCategoryDropdownModel(cats, '');
+    expect(optionNames(entries)).toEqual(['Uncategorized', 'Food', 'Salary']);
+    expect(entries.every((e) => !e.isParent)).toBe(true);
   });
 
-  it('renders parents as headers with their children indented, headers excluded from items', () => {
+  it('renders parents and children as selectable rows, parents flagged and children at depth 1', () => {
     const cats = [
       cat(1, 'Food', { sort: 0 }),
       cat(2, 'Groceries', { parent: 1, sort: 0 }),
       cat(3, 'Dining', { parent: 1, sort: 1 }),
       cat(4, 'Salary', { sort: 1 }),
     ];
-    const { items, rows } = buildCategoryDropdownRows(cats, '');
-    expect(
-      rows.map((r) => (r.kind === 'header' ? `#${r.name}` : `${r.option.name}:${r.depth}`))
-    ).toEqual(['Uncategorized:0', '#Food', 'Groceries:1', 'Dining:1', 'Salary:0']);
-    // "Food" is a header, so it is not a selectable item.
-    expect(items.map((o) => o.name)).toEqual(['Uncategorized', 'Groceries', 'Dining', 'Salary']);
+    const { entries } = buildCategoryDropdownModel(cats, '');
+    expect(entries.map((e) => `${e.option.name}:${e.depth}${e.isParent ? ':parent' : ''}`)).toEqual([
+      'Uncategorized:0',
+      'Food:0:parent',
+      'Groceries:1',
+      'Dining:1',
+      'Salary:0',
+    ]);
+    // Every category, parents included, is a selectable item.
+    expect(optionNames(entries)).toContain('Food');
   });
 
-  it('keeps parent context when filtering: header shown only if a child matches', () => {
+  it('keeps parent context when filtering: a matching child still shows under its parent', () => {
     const cats = [
       cat(1, 'Food', { sort: 0 }),
       cat(2, 'Groceries', { parent: 1, sort: 0 }),
@@ -126,15 +120,26 @@ describe('buildCategoryDropdownRows', () => {
       cat(4, 'Transport', { sort: 1 }),
       cat(5, 'Gas', { parent: 4, sort: 0 }),
     ];
-    const { rows } = buildCategoryDropdownRows(cats, 'gro');
-    expect(
-      rows.map((r) => (r.kind === 'header' ? `#${r.name}` : r.option.name))
-    ).toEqual(['Uncategorized', '#Food', 'Groceries']);
+    const { entries, firstMatchIndex } = buildCategoryDropdownModel(cats, 'gro');
+    expect(optionNames(entries)).toEqual(['Uncategorized', 'Food', 'Groceries']);
+    // The context parent (Food) does not match, so the highlight lands on the
+    // actual match (Groceries at index 2), not the parent.
+    expect(firstMatchIndex).toBe(2);
+  });
+
+  it('shows a parent on its own when the parent name matches but no child does', () => {
+    const cats = [
+      cat(1, 'Food', { sort: 0 }),
+      cat(2, 'Groceries', { parent: 1, sort: 0 }),
+    ];
+    const { entries, firstMatchIndex } = buildCategoryDropdownModel(cats, 'food');
+    expect(optionNames(entries)).toEqual(['Uncategorized', 'Food']);
+    expect(firstMatchIndex).toBe(1);
   });
 
   it('drops a childless top-level category that does not match the filter', () => {
     const cats = [cat(1, 'Food', { sort: 0 }), cat(2, 'Salary', { sort: 1 })];
-    expect(optionNames(buildCategoryDropdownRows(cats, 'sal').rows)).toEqual([
+    expect(optionNames(buildCategoryDropdownModel(cats, 'sal').entries)).toEqual([
       'Uncategorized',
       'Salary',
     ]);

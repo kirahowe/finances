@@ -1,5 +1,5 @@
 import type { Category } from './api';
-import { categoryMatchesFilter } from './categoryFiltering';
+import { categoryMatchesFilter, textMatchesFilter } from './categoryFiltering';
 
 export interface CategoryNode {
   category: Category;
@@ -14,21 +14,24 @@ export interface DropdownOption {
 }
 
 /**
- * A row in the grouped category dropdown. Header rows are non-selectable group
- * labels (a parent category that has children); option rows are selectable and
- * carry their index into the parallel `items` list that drives keyboard nav.
+ * One selectable row in the grouped category dropdown. Parents and children are
+ * both assignable; `depth` drives indentation and `isParent` drives the
+ * group-label emphasis.
  */
-export type CategoryDropdownRow =
-  | { kind: 'header'; name: string; key: string }
-  | { kind: 'option'; option: DropdownOption; itemIndex: number; depth: number };
+export interface CategoryDropdownEntry {
+  option: DropdownOption;
+  /** 0 = top-level, 1 = child. */
+  depth: number;
+  /** Whether this category has children (rendered emphasized as a group label). */
+  isParent: boolean;
+}
 
 export interface CategoryDropdownModel {
-  /** Selectable options in keyboard-navigation order; items[0] is "Uncategorized". */
-  items: DropdownOption[];
-  /** Render model interleaving group headers with selectable option rows. */
-  rows: CategoryDropdownRow[];
-  /** Ids of the categories rendered as non-selectable group headers. */
-  headerIds: Set<number>;
+  /** All selectable rows in render/navigation order; entries[0] is "Uncategorized". */
+  entries: CategoryDropdownEntry[];
+  /** Index in `entries` to highlight after a filter change: the first row whose own
+   *  name matches the filter, or 0 (Uncategorized) when nothing matches. */
+  firstMatchIndex: number;
 }
 
 const UNCATEGORIZED: DropdownOption = { id: null, name: 'Uncategorized' };
@@ -80,77 +83,83 @@ export function orderCategoriesHierarchically(categories: Category[]): CategoryN
 }
 
 /**
- * The ids of categories that are group headers: a category is a header exactly
- * when at least one present category names it as parent. A parent reference to a
- * missing category is ignored (that child is treated as top-level).
+ * The ids of categories that have at least one child present in the list — i.e.
+ * the parent categories. A parent reference to a missing category is ignored.
  */
-export function headerCategoryIds(categories: Category[]): Set<number> {
+export function categoriesWithChildren(categories: Category[]): Set<number> {
   const present = new Set(categories.map((c) => c['db/id']));
-  const headers = new Set<number>();
+  const parents = new Set<number>();
   for (const c of categories) {
     const pid = parentIdOf(c);
-    if (pid !== null && present.has(pid)) headers.add(pid);
+    if (pid !== null && present.has(pid)) parents.add(pid);
   }
-  return headers;
+  return parents;
 }
+
+const firstDirectMatchIndex = (entries: CategoryDropdownEntry[], filter: string): number => {
+  if (!filter.trim()) return 0;
+  const idx = entries.findIndex(
+    (e, i) => i > 0 && e.option.id !== null && textMatchesFilter(e.option.name, filter)
+  );
+  return idx >= 0 ? idx : 0;
+};
 
 /**
  * Builds the grouped category dropdown model from the flat category list and the
- * current filter text. Top-level categories that have children become
- * non-selectable headers with their children indented beneath; childless
- * top-level categories and children are selectable. "Uncategorized" always leads
- * the selectable items so the category can be cleared.
+ * current filter text. Every category is selectable — parents in their own right,
+ * children indented beneath them — and "Uncategorized" always leads so the
+ * category can be cleared.
  *
- * Filtering keeps parent context: an option is kept when its own name matches,
- * and a header is emitted only when at least one of its children is kept.
+ * Filtering keeps parent context: a parent is shown when its own name matches OR
+ * any of its children match (so a matching child is never orphaned from its
+ * group); children are shown only when they match.
  */
-export function buildCategoryDropdownRows(
+export function buildCategoryDropdownModel(
   categories: Category[],
   filter: string
 ): CategoryDropdownModel {
   const nodes = orderCategoriesHierarchically(categories);
-  const headers = headerCategoryIds(categories);
+  const parents = categoriesWithChildren(categories);
 
-  const items: DropdownOption[] = [UNCATEGORIZED];
-  const rows: CategoryDropdownRow[] = [
-    { kind: 'option', option: UNCATEGORIZED, itemIndex: 0, depth: 0 },
+  const entries: CategoryDropdownEntry[] = [
+    { option: UNCATEGORIZED, depth: 0, isParent: false },
   ];
 
-  const pushOption = (category: Category, depth: number) => {
-    const option: DropdownOption = {
-      id: category['db/id'],
-      name: category['category/name'],
-    };
-    rows.push({ kind: 'option', option, itemIndex: items.length, depth });
-    items.push(option);
+  const pushEntry = (category: Category, depth: number, isParent: boolean) => {
+    entries.push({
+      option: { id: category['db/id'], name: category['category/name'] },
+      depth,
+      isParent,
+    });
   };
 
-  let pendingHeader: Category | null = null;
-  let headerEmitted = false;
+  let pendingParent: Category | null = null;
+  let parentShown = false;
 
   for (const { category, depth } of nodes) {
-    if (depth === 0 && headers.has(category['db/id'])) {
-      // A group header: defer rendering it until a child survives the filter.
-      pendingHeader = category;
-      headerEmitted = false;
+    if (depth === 0 && parents.has(category['db/id'])) {
+      // A parent: show it now if it matches, else defer until a child survives
+      // the filter so the match keeps its group context.
+      pendingParent = category;
+      parentShown = false;
+      if (categoryMatchesFilter(category, filter)) {
+        pushEntry(category, 0, true);
+        parentShown = true;
+      }
     } else if (depth === 1) {
       if (!categoryMatchesFilter(category, filter)) continue;
-      if (pendingHeader && !headerEmitted) {
-        rows.push({
-          kind: 'header',
-          name: pendingHeader['category/name'],
-          key: `header-${pendingHeader['db/id']}`,
-        });
-        headerEmitted = true;
+      if (pendingParent && !parentShown) {
+        pushEntry(pendingParent, 0, true);
+        parentShown = true;
       }
-      pushOption(category, 1);
+      pushEntry(category, 1, false);
     } else {
       // A childless top-level category: a selectable leaf, ends any open group.
-      pendingHeader = null;
-      headerEmitted = false;
-      if (categoryMatchesFilter(category, filter)) pushOption(category, 0);
+      pendingParent = null;
+      parentShown = false;
+      if (categoryMatchesFilter(category, filter)) pushEntry(category, 0, false);
     }
   }
 
-  return { items, rows, headerIds: headers };
+  return { entries, firstMatchIndex: firstDirectMatchIndex(entries, filter) };
 }

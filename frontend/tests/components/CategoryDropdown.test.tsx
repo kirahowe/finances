@@ -316,7 +316,7 @@ describe('CategoryDropdown grouping', () => {
     { 'db/id': 4, 'category/name': 'Salary', 'category/type': 'income', 'category/sort-order': 1 },
   ];
 
-  it('renders a parent with children as a non-selectable group header', () => {
+  it('renders a parent as a selectable, emphasized group row', () => {
     render(
       <CategoryDropdown
         categories={hierarchical}
@@ -327,12 +327,13 @@ describe('CategoryDropdown grouping', () => {
     );
 
     const optionLabels = screen.getAllByRole('option').map((el) => el.textContent);
+    // Parents are selectable in their own right.
+    expect(optionLabels).toContain('Food');
     expect(optionLabels).toContain('Groceries');
-    expect(optionLabels).not.toContain('Food');
-    expect(screen.getByText('Food').closest('li')).toHaveClass('category-dropdown-group-header');
+    expect(screen.getByText('Food').closest('li')).toHaveClass('category-dropdown-item--parent');
   });
 
-  it('indents child categories beneath their parent header', () => {
+  it('indents child categories beneath their parent', () => {
     render(
       <CategoryDropdown
         categories={hierarchical}
@@ -345,6 +346,24 @@ describe('CategoryDropdown grouping', () => {
     expect(screen.getByText('Groceries').closest('li')).toHaveClass('category-dropdown-item--child');
     // A childless top-level category stays a normal (non-indented) option.
     expect(screen.getByText('Salary').closest('li')).not.toHaveClass('category-dropdown-item--child');
+  });
+
+  it('selects a parent category on click', async () => {
+    const user = userEvent.setup();
+    const onSelect = vi.fn();
+
+    render(
+      <CategoryDropdown
+        categories={hierarchical}
+        selectedCategoryId={null}
+        onSelect={onSelect}
+        onClose={vi.fn()}
+      />
+    );
+
+    await user.click(screen.getByText('Food'));
+
+    expect(onSelect).toHaveBeenCalledWith(1);
   });
 
   it('selects a child category on click', async () => {

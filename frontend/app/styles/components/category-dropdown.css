@@ -68,20 +68,14 @@
   font-size: 0.875rem;
 }
 
-/* Children sit under their parent's group header, indented to read as nested. */
-.category-dropdown-item--child {
-  padding-left: 1.4rem;
+/* A parent category: selectable in its own right, emphasized as a group label. */
+.category-dropdown-item--parent {
+  font-weight: 600;
 }
 
-/* A non-selectable parent label: groups its children, no hover/pointer affordance. */
-.category-dropdown-group-header {
-  padding: 0.5rem 0.6rem 0.2rem;
-  font-size: 0.7rem;
-  font-weight: 600;
-  text-transform: uppercase;
-  letter-spacing: 0.05em;
-  color: var(--color-text-muted);
-  cursor: default;
+/* Children sit under their parent, indented to read as nested. */
+.category-dropdown-item--child {
+  padding-left: 1.4rem;
 }
 
 .category-dropdown-item:hover {

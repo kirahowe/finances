@@ -2,8 +2,7 @@ import { useLayoutEffect, useMemo, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 import { useCombobox } from 'downshift';
 import type { Category } from '../lib/api';
-import { hasMatchingCategory } from '../lib/categoryFiltering';
-import { buildCategoryDropdownRows, type DropdownOption } from '../lib/categoryHierarchy';
+import { buildCategoryDropdownModel, type DropdownOption } from '../lib/categoryHierarchy';
 
 interface CategoryDropdownProps {
   categories: Category[];
@@ -28,18 +27,14 @@ export function CategoryDropdown({
   const anchorRef = useRef<HTMLDivElement>(null);
   const [menuPos, setMenuPos] = useState<{ top: number; left: number; width: number } | null>(null);
 
-  // The grouped render model: `items` drives Downshift's keyboard navigation
-  // (selectable only, so headers are skipped); `rows` interleaves the headers.
-  const { items, rows, headerIds } = useMemo(
-    () => buildCategoryDropdownRows(categories, filter),
+  // The grouped render model: every entry is selectable (parents and children
+  // alike); `entries` is the render order and `items` the parallel option list
+  // Downshift navigates by index.
+  const { entries } = useMemo(
+    () => buildCategoryDropdownModel(categories, filter),
     [categories, filter]
   );
-  // Header categories aren't selectable, so the reducer's "has match" check
-  // reasons only over the selectable categories.
-  const selectableCategories = useMemo(
-    () => categories.filter((c) => !headerIds.has(c['db/id'])),
-    [categories, headerIds]
-  );
+  const items = useMemo(() => entries.map((e) => e.option), [entries]);
 
   // Track the input's viewport position so the portaled list stays anchored to it
   // (including when the table scroll container scrolls).
@@ -59,8 +54,8 @@ export function CategoryDropdown({
   }, [portalMenu]);
 
   // Placeholder shows the assigned category; the initial highlight points at its
-  // position in the selectable `items` list (-1 when none/uncategorized, so the
-  // first ArrowDown lands on "Uncategorized" rather than skipping past it).
+  // position in `items` (-1 when none/uncategorized, so the first ArrowDown lands
+  // on "Uncategorized" rather than skipping past it).
   const selectedCategoryName =
     categories.find((c) => c['db/id'] === selectedCategoryId)?.['category/name'] ?? 'Uncategorized';
   const initialHighlightedIndex =
@@ -74,14 +69,13 @@ export function CategoryDropdown({
       initialHighlightedIndex,
       itemToString: () => '',
       // Move the highlight in the reducer (synchronously, same render as the
-      // keystroke) so it never flickers through "Uncategorized" first. While
-      // filtering, highlight the first matching category — index 1, after the
-      // leading "Uncategorized" — so Enter picks the match, not Uncategorized.
-      // Only an existence check here; onInputValueChange rebuilds the full list.
+      // keystroke) so it never flickers through "Uncategorized" first. Highlight
+      // the first row that directly matches — which, once parents can appear as
+      // non-matching context, isn't always index 1 — so Enter picks the match.
       stateReducer: (_state, { type, changes }) => {
         if (type === useCombobox.stateChangeTypes.InputChange) {
-          const hasMatch = hasMatchingCategory(selectableCategories, changes.inputValue ?? '');
-          return { ...changes, highlightedIndex: hasMatch ? 1 : 0 };
+          const { firstMatchIndex } = buildCategoryDropdownModel(categories, changes.inputValue ?? '');
+          return { ...changes, highlightedIndex: firstMatchIndex };
         }
         return changes;
       },
@@ -118,23 +112,19 @@ export function CategoryDropdown({
       // state is a CSS class (per the project's no-inline-styles rule).
       style={portalMenu && menuPos ? menuPos : undefined}
     >
-      {rows.map((row) =>
-        row.kind === 'header' ? (
-          <li key={row.key} className="category-dropdown-group-header" role="presentation">
-            {row.name}
-          </li>
-        ) : (
-          <li
-            key={row.option.id ?? 'uncategorized'}
-            className={`category-dropdown-item ${
-              row.depth > 0 ? 'category-dropdown-item--child' : ''
-            } ${row.itemIndex === highlightedIndex ? 'highlighted' : ''}`}
-            {...getItemProps({ item: row.option, index: row.itemIndex })}
-          >
-            {row.option.name}
-          </li>
-        )
-      )}
+      {entries.map((entry, index) => (
+        <li
+          key={entry.option.id ?? 'uncategorized'}
+          className={`category-dropdown-item ${
+            entry.depth > 0 ? 'category-dropdown-item--child' : ''
+          } ${entry.isParent ? 'category-dropdown-item--parent' : ''} ${
+            index === highlightedIndex ? 'highlighted' : ''
+          }`}
+          {...getItemProps({ item: entry.option, index })}
+        >
+          {entry.option.name}
+        </li>
+      ))}
     </ul>
   );
 
