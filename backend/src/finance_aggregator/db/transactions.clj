@@ -53,26 +53,29 @@
   [tx]
   (-> tx with-split-balance with-reviewed db-transfers/with-transfer-hidden))
 
+(defn- set-reviewed-datom!
+  "Assert (true) or clear (false) the boolean reviewed flag `attr` on entity `eid`.
+   Clearing retracts the datom so its absence nil-puns to not-reviewed."
+  [conn eid attr reviewed?]
+  (d/transact! conn (if reviewed?
+                      [{:db/id eid attr true}]
+                      [[:db/retract eid attr]])))
+
 (defn set-reviewed!
   "Mark a transaction reviewed (true) or clear it (false). Stored as an additive
-   overlay on the imported transaction; clearing retracts the datom so the absence
-   nil-puns to not-reviewed. Conn is a datalevin connection (not an atom)."
+   overlay on the imported transaction. Conn is a datalevin connection (not an atom)."
   [conn tx-id reviewed?]
-  (d/transact! conn (if reviewed?
-                      [{:db/id tx-id :transaction/reviewed true}]
-                      [[:db/retract tx-id :transaction/reviewed]]))
+  (set-reviewed-datom! conn tx-id :transaction/reviewed reviewed?)
   (with-derived-fields (d/pull (d/db conn) transaction-pull-pattern tx-id)))
 
 (defn set-split-reviewed!
-  "Mark a single split part reviewed (true) or clear it (false). Splits are reviewed
-   independently of the parent and their siblings. Returns the parent transaction
-   (tx-id) pulled with its parts and the derived API fields, so the caller can refresh
-   the whole row — including the parent's now-recomputed effective reviewed roll-up.
+  "Mark a single split part reviewed (true) or clear it (false), independently of the
+   parent and its siblings. Returns the parent transaction (tx-id) pulled with its
+   parts and the derived API fields, so the caller can refresh the whole row —
+   including the parent's now-recomputed effective reviewed roll-up.
    Conn is a datalevin connection (not an atom)."
   [conn tx-id split-id reviewed?]
-  (d/transact! conn (if reviewed?
-                      [{:db/id split-id :split/reviewed true}]
-                      [[:db/retract split-id :split/reviewed]]))
+  (set-reviewed-datom! conn split-id :split/reviewed reviewed?)
   (with-derived-fields (d/pull (d/db conn) transaction-pull-pattern tx-id)))
 
 (defn update-category!
@@ -144,6 +147,10 @@
                                             :split/category (:category-id s)
                                             :split/order i}
                                      (:memo s) (assoc :split/memo (:memo s))))
-                                 splits))}])]
-        (d/transact! conn (into retract-ops (or assert-ops [])))
+                                 splits))}])
+            ;; The parent has no reviewed checkbox of its own once split (each part
+            ;; owns its review), so drop any stored parent flag — otherwise it would
+            ;; resurface if the splits are later cleared.
+            reviewed-retract [[:db/retract tx-id :transaction/reviewed]]]
+        (d/transact! conn (into reviewed-retract (into retract-ops (or assert-ops []))))
         (with-derived-fields (d/pull (d/db conn) transaction-pull-pattern tx-id))))))

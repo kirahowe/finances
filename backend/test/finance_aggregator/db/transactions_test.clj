@@ -220,7 +220,24 @@
     (let [tx-id (make-tx! "tx-rev-2" {:transaction/amount -100.00M})
           tx (transactions/with-derived-fields
               (d/pull (d/db setup/*test-conn*) transactions/transaction-pull-pattern tx-id))]
-      (is (not (contains? tx :transaction/reviewed))))))
+      (is (not (contains? tx :transaction/reviewed)))))
+
+  (testing "splitting clears the parent's own reviewed flag so it can't resurface on un-split"
+    (let [a (make-category! "RE" :category/re)
+          b (make-category! "RF" :category/rf)
+          tx-id (make-tx! "tx-rev-5" {:transaction/amount -100.00M})]
+      (transactions/set-reviewed! setup/*test-conn* tx-id true)
+      (transactions/set-splits! setup/*test-conn* tx-id
+                                [{:amount "-60.00" :category-id a}
+                                 {:amount "-40.00" :category-id b}])
+      ;; The stored parent flag is gone the moment it's split...
+      (is (nil? (:transaction/reviewed
+                 (d/pull (d/db setup/*test-conn*) '[:transaction/reviewed] tx-id))))
+      ;; ...so after clearing the splits the transaction is not reviewed again.
+      (transactions/set-splits! setup/*test-conn* tx-id [])
+      (is (not (:transaction/reviewed
+                (transactions/with-derived-fields
+                 (d/pull (d/db setup/*test-conn*) transactions/transaction-pull-pattern tx-id))))))))
 
 (deftest set-split-reviewed-test
   (testing "marks one split reviewed independently and returns the refreshed parent"

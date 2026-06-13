@@ -76,19 +76,6 @@ export async function action({ request }: Route.ActionArgs) {
     );
   }
 
-  if (intent === "toggle-transaction-reviewed") {
-    const transactionId = parseInt(formData.get("transactionId") as string);
-    const reviewed = formData.get("reviewed") === "true";
-    await api.setTransactionReviewed(transactionId, reviewed);
-  }
-
-  if (intent === "toggle-split-reviewed") {
-    const transactionId = parseInt(formData.get("transactionId") as string);
-    const splitId = parseInt(formData.get("splitId") as string);
-    const reviewed = formData.get("reviewed") === "true";
-    await api.setSplitReviewed(transactionId, splitId, reviewed);
-  }
-
   return { success: true };
 }
 

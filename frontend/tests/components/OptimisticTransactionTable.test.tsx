@@ -3,7 +3,7 @@ import { render, screen } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { createMemoryRouter, RouterProvider } from 'react-router';
 import { OptimisticTransactionTable } from '../../app/components/OptimisticTransactionTable';
-import type { Transaction, Category } from '../../app/lib/api';
+import { api, type Transaction, type Category } from '../../app/lib/api';
 import { formatAmount } from '../../app/lib/format';
 
 describe('OptimisticTransactionTable', () => {
@@ -102,28 +102,6 @@ describe('OptimisticTransactionTable', () => {
       }
     );
     return render(<RouterProvider router={router} />);
-  };
-
-  // Like renderWithRouter, but captures every fetcher submission's form fields so a
-  // test can assert what the reviewed toggle posted.
-  const renderCapturingSubmissions = (component: React.ReactElement) => {
-    const submissions: Array<Record<string, string>> = [];
-    const router = createMemoryRouter(
-      [
-        {
-          path: '/',
-          element: component,
-          action: async ({ request }) => {
-            const entries = Object.fromEntries(await request.formData());
-            submissions.push(entries as Record<string, string>);
-            return { success: true };
-          },
-        },
-      ],
-      { initialEntries: ['/'] }
-    );
-    render(<RouterProvider router={router} />);
-    return submissions;
   };
 
   it('renders transaction table with categories', async () => {
@@ -403,10 +381,11 @@ describe('OptimisticTransactionTable', () => {
     expect(boxes[1].checked).toBe(false);
   });
 
-  it('posts a reviewed toggle for the clicked row', async () => {
+  it('persists a reviewed toggle for the clicked row', async () => {
     const user = userEvent.setup();
+    const spy = vi.spyOn(api, 'setTransactionReviewed').mockResolvedValue({} as Transaction);
     const rows: Transaction[] = [{ ...mockTransactions[0], 'db/id': 7 }];
-    const submissions = renderCapturingSubmissions(
+    renderWithRouter(
       <OptimisticTransactionTable
         transactions={rows}
         categories={mockCategories}
@@ -415,13 +394,13 @@ describe('OptimisticTransactionTable', () => {
       />
     );
 
-    await user.click(screen.getByRole('checkbox'));
+    const box = screen.getByRole('checkbox') as HTMLInputElement;
+    await user.click(box);
 
-    expect(submissions).toContainEqual({
-      intent: 'toggle-transaction-reviewed',
-      transactionId: '7',
-      reviewed: 'true',
-    });
+    expect(spy).toHaveBeenCalledWith(7, true);
+    // Optimistic: the checkbox shows checked immediately, before any revalidation.
+    expect(box.checked).toBe(true);
+    spy.mockRestore();
   });
 
   it('reviews splits per part with no checkbox on the split parent', () => {
@@ -455,9 +434,10 @@ describe('OptimisticTransactionTable', () => {
     expect(boxes[1].checked).toBe(false);
   });
 
-  it('posts a split reviewed toggle keyed on the split id', async () => {
+  it('persists a split reviewed toggle keyed on the split id', async () => {
     const user = userEvent.setup();
-    const submissions = renderCapturingSubmissions(
+    const spy = vi.spyOn(api, 'setSplitReviewed').mockResolvedValue({} as Transaction);
+    renderWithRouter(
       <OptimisticTransactionTable
         transactions={mockTransactionWithSplits}
         categories={mockCategories}
@@ -470,11 +450,8 @@ describe('OptimisticTransactionTable', () => {
     const boxes = screen.getAllByRole('checkbox');
     await user.click(boxes[0]);
 
-    expect(submissions).toContainEqual({
-      intent: 'toggle-split-reviewed',
-      transactionId: '5',
-      splitId: '51',
-      reviewed: 'true',
-    });
+    // Parent transaction db/id 5, first split db/id 51.
+    expect(spy).toHaveBeenCalledWith(5, 51, true);
+    spy.mockRestore();
   });
 });

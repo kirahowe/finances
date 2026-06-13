@@ -10,8 +10,8 @@ import {
   type ColumnSizingState,
   type OnChangeFn,
 } from '@tanstack/react-table';
-import { useFetcher } from 'react-router';
-import type { Transaction, Category, Split } from '../lib/api';
+import { useFetcher, useRevalidator } from 'react-router';
+import { api, type Transaction, type Category, type Split } from '../lib/api';
 import { formatAmount, formatDate } from '../lib/format';
 import { sortSplits } from '../lib/splitMath';
 import { columnDefSizing } from '../lib/transactionColumns';
@@ -80,9 +80,25 @@ export function OptimisticTransactionTable({
 }: OptimisticTransactionTableProps) {
   const [editingTransactionId, setEditingTransactionId] = useState<number | null>(null);
   const fetcher = useFetcher();
-  // A separate fetcher for reviewed toggles so its in-flight formData (used for the
-  // optimistic checkbox state) never collides with the category fetcher's.
-  const reviewedFetcher = useFetcher();
+  const revalidator = useRevalidator();
+
+  // Optimistic reviewed overrides, keyed `tx:<id>` / `split:<id>`. Each toggle fires
+  // its own independent request (so rapidly checking many rows never makes the
+  // requests abort or clobber each other — a single shared fetcher would), shows the
+  // new value immediately, then revalidates. Fresh loader data clears the overrides
+  // since the server value is then authoritative.
+  const [optimisticReviewed, setOptimisticReviewed] = useState<Record<string, boolean>>({});
+  useEffect(() => {
+    setOptimisticReviewed({});
+  }, [transactions]);
+
+  const reviewedChecked = (key: string, serverValue: boolean): boolean =>
+    key in optimisticReviewed ? optimisticReviewed[key] : serverValue;
+
+  const toggleReviewed = (key: string, next: boolean, persist: () => Promise<unknown>) => {
+    setOptimisticReviewed((prev) => ({ ...prev, [key]: next }));
+    persist().finally(() => revalidator.revalidate());
+  };
   // Measured content-fit widths (stretched to fill), used as each column's default
   // size. A user resize (columnSizing) overrides per-column. Not persisted — it's
   // derived from the data + container width on each load.
@@ -194,45 +210,6 @@ export function OptimisticTransactionTable({
     setEditingTransactionId(null);
   };
 
-  // Optimistic reviewed state for a transaction row: while a toggle for this row is
-  // in flight, reflect the pending value from the fetcher's formData; otherwise read
-  // the server's effective flag (for a split row that's the all-parts-reviewed roll-up).
-  const isReviewed = (transaction: Transaction): boolean => {
-    const pending =
-      reviewedFetcher.state !== 'idle' &&
-      reviewedFetcher.formData?.get('intent') === 'toggle-transaction-reviewed' &&
-      reviewedFetcher.formData?.get('transactionId') === transaction['db/id'].toString();
-    if (pending) return reviewedFetcher.formData?.get('reviewed') === 'true';
-    return transaction['transaction/reviewed'] === true;
-  };
-
-  // Optimistic reviewed state for a single split, keyed on the split id.
-  const isSplitReviewed = (split: Split): boolean => {
-    const pending =
-      reviewedFetcher.state !== 'idle' &&
-      reviewedFetcher.formData?.get('intent') === 'toggle-split-reviewed' &&
-      reviewedFetcher.formData?.get('splitId') === split['db/id'].toString();
-    if (pending) return reviewedFetcher.formData?.get('reviewed') === 'true';
-    return split['split/reviewed'] === true;
-  };
-
-  const handleReviewedToggle = (transactionId: number, next: boolean) => {
-    const formData = new FormData();
-    formData.set('intent', 'toggle-transaction-reviewed');
-    formData.set('transactionId', transactionId.toString());
-    formData.set('reviewed', String(next));
-    reviewedFetcher.submit(formData, { method: 'post' });
-  };
-
-  const handleSplitReviewedToggle = (transactionId: number, splitId: number, next: boolean) => {
-    const formData = new FormData();
-    formData.set('intent', 'toggle-split-reviewed');
-    formData.set('transactionId', transactionId.toString());
-    formData.set('splitId', splitId.toString());
-    formData.set('reviewed', String(next));
-    reviewedFetcher.submit(formData, { method: 'post' });
-  };
-
   // One cell of a split part's (child) row. Only the amount and category are
   // filled (with a branch marker + an Edit action); the rest is blank because the
   // parent row already carries the date/account/payee context.
@@ -262,13 +239,17 @@ export function OptimisticTransactionTable({
           </div>
         );
       case 'reviewed': {
-        const checked = isSplitReviewed(split);
+        const key = `split:${split['db/id']}`;
+        const checked = reviewedChecked(key, split['split/reviewed'] === true);
         return (
           <input
             type="checkbox"
             className="reviewed-checkbox"
             checked={checked}
-            onChange={(e) => handleSplitReviewedToggle(tx['db/id'], split['db/id'], e.target.checked)}
+            onChange={(e) => {
+              const next = e.target.checked;
+              toggleReviewed(key, next, () => api.setSplitReviewed(tx['db/id'], split['db/id'], next));
+            }}
             aria-label={checked ? 'Mark split as not reviewed' : 'Mark split as reviewed'}
           />
         );
@@ -371,13 +352,17 @@ export function OptimisticTransactionTable({
       ...columnDefSizing('reviewed'),
       cell: (info) => {
         const transaction = info.row.original;
-        const checked = isReviewed(transaction);
+        const key = `tx:${transaction['db/id']}`;
+        const checked = reviewedChecked(key, transaction['transaction/reviewed'] === true);
         return (
           <input
             type="checkbox"
             className="reviewed-checkbox"
             checked={checked}
-            onChange={(e) => handleReviewedToggle(transaction['db/id'], e.target.checked)}
+            onChange={(e) => {
+              const next = e.target.checked;
+              toggleReviewed(key, next, () => api.setTransactionReviewed(transaction['db/id'], next));
+            }}
             aria-label={checked ? 'Mark as not reviewed' : 'Mark as reviewed'}
           />
         );
