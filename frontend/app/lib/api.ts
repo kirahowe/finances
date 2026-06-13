@@ -97,7 +97,11 @@ const TransactionSchema = z.object({
   'db/id': z.number(),
   'transaction/amount': z.number(),
   'transaction/payee': z.string(),
+  // Imported description (never mutated) + the user's override. The table displays
+  // `effective-description`: the override when set, else the import (server-computed).
   'transaction/description': z.string().nullable().optional(),
+  'transaction/user-description': z.string().nullable().optional(),
+  'transaction/effective-description': z.string().nullable().optional(),
   'transaction/posted-date': z.string(),
   'transaction/category': CategoryRefSchema.nullable().optional(),
   'transaction/account': AccountRefSchema.nullable().optional(),
@@ -484,6 +488,39 @@ export const api = {
       body: JSON.stringify({ categoryId }),
     });
     const json = await response.json();
+    const result = ApiResponseSchema(TransactionSchema).parse(json);
+    return result.data;
+  },
+
+  // Set (or clear) a transaction's user description — an additive override over the
+  // imported description, which is never mutated. An empty string clears it, reverting
+  // to the import. Returns the refreshed transaction (with effective-description).
+  async setTransactionDescription(transactionId: number, description: string): Promise<Transaction> {
+    const response = await fetch(routes.transactions.setDescription(transactionId), {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ description }),
+    });
+    const json = await response.json();
+    if (!response.ok || !json.success) {
+      throw new Error(json.error || `HTTP ${response.status}: ${response.statusText}`);
+    }
+    const result = ApiResponseSchema(TransactionSchema).parse(json);
+    return result.data;
+  },
+
+  // Set (or clear) one split's memo (its description) independently of the parent and
+  // siblings. An empty string clears it. Returns the refreshed parent transaction.
+  async setSplitMemo(transactionId: number, splitId: number, memo: string): Promise<Transaction> {
+    const response = await fetch(routes.transactions.setSplitMemo(transactionId, splitId), {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ memo }),
+    });
+    const json = await response.json();
+    if (!response.ok || !json.success) {
+      throw new Error(json.error || `HTTP ${response.status}: ${response.statusText}`);
+    }
     const result = ApiResponseSchema(TransactionSchema).parse(json);
     return result.data;
   },

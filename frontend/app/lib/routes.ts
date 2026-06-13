@@ -96,8 +96,12 @@ export const routes = {
       buildUrlWithParams(['api', 'transactions'], params),
     updateCategory: (transactionId: number) =>
       buildUrl('api', 'transactions', transactionId, 'category'),
+    setDescription: (transactionId: number) =>
+      buildUrl('api', 'transactions', transactionId, 'description'),
     setSplits: (transactionId: number) =>
       buildUrl('api', 'transactions', transactionId, 'splits'),
+    setSplitMemo: (transactionId: number, splitId: number) =>
+      buildUrl('api', 'transactions', transactionId, 'splits', splitId, 'memo'),
     setReviewed: (transactionId: number) =>
       buildUrl('api', 'transactions', transactionId, 'reviewed'),
     setSplitReviewed: (transactionId: number, splitId: number) =>
