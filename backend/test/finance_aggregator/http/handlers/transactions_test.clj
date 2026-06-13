@@ -16,12 +16,19 @@
   (:db/id (categories/create! setup/*test-conn*
                               {:category/name name :category/type :expense :category/ident ident})))
 
-(defn- make-tx! [external-id amount]
-  (d/transact! setup/*test-conn* [{:transaction/external-id external-id
-                                   :transaction/amount amount
-                                   :transaction/payee "Costco"
-                                   :transaction/posted-date (Date.)}])
-  (:db/id (d/pull (d/db setup/*test-conn*) '[:db/id] [:transaction/external-id external-id])))
+(defn- make-tx!
+  ([external-id amount] (make-tx! external-id amount nil))
+  ([external-id amount description]
+   (d/transact! setup/*test-conn* [(cond-> {:transaction/external-id external-id
+                                            :transaction/amount amount
+                                            :transaction/payee "Costco"
+                                            :transaction/posted-date (Date.)}
+                                     description (assoc :transaction/description description))])
+   (:db/id (d/pull (d/db setup/*test-conn*) '[:db/id] [:transaction/external-id external-id]))))
+
+(defn- call-description [tx-id description]
+  ((handlers/set-transaction-description-handler {:db-conn setup/*test-conn*})
+   {:path-params {:id (str tx-id)} :body-params {:description description}}))
 
 (defn- call-splits [tx-id splits]
   ((handlers/set-transaction-splits-handler {:db-conn setup/*test-conn*})
@@ -34,6 +41,10 @@
 (defn- call-split-reviewed [tx-id split-id reviewed?]
   ((handlers/set-split-reviewed-handler {:db-conn setup/*test-conn*})
    {:path-params {:id (str tx-id) :splitId (str split-id)} :body-params {:reviewed reviewed?}}))
+
+(defn- call-split-memo [tx-id split-id memo]
+  ((handlers/set-split-memo-handler {:db-conn setup/*test-conn*})
+   {:path-params {:id (str tx-id) :splitId (str split-id)} :body-params {:memo memo}}))
 
 (deftest set-transaction-splits-handler-test
   (testing "PUT splits returns 200 and the transaction with its parts"
@@ -81,6 +92,63 @@
             body (json/read-json (:body response) :key-fn keyword)]
         (is (= 200 (:status response)))
         (is (empty? (get-in body [:data :transaction/splits])))))))
+
+(deftest set-transaction-description-handler-test
+  (testing "PUT description returns 200 and the effective description"
+    (let [tx-id (make-tx! "tx-desc-h1" -100.00M "STARBUCKS #1234")
+          response (call-description tx-id "Coffee with Sam")
+          body (json/read-json (:body response) :key-fn keyword)]
+      (is (= 200 (:status response)))
+      (is (true? (:success body)))
+      (is (= "Coffee with Sam" (get-in body [:data :transaction/user-description])))
+      (is (= "Coffee with Sam" (get-in body [:data :transaction/effective-description])))
+      ;; The imported description rides along untouched (for a future "view original").
+      (is (= "STARBUCKS #1234" (get-in body [:data :transaction/description])))))
+
+  (testing "PUT a blank description clears the override, falling back to the import"
+    (let [tx-id (make-tx! "tx-desc-h2" -100.00M "IMPORTED")]
+      (call-description tx-id "Override")
+      (let [response (call-description tx-id "")
+            body (json/read-json (:body response) :key-fn keyword)]
+        (is (= 200 (:status response)))
+        (is (nil? (get-in body [:data :transaction/user-description])))
+        (is (= "IMPORTED" (get-in body [:data :transaction/effective-description])))))))
+
+(deftest set-split-memo-handler-test
+  (testing "PUT split memo returns 200 and the refreshed parent with the memo set on one part"
+    (let [g (make-category! "Groceries" :category/groceries)
+          h (make-category! "Household" :category/household)
+          tx-id (make-tx! "tx-memo-h1" -100.00M)
+          splits-body (json/read-json
+                       (:body (call-splits tx-id [{:amount "-60.00" :categoryId g}
+                                                  {:amount "-40.00" :categoryId h}]))
+                       :key-fn keyword)
+          [s1 s2] (map :db/id (sort-by :split/order (get-in splits-body [:data :transaction/splits])))
+          response (call-split-memo tx-id s1 "paper towels")
+          body (json/read-json (:body response) :key-fn keyword)
+          parts (sort-by :split/order (get-in body [:data :transaction/splits]))]
+      (is (= 200 (:status response)))
+      (is (true? (:success body)))
+      (is (= "paper towels" (:split/memo (first parts))))
+      ;; The sibling is untouched.
+      (is (nil? (:split/memo (second parts))))
+      (is (= s2 (:db/id (second parts))))))
+
+  (testing "PUT a blank split memo clears it"
+    (let [g (make-category! "G2" :category/g2)
+          h (make-category! "H2" :category/h2)
+          tx-id (make-tx! "tx-memo-h2" -100.00M)
+          splits-body (json/read-json
+                       (:body (call-splits tx-id [{:amount "-60.00" :categoryId g}
+                                                  {:amount "-40.00" :categoryId h}]))
+                       :key-fn keyword)
+          [s1] (map :db/id (sort-by :split/order (get-in splits-body [:data :transaction/splits])))]
+      (call-split-memo tx-id s1 "temp")
+      (let [response (call-split-memo tx-id s1 "")
+            body (json/read-json (:body response) :key-fn keyword)
+            parts (sort-by :split/order (get-in body [:data :transaction/splits]))]
+        (is (= 200 (:status response)))
+        (is (nil? (:split/memo (first parts))))))))
 
 (deftest set-transaction-reviewed-handler-test
   (testing "PUT reviewed=true returns 200 and the reviewed transaction"

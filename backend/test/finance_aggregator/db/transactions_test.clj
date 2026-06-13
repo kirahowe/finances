@@ -275,6 +275,102 @@
         ;; Both reviewed: the parent row's effective reviewed roll-up flips true.
         (is (true? (:transaction/reviewed updated)))))))
 
+(deftest set-user-description-test
+  (testing "sets a user description and exposes it as the effective description"
+    (let [tx-id (make-tx! "tx-desc-1" {:transaction/amount -100.00M
+                                       :transaction/description "STARBUCKS #1234"})
+          updated (transactions/set-user-description! setup/*test-conn* tx-id "Coffee with Sam")]
+      (is (= "Coffee with Sam" (:transaction/user-description updated)))
+      (is (= "Coffee with Sam" (:transaction/effective-description updated)))
+      ;; The imported description is never mutated — it's still available alongside.
+      (is (= "STARBUCKS #1234" (:transaction/description updated)))))
+
+  (testing "the imported description is never touched in the DB"
+    (let [tx-id (make-tx! "tx-desc-2" {:transaction/amount -100.00M
+                                       :transaction/description "RAW IMPORT"})]
+      (transactions/set-user-description! setup/*test-conn* tx-id "Cleaned up")
+      (is (= "RAW IMPORT" (:transaction/description
+                           (d/pull (d/db setup/*test-conn*) '[:transaction/description] tx-id))))))
+
+  (testing "a blank description clears the override, falling back to the import"
+    (let [tx-id (make-tx! "tx-desc-3" {:transaction/amount -100.00M
+                                       :transaction/description "IMPORTED"})]
+      (transactions/set-user-description! setup/*test-conn* tx-id "Override")
+      (let [cleared (transactions/set-user-description! setup/*test-conn* tx-id "")]
+        ;; Cleared override retracts the datom so it nil-puns to no override.
+        (is (nil? (:transaction/user-description cleared)))
+        ;; ...and the effective description falls back to the import.
+        (is (= "IMPORTED" (:transaction/effective-description cleared)))
+        (is (nil? (:transaction/user-description
+                   (d/pull (d/db setup/*test-conn*) '[:transaction/user-description] tx-id)))))))
+
+  (testing "with no override, the effective description is the imported one"
+    (let [tx-id (make-tx! "tx-desc-4" {:transaction/amount -100.00M
+                                       :transaction/description "JUST IMPORTED"})
+          tx (transactions/with-derived-fields
+              (d/pull (d/db setup/*test-conn*) transactions/transaction-pull-pattern tx-id))]
+      (is (= "JUST IMPORTED" (:transaction/effective-description tx)))
+      (is (not (contains? tx :transaction/user-description)))))
+
+  (testing "an override fills in a missing imported description"
+    (let [tx-id (make-tx! "tx-desc-5" {:transaction/amount -100.00M})
+          updated (transactions/set-user-description! setup/*test-conn* tx-id "Filled in")]
+      (is (= "Filled in" (:transaction/effective-description updated)))))
+
+  (testing "a whitespace-only description is trimmed away and clears the override"
+    (let [tx-id (make-tx! "tx-desc-6" {:transaction/amount -100.00M
+                                       :transaction/description "IMPORTED"})]
+      (transactions/set-user-description! setup/*test-conn* tx-id "Override")
+      (let [cleared (transactions/set-user-description! setup/*test-conn* tx-id "   ")]
+        (is (nil? (:transaction/user-description cleared)))
+        (is (= "IMPORTED" (:transaction/effective-description cleared))))))
+
+  (testing "leading/trailing whitespace is trimmed from a stored override"
+    (let [tx-id (make-tx! "tx-desc-7" {:transaction/amount -100.00M})
+          updated (transactions/set-user-description! setup/*test-conn* tx-id "  Trader Joe's  ")]
+      (is (= "Trader Joe's" (:transaction/user-description updated)))
+      (is (= "Trader Joe's" (:transaction/effective-description updated))))))
+
+(deftest set-split-memo-test
+  (testing "sets one split part's memo independently of its siblings"
+    (let [a (make-category! "MA" :category/ma)
+          b (make-category! "MB" :category/mb)
+          tx-id (make-tx! "tx-memo-1" {:transaction/amount -100.00M})
+          splits-result (transactions/set-splits! setup/*test-conn* tx-id
+                                                  [{:amount "-60.00" :category-id a}
+                                                   {:amount "-40.00" :category-id b}])
+          [s1 s2] (map :db/id (sorted-splits splits-result))
+          updated (transactions/set-split-memo! setup/*test-conn* tx-id s1 "Groceries portion")
+          parts (sorted-splits updated)]
+      (is (= "Groceries portion" (:split/memo (first parts))))
+      (is (nil? (:split/memo (second parts))))
+      (is (= s2 (:db/id (second parts))))
+      ;; The returned shape is the refreshed parent transaction.
+      (is (= tx-id (:db/id updated)))))
+
+  (testing "a blank/whitespace memo clears it"
+    (let [a (make-category! "MC" :category/mc)
+          b (make-category! "MD" :category/md)
+          tx-id (make-tx! "tx-memo-2" {:transaction/amount -100.00M})
+          splits-result (transactions/set-splits! setup/*test-conn* tx-id
+                                                  [{:amount "-60.00" :category-id a}
+                                                   {:amount "-40.00" :category-id b}])
+          [s1] (map :db/id (sorted-splits splits-result))]
+      (transactions/set-split-memo! setup/*test-conn* tx-id s1 "temp")
+      (transactions/set-split-memo! setup/*test-conn* tx-id s1 "   ")
+      (is (nil? (:split/memo (d/pull (d/db setup/*test-conn*) '[:split/memo] s1))))))
+
+  (testing "leading/trailing whitespace is trimmed from a stored split memo"
+    (let [a (make-category! "ME" :category/me)
+          b (make-category! "MF" :category/mf)
+          tx-id (make-tx! "tx-memo-3" {:transaction/amount -100.00M})
+          splits-result (transactions/set-splits! setup/*test-conn* tx-id
+                                                  [{:amount "-60.00" :category-id a}
+                                                   {:amount "-40.00" :category-id b}])
+          [s1] (map :db/id (sorted-splits splits-result))]
+      (transactions/set-split-memo! setup/*test-conn* tx-id s1 "  paper towels  ")
+      (is (= "paper towels" (:split/memo (d/pull (d/db setup/*test-conn*) '[:split/memo] s1)))))))
+
 (deftest update-transaction-category-test
   (testing "assigns a category to a transaction"
     ;;  First create a category

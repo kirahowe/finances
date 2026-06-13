@@ -1,5 +1,6 @@
 (ns finance-aggregator.db.transactions
-  (:require [datalevin.core :as d]
+  (:require [clojure.string :as str]
+            [datalevin.core :as d]
             [finance-aggregator.db.transfers :as db-transfers]
             [finance-aggregator.splits :as splits]))
 
@@ -45,13 +46,25 @@
     (assoc tx :transaction/reviewed (every? :split/reviewed parts))
     tx))
 
+(defn with-effective-description
+  "Annotate a pulled transaction with :transaction/effective-description — the value
+   clients display in the Description column: the user's override when present, else
+   the imported description. The imported :transaction/description is never mutated and
+   is returned alongside (so a 'view original' surface can show it), and
+   :transaction/user-description signals whether an override exists."
+  [tx]
+  (assoc tx :transaction/effective-description
+         (or (not-empty (:transaction/user-description tx))
+             (:transaction/description tx))))
+
 (defn with-derived-fields
   "Annotate a pulled transaction with the server-computed fields the API contract
-   promises: :transaction/splits-balanced, :transaction/reviewed (effective) and
-   :transaction/transfer-hidden. Applied uniformly by the list endpoint and the
-   single-transaction mutation endpoints so the response shape never drifts."
+   promises: :transaction/splits-balanced, :transaction/reviewed (effective),
+   :transaction/effective-description and :transaction/transfer-hidden. Applied
+   uniformly by the list endpoint and the single-transaction mutation endpoints so
+   the response shape never drifts."
   [tx]
-  (-> tx with-split-balance with-reviewed db-transfers/with-transfer-hidden))
+  (-> tx with-split-balance with-reviewed with-effective-description db-transfers/with-transfer-hidden))
 
 (defn- set-reviewed-datom!
   "Assert (true) or clear (false) the boolean reviewed flag `attr` on entity `eid`.
@@ -76,6 +89,33 @@
    Conn is a datalevin connection (not an atom)."
   [conn tx-id split-id reviewed?]
   (set-reviewed-datom! conn split-id :split/reviewed reviewed?)
+  (with-derived-fields (d/pull (d/db conn) transaction-pull-pattern tx-id)))
+
+(defn set-user-description!
+  "Set (or clear) a transaction's user description — an additive overlay over the
+   imported :transaction/description, which is never mutated. The value is trimmed; a
+   blank/whitespace-only/nil description retracts the override so the row falls back to
+   the imported description.
+   Returns the refreshed transaction with the derived API fields.
+   Conn is a datalevin connection (not an atom)."
+  [conn tx-id description]
+  (let [trimmed (some-> description str/trim not-empty)]
+    (d/transact! conn (if trimmed
+                        [{:db/id tx-id :transaction/user-description trimmed}]
+                        [[:db/retract tx-id :transaction/user-description]])))
+  (with-derived-fields (d/pull (d/db conn) transaction-pull-pattern tx-id)))
+
+(defn set-split-memo!
+  "Set (or clear) one split part's memo (its description), independently of the parent
+   and its siblings. The value is trimmed; a blank/whitespace-only/nil memo retracts it.
+   Returns the parent transaction (tx-id) refreshed with its parts and the derived API
+   fields, so the caller can refresh the whole row.
+   Conn is a datalevin connection (not an atom)."
+  [conn tx-id split-id memo]
+  (let [trimmed (some-> memo str/trim not-empty)]
+    (d/transact! conn (if trimmed
+                        [{:db/id split-id :split/memo trimmed}]
+                        [[:db/retract split-id :split/memo]])))
   (with-derived-fields (d/pull (d/db conn) transaction-pull-pattern tx-id)))
 
 (defn update-category!
