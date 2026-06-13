@@ -3,7 +3,7 @@ import { render, screen } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { createMemoryRouter, RouterProvider } from 'react-router';
 import { OptimisticTransactionTable } from '../../app/components/OptimisticTransactionTable';
-import { api, type Transaction, type Category } from '../../app/lib/api';
+import { type Transaction, type Category } from '../../app/lib/api';
 import { formatAmount } from '../../app/lib/format';
 
 describe('OptimisticTransactionTable', () => {
@@ -381,9 +381,9 @@ describe('OptimisticTransactionTable', () => {
     expect(boxes[1].checked).toBe(false);
   });
 
-  it('persists a reviewed toggle for the clicked row', async () => {
+  it('reports a reviewed toggle for the clicked row', async () => {
     const user = userEvent.setup();
-    const spy = vi.spyOn(api, 'setTransactionReviewed').mockResolvedValue({} as Transaction);
+    const onToggleReviewed = vi.fn();
     const rows: Transaction[] = [{ ...mockTransactions[0], 'db/id': 7 }];
     renderWithRouter(
       <OptimisticTransactionTable
@@ -391,21 +391,18 @@ describe('OptimisticTransactionTable', () => {
         categories={mockCategories}
         sorting={[]}
         onSortingChange={vi.fn()}
+        onToggleReviewed={onToggleReviewed}
       />
     );
 
-    const box = screen.getByRole('checkbox') as HTMLInputElement;
-    await user.click(box);
+    await user.click(screen.getByRole('checkbox'));
 
-    expect(spy).toHaveBeenCalledWith(7, true);
-    // Optimistic: the checkbox shows checked immediately, before any revalidation.
-    expect(box.checked).toBe(true);
-    spy.mockRestore();
+    expect(onToggleReviewed).toHaveBeenCalledWith(7, true);
   });
 
-  it('keeps each toggled row checked when several are clicked in quick succession', async () => {
+  it('reports an independent toggle for each row clicked', async () => {
     const user = userEvent.setup();
-    const spy = vi.spyOn(api, 'setTransactionReviewed').mockResolvedValue({} as Transaction);
+    const onToggleReviewed = vi.fn();
     const rows: Transaction[] = [
       { ...mockTransactions[0], 'db/id': 21, 'transaction/payee': 'Row A' },
       { ...mockTransactions[0], 'db/id': 22, 'transaction/payee': 'Row B' },
@@ -416,21 +413,17 @@ describe('OptimisticTransactionTable', () => {
         categories={mockCategories}
         sorting={[]}
         onSortingChange={vi.fn()}
+        onToggleReviewed={onToggleReviewed}
       />
     );
 
-    // Each row owns an independent optimistic override, so toggling the second row
-    // must not revert the first — the failure mode of the earlier single shared
-    // fetcher, where the second click clobbered the first row's pending state.
+    // The table just reports each click; the optimistic projection that keeps both rows
+    // checked while their writes are in flight lives above it (see reviewedOverlay tests).
     await user.click(screen.getAllByRole('checkbox')[0]);
     await user.click(screen.getAllByRole('checkbox')[1]);
 
-    const boxes = screen.getAllByRole('checkbox') as HTMLInputElement[];
-    expect(boxes[0].checked).toBe(true);
-    expect(boxes[1].checked).toBe(true);
-    expect(spy).toHaveBeenNthCalledWith(1, 21, true);
-    expect(spy).toHaveBeenNthCalledWith(2, 22, true);
-    spy.mockRestore();
+    expect(onToggleReviewed).toHaveBeenNthCalledWith(1, 21, true);
+    expect(onToggleReviewed).toHaveBeenNthCalledWith(2, 22, true);
   });
 
   it('reviews splits per part with no checkbox on the split parent', () => {
@@ -464,9 +457,9 @@ describe('OptimisticTransactionTable', () => {
     expect(boxes[1].checked).toBe(false);
   });
 
-  it('persists a split reviewed toggle keyed on the split id', async () => {
+  it('reports a split reviewed toggle keyed on the split id', async () => {
     const user = userEvent.setup();
-    const spy = vi.spyOn(api, 'setSplitReviewed').mockResolvedValue({} as Transaction);
+    const onToggleSplitReviewed = vi.fn();
     renderWithRouter(
       <OptimisticTransactionTable
         transactions={mockTransactionWithSplits}
@@ -474,6 +467,7 @@ describe('OptimisticTransactionTable', () => {
         sorting={[]}
         onSortingChange={vi.fn()}
         onSplit={vi.fn()}
+        onToggleSplitReviewed={onToggleSplitReviewed}
       />
     );
 
@@ -481,7 +475,6 @@ describe('OptimisticTransactionTable', () => {
     await user.click(boxes[0]);
 
     // Parent transaction db/id 5, first split db/id 51.
-    expect(spy).toHaveBeenCalledWith(5, 51, true);
-    spy.mockRestore();
+    expect(onToggleSplitReviewed).toHaveBeenCalledWith(5, 51, true);
   });
 });

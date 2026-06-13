@@ -10,8 +10,8 @@ import {
   type ColumnSizingState,
   type OnChangeFn,
 } from '@tanstack/react-table';
-import { useFetcher, useRevalidator } from 'react-router';
-import { api, type Transaction, type Category, type Split } from '../lib/api';
+import { useFetcher } from 'react-router';
+import { type Transaction, type Category, type Split } from '../lib/api';
 import { formatAmount, formatDate } from '../lib/format';
 import { sortSplits } from '../lib/splitMath';
 import { columnDefSizing } from '../lib/transactionColumns';
@@ -60,6 +60,11 @@ interface OptimisticTransactionTableProps {
   onSplit?: (transaction: Transaction) => void;
   // Open the transfer modal for a transfer row (matched or unmatched).
   onOpenTransfer?: (transaction: Transaction) => void;
+  // Reviewed toggles. The table renders the checkbox straight from the (already
+  // overlaid) data and reports clicks up; the owner holds the optimistic projection and
+  // debounces persistence (see reviewedOverlay / useReviewedSync).
+  onToggleReviewed?: (transactionId: number, reviewed: boolean) => void;
+  onToggleSplitReviewed?: (transactionId: number, splitId: number, reviewed: boolean) => void;
 }
 
 export function OptimisticTransactionTable({
@@ -77,28 +82,12 @@ export function OptimisticTransactionTable({
   onColumnSizingChange,
   onSplit,
   onOpenTransfer,
+  onToggleReviewed,
+  onToggleSplitReviewed,
 }: OptimisticTransactionTableProps) {
   const [editingTransactionId, setEditingTransactionId] = useState<number | null>(null);
   const fetcher = useFetcher();
-  const revalidator = useRevalidator();
 
-  // Optimistic reviewed overrides, keyed `tx:<id>` / `split:<id>`. Each toggle fires
-  // its own independent request (so rapidly checking many rows never makes the
-  // requests abort or clobber each other — a single shared fetcher would), shows the
-  // new value immediately, then revalidates. Fresh loader data clears the overrides
-  // since the server value is then authoritative.
-  const [optimisticReviewed, setOptimisticReviewed] = useState<Record<string, boolean>>({});
-  useEffect(() => {
-    setOptimisticReviewed({});
-  }, [transactions]);
-
-  const reviewedChecked = (key: string, serverValue: boolean): boolean =>
-    key in optimisticReviewed ? optimisticReviewed[key] : serverValue;
-
-  const toggleReviewed = (key: string, next: boolean, persist: () => Promise<unknown>) => {
-    setOptimisticReviewed((prev) => ({ ...prev, [key]: next }));
-    persist().finally(() => revalidator.revalidate());
-  };
   // Measured content-fit widths (stretched to fill), used as each column's default
   // size. A user resize (columnSizing) overrides per-column. Not persisted — it's
   // derived from the data + container width on each load.
@@ -239,17 +228,13 @@ export function OptimisticTransactionTable({
           </div>
         );
       case 'reviewed': {
-        const key = `split:${split['db/id']}`;
-        const checked = reviewedChecked(key, split['split/reviewed'] === true);
+        const checked = split['split/reviewed'] === true;
         return (
           <input
             type="checkbox"
             className="reviewed-checkbox"
             checked={checked}
-            onChange={(e) => {
-              const next = e.target.checked;
-              toggleReviewed(key, next, () => api.setSplitReviewed(tx['db/id'], split['db/id'], next));
-            }}
+            onChange={(e) => onToggleSplitReviewed?.(tx['db/id'], split['db/id'], e.target.checked)}
             aria-label={checked ? 'Mark split as not reviewed' : 'Mark split as reviewed'}
           />
         );
@@ -352,17 +337,13 @@ export function OptimisticTransactionTable({
       ...columnDefSizing('reviewed'),
       cell: (info) => {
         const transaction = info.row.original;
-        const key = `tx:${transaction['db/id']}`;
-        const checked = reviewedChecked(key, transaction['transaction/reviewed'] === true);
+        const checked = transaction['transaction/reviewed'] === true;
         return (
           <input
             type="checkbox"
             className="reviewed-checkbox"
             checked={checked}
-            onChange={(e) => {
-              const next = e.target.checked;
-              toggleReviewed(key, next, () => api.setTransactionReviewed(transaction['db/id'], next));
-            }}
+            onChange={(e) => onToggleReviewed?.(transaction['db/id'], e.target.checked)}
             aria-label={checked ? 'Mark as not reviewed' : 'Mark as reviewed'}
           />
         );

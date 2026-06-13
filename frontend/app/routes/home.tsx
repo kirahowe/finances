@@ -33,6 +33,14 @@ import {
   type FilterValue,
 } from "../lib/filterState";
 import { extractFilterOptions, applyFilters, type FilterOption } from "../lib/filterOptions";
+import {
+  applyReviewedOverlay,
+  setTxOverride,
+  setSplitOverride,
+  EMPTY_REVIEWED_OVERRIDES,
+  type ReviewedOverrides,
+} from "../lib/reviewedOverlay";
+import { useReviewedSync } from "../lib/useReviewedSync";
 import "../styles/pages/dashboard.css";
 import "../styles/components/pagination.css";
 import "../styles/components/category-button.css";
@@ -148,16 +156,43 @@ function TransactionsSection({
     parseColumnSizing(searchParams.get("colw"))
   );
 
-  // Extract filter options from all transactions
+  // Optimistic reviewed projection. A toggle has to show up at once in three places that
+  // all read the transaction list — the table checkbox, the Reviewed filter predicate,
+  // and the filter counts — so we overlay pending toggles onto the loader snapshot here,
+  // above the filter, and derive everything below from `mergedTransactions`. Persistence
+  // is debounced separately so rapid checking isn't chatty (see useReviewedSync).
+  const [reviewedOverrides, setReviewedOverrides] =
+    useState<ReviewedOverrides>(EMPTY_REVIEWED_OVERRIDES);
+  const { enqueue } = useReviewedSync();
+  const mergedTransactions = useMemo(
+    () => applyReviewedOverlay(transactions, reviewedOverrides),
+    [transactions, reviewedOverrides]
+  );
+
+  const handleToggleReviewed = (transactionId: number, reviewed: boolean) => {
+    setReviewedOverrides((prev) => setTxOverride(prev, transactionId, reviewed));
+    enqueue(`tx:${transactionId}`, () => api.setTransactionReviewed(transactionId, reviewed));
+  };
+
+  const handleToggleSplitReviewed = (
+    transactionId: number,
+    splitId: number,
+    reviewed: boolean
+  ) => {
+    setReviewedOverrides((prev) => setSplitOverride(prev, splitId, reviewed));
+    enqueue(`split:${splitId}`, () => api.setSplitReviewed(transactionId, splitId, reviewed));
+  };
+
+  // Extract filter options from all transactions (overlaid, so counts track toggles).
   const filterConfigs = useMemo<FilterConfig[]>(() => {
     const accountOptions = extractFilterOptions(
-      transactions,
+      mergedTransactions,
       (tx) => tx["transaction/account"]?.["db/id"],
       (tx) => tx["transaction/account"]?.["account/external-name"] || "Unknown"
     );
 
     const categoryOptions = extractFilterOptions(
-      transactions,
+      mergedTransactions,
       (tx) => tx["transaction/category"]?.["db/id"],
       (tx) => tx["transaction/category"]?.["category/name"] || "Uncategorized"
     );
@@ -166,10 +201,10 @@ function TransactionsSection({
     // month has none of one kind) so it never collapses to a single choice the way a
     // data-derived option set would. Counts mirror the account/category filters;
     // selecting neither value (the default) shows all.
-    const reviewedCount = transactions.filter((tx) => tx["transaction/reviewed"]).length;
+    const reviewedCount = mergedTransactions.filter((tx) => tx["transaction/reviewed"]).length;
     const reviewedOptions: FilterOption[] = [
       { value: "reviewed", label: "Reviewed", count: reviewedCount },
-      { value: "unreviewed", label: "Unreviewed", count: transactions.length - reviewedCount },
+      { value: "unreviewed", label: "Unreviewed", count: mergedTransactions.length - reviewedCount },
     ];
 
     return [
@@ -177,17 +212,17 @@ function TransactionsSection({
       { field: "category", label: "Category", options: categoryOptions },
       { field: "reviewed", label: "Reviewed", options: reviewedOptions },
     ];
-  }, [transactions]);
+  }, [mergedTransactions]);
 
   // Apply filters to transactions, then optionally hide matched transfers.
   const filteredTransactions = useMemo(() => {
-    const filtered = applyFilters(transactions, filters, {
+    const filtered = applyFilters(mergedTransactions, filters, {
       account: (tx: Transaction) => tx["transaction/account"]?.["db/id"],
       category: (tx: Transaction) => tx["transaction/category"]?.["db/id"],
       reviewed: (tx: Transaction) => (tx["transaction/reviewed"] ? "reviewed" : "unreviewed"),
     });
     return hideTransfers ? filtered.filter((tx) => !tx['transaction/transfer-hidden']) : filtered;
-  }, [transactions, filters, hideTransfers]);
+  }, [mergedTransactions, filters, hideTransfers]);
 
   // Month figures derived from the currently-visible (filtered) set.
   const summary = useMemo(() => {
@@ -417,6 +452,8 @@ function TransactionsSection({
               onColumnSizingChange={setColumnSizing}
               onSplit={setSplitTx}
               onOpenTransfer={setTransferTx}
+              onToggleReviewed={handleToggleReviewed}
+              onToggleSplitReviewed={handleToggleSplitReviewed}
             />
 
             <Pagination
