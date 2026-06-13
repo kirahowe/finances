@@ -32,7 +32,7 @@ import {
   type FilterState,
   type FilterValue,
 } from "../lib/filterState";
-import { extractFilterOptions, applyFilters } from "../lib/filterOptions";
+import { extractFilterOptions, applyFilters, type FilterOption } from "../lib/filterOptions";
 import "../styles/pages/dashboard.css";
 import "../styles/components/pagination.css";
 import "../styles/components/category-button.css";
@@ -162,12 +162,15 @@ function TransactionsSection({
       (tx) => tx["transaction/category"]?.["category/name"] || "Uncategorized"
     );
 
-    // Reviewed is a two-value filter; selecting neither (the default) shows all.
-    const reviewedOptions = extractFilterOptions(
-      transactions,
-      (tx) => (tx["transaction/reviewed"] ? "reviewed" : "unreviewed"),
-      (tx) => (tx["transaction/reviewed"] ? "Reviewed" : "Unreviewed")
-    );
+    // Reviewed is a fixed two-value filter: both options always show (even when the
+    // month has none of one kind) so it never collapses to a single choice the way a
+    // data-derived option set would. Counts mirror the account/category filters;
+    // selecting neither value (the default) shows all.
+    const reviewedCount = transactions.filter((tx) => tx["transaction/reviewed"]).length;
+    const reviewedOptions: FilterOption[] = [
+      { value: "reviewed", label: "Reviewed", count: reviewedCount },
+      { value: "unreviewed", label: "Unreviewed", count: transactions.length - reviewedCount },
+    ];
 
     return [
       { field: "account", label: "Account", options: accountOptions },

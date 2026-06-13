@@ -403,6 +403,36 @@ describe('OptimisticTransactionTable', () => {
     spy.mockRestore();
   });
 
+  it('keeps each toggled row checked when several are clicked in quick succession', async () => {
+    const user = userEvent.setup();
+    const spy = vi.spyOn(api, 'setTransactionReviewed').mockResolvedValue({} as Transaction);
+    const rows: Transaction[] = [
+      { ...mockTransactions[0], 'db/id': 21, 'transaction/payee': 'Row A' },
+      { ...mockTransactions[0], 'db/id': 22, 'transaction/payee': 'Row B' },
+    ];
+    renderWithRouter(
+      <OptimisticTransactionTable
+        transactions={rows}
+        categories={mockCategories}
+        sorting={[]}
+        onSortingChange={vi.fn()}
+      />
+    );
+
+    // Each row owns an independent optimistic override, so toggling the second row
+    // must not revert the first — the failure mode of the earlier single shared
+    // fetcher, where the second click clobbered the first row's pending state.
+    await user.click(screen.getAllByRole('checkbox')[0]);
+    await user.click(screen.getAllByRole('checkbox')[1]);
+
+    const boxes = screen.getAllByRole('checkbox') as HTMLInputElement[];
+    expect(boxes[0].checked).toBe(true);
+    expect(boxes[1].checked).toBe(true);
+    expect(spy).toHaveBeenNthCalledWith(1, 21, true);
+    expect(spy).toHaveBeenNthCalledWith(2, 22, true);
+    spy.mockRestore();
+  });
+
   it('reviews splits per part with no checkbox on the split parent', () => {
     const reviewedSplit: Transaction[] = [
       {
