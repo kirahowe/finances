@@ -46,6 +46,7 @@
    :transaction/transfer-rejected {:db/valueType   :db.type/ref
                                    :db/cardinality :db.cardinality/many}  ; pairs the user rejected; written symmetrically so auto-match won't re-propose
    :transaction/user          {:db/valueType :db.type/ref}   ; ref to user (denormalized for query speed)
+   :transaction/reviewed      {:db/valueType :db.type/boolean}  ; user-authored overlay; absent = not reviewed (nil-punned)
    :transaction/splits        {:db/valueType   :db.type/ref
                                :db/cardinality :db.cardinality/many
                                :db/isComponent true}  ; user-authored parts; parent owns them, cascades on retractEntity
@@ -55,6 +56,7 @@
    :split/category {:db/valueType :db.type/ref}
    :split/memo     {:db/valueType :db.type/string}   ; optional
    :split/order    {:db/valueType :db.type/long}     ; stable display order
+   :split/reviewed {:db/valueType :db.type/boolean}  ; reviewed independently of the parent and siblings
 
    ;; Categories (user-defined)
    :category/name       {:db/valueType :db.type/string}

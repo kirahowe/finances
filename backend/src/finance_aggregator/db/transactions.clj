@@ -6,7 +6,7 @@
 (def split-pull
   "Pull sub-pattern for a transaction's split parts. Shared with the list endpoint
    (handlers.entities) so the two views never drift."
-  [:db/id :split/amount :split/order :split/memo
+  [:db/id :split/amount :split/order :split/memo :split/reviewed
    {:split/category [:db/id :category/name]}])
 
 (def transaction-pull-pattern
@@ -34,13 +34,46 @@
            (splits/reconciled? (:transaction/amount tx) (map :split/amount parts)))
     tx))
 
+(defn with-reviewed
+  "Normalize :transaction/reviewed to the row's effective reviewed status. A split
+   transaction has no checkbox of its own — it counts as reviewed only when every
+   split part is reviewed — so the parent's stored flag is overridden by that roll-up
+   (this is also what the reviewed filter keys off). Unsplit transactions are returned
+   unchanged: their stored flag stands, absent meaning not reviewed."
+  [tx]
+  (if-let [parts (seq (:transaction/splits tx))]
+    (assoc tx :transaction/reviewed (every? :split/reviewed parts))
+    tx))
+
 (defn with-derived-fields
   "Annotate a pulled transaction with the server-computed fields the API contract
-   promises: :transaction/splits-balanced and :transaction/transfer-hidden. Applied
-   uniformly by the list endpoint and the single-transaction mutation endpoints so the
-   response shape never drifts."
+   promises: :transaction/splits-balanced, :transaction/reviewed (effective) and
+   :transaction/transfer-hidden. Applied uniformly by the list endpoint and the
+   single-transaction mutation endpoints so the response shape never drifts."
   [tx]
-  (-> tx with-split-balance db-transfers/with-transfer-hidden))
+  (-> tx with-split-balance with-reviewed db-transfers/with-transfer-hidden))
+
+(defn set-reviewed!
+  "Mark a transaction reviewed (true) or clear it (false). Stored as an additive
+   overlay on the imported transaction; clearing retracts the datom so the absence
+   nil-puns to not-reviewed. Conn is a datalevin connection (not an atom)."
+  [conn tx-id reviewed?]
+  (d/transact! conn (if reviewed?
+                      [{:db/id tx-id :transaction/reviewed true}]
+                      [[:db/retract tx-id :transaction/reviewed]]))
+  (with-derived-fields (d/pull (d/db conn) transaction-pull-pattern tx-id)))
+
+(defn set-split-reviewed!
+  "Mark a single split part reviewed (true) or clear it (false). Splits are reviewed
+   independently of the parent and their siblings. Returns the parent transaction
+   (tx-id) pulled with its parts and the derived API fields, so the caller can refresh
+   the whole row — including the parent's now-recomputed effective reviewed roll-up.
+   Conn is a datalevin connection (not an atom)."
+  [conn tx-id split-id reviewed?]
+  (d/transact! conn (if reviewed?
+                      [{:db/id split-id :split/reviewed true}]
+                      [[:db/retract split-id :split/reviewed]]))
+  (with-derived-fields (d/pull (d/db conn) transaction-pull-pattern tx-id)))
 
 (defn update-category!
   "Update the category of a transaction.

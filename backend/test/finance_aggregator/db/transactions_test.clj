@@ -205,6 +205,59 @@
         (is (number? (:transaction/amount pair)))
         (is (== 100.00M (:transaction/amount pair)))))))
 
+(deftest set-reviewed-test
+  (testing "marks a transaction reviewed and clears it again"
+    (let [tx-id (make-tx! "tx-rev-1" {:transaction/amount -100.00M})]
+      (is (true? (:transaction/reviewed (transactions/set-reviewed! setup/*test-conn* tx-id true))))
+      (is (true? (:transaction/reviewed
+                  (d/pull (d/db setup/*test-conn*) '[:transaction/reviewed] tx-id))))
+      ;; Clearing retracts the datom so it nil-puns to not-reviewed.
+      (transactions/set-reviewed! setup/*test-conn* tx-id false)
+      (is (nil? (:transaction/reviewed
+                 (d/pull (d/db setup/*test-conn*) '[:transaction/reviewed] tx-id))))))
+
+  (testing "an unsplit transaction's reviewed flag is left absent when never set"
+    (let [tx-id (make-tx! "tx-rev-2" {:transaction/amount -100.00M})
+          tx (transactions/with-derived-fields
+              (d/pull (d/db setup/*test-conn*) transactions/transaction-pull-pattern tx-id))]
+      (is (not (contains? tx :transaction/reviewed))))))
+
+(deftest set-split-reviewed-test
+  (testing "marks one split reviewed independently and returns the refreshed parent"
+    (let [a (make-category! "RA" :category/ra)
+          b (make-category! "RB" :category/rb)
+          tx-id (make-tx! "tx-rev-3" {:transaction/amount -100.00M})
+          _ (transactions/set-splits! setup/*test-conn* tx-id
+                                      [{:amount "-60.00" :category-id a}
+                                       {:amount "-40.00" :category-id b}])
+          [one-split] (split-eids tx-id)
+          updated (transactions/set-split-reviewed! setup/*test-conn* tx-id one-split true)
+          parts (sorted-splits updated)]
+      ;; Reviewing one leg reviews exactly that leg, never its sibling.
+      (is (= 1 (count (filter :split/reviewed parts))))
+      (is (= 2 (count parts)))))
+
+  (testing "a split transaction is reviewed only once every part is reviewed"
+    (let [a (make-category! "RC" :category/rc)
+          b (make-category! "RD" :category/rd)
+          tx-id (make-tx! "tx-rev-4" {:transaction/amount -100.00M})
+          _ (transactions/set-splits! setup/*test-conn* tx-id
+                                      [{:amount "-60.00" :category-id a}
+                                       {:amount "-40.00" :category-id b}])
+          [s1 s2] (split-eids tx-id)]
+      ;; No parts reviewed yet: roll-up is false.
+      (is (false? (:transaction/reviewed
+                   (transactions/with-derived-fields
+                    (d/pull (d/db setup/*test-conn*) transactions/transaction-pull-pattern tx-id)))))
+      (transactions/set-split-reviewed! setup/*test-conn* tx-id s1 true)
+      ;; One of two reviewed: still false.
+      (is (false? (:transaction/reviewed
+                   (transactions/with-derived-fields
+                    (d/pull (d/db setup/*test-conn*) transactions/transaction-pull-pattern tx-id)))))
+      (let [updated (transactions/set-split-reviewed! setup/*test-conn* tx-id s2 true)]
+        ;; Both reviewed: the parent row's effective reviewed roll-up flips true.
+        (is (true? (:transaction/reviewed updated)))))))
+
 (deftest update-transaction-category-test
   (testing "assigns a category to a transaction"
     ;;  First create a category

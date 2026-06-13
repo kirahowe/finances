@@ -27,6 +27,14 @@
   ((handlers/set-transaction-splits-handler {:db-conn setup/*test-conn*})
    {:path-params {:id (str tx-id)} :body-params {:splits splits}}))
 
+(defn- call-reviewed [tx-id reviewed?]
+  ((handlers/set-transaction-reviewed-handler {:db-conn setup/*test-conn*})
+   {:path-params {:id (str tx-id)} :body-params {:reviewed reviewed?}}))
+
+(defn- call-split-reviewed [tx-id split-id reviewed?]
+  ((handlers/set-split-reviewed-handler {:db-conn setup/*test-conn*})
+   {:path-params {:id (str tx-id) :splitId (str split-id)} :body-params {:reviewed reviewed?}}))
+
 (deftest set-transaction-splits-handler-test
   (testing "PUT splits returns 200 and the transaction with its parts"
     (let [g (make-category! "Groceries" :category/groceries)
@@ -73,3 +81,38 @@
             body (json/read-json (:body response) :key-fn keyword)]
         (is (= 200 (:status response)))
         (is (empty? (get-in body [:data :transaction/splits])))))))
+
+(deftest set-transaction-reviewed-handler-test
+  (testing "PUT reviewed=true returns 200 and the reviewed transaction"
+    (let [tx-id (make-tx! "tx-rev-h1" -100.00M)
+          response (call-reviewed tx-id true)
+          body (json/read-json (:body response) :key-fn keyword)]
+      (is (= 200 (:status response)))
+      (is (true? (:success body)))
+      (is (true? (get-in body [:data :transaction/reviewed])))))
+
+  (testing "PUT reviewed=false clears it"
+    (let [tx-id (make-tx! "tx-rev-h2" -100.00M)]
+      (call-reviewed tx-id true)
+      (let [response (call-reviewed tx-id false)
+            body (json/read-json (:body response) :key-fn keyword)]
+        (is (= 200 (:status response)))
+        ;; Cleared flag is absent from the response, nil-punning to not-reviewed.
+        (is (nil? (get-in body [:data :transaction/reviewed])))))))
+
+(deftest set-split-reviewed-handler-test
+  (testing "PUT split reviewed marks the part and rolls the parent up when all are reviewed"
+    (let [g (make-category! "Groceries" :category/groceries)
+          h (make-category! "Household" :category/household)
+          tx-id (make-tx! "tx-rev-h3" -100.00M)
+          splits-body (json/read-json
+                       (:body (call-splits tx-id [{:amount "-60.00" :categoryId g}
+                                                  {:amount "-40.00" :categoryId h}]))
+                       :key-fn keyword)
+          [s1 s2] (map :db/id (sort-by :split/order (get-in splits-body [:data :transaction/splits])))
+          after-first (json/read-json (:body (call-split-reviewed tx-id s1 true)) :key-fn keyword)
+          after-second (json/read-json (:body (call-split-reviewed tx-id s2 true)) :key-fn keyword)]
+      ;; One part reviewed: the parent roll-up is still not reviewed.
+      (is (false? (get-in after-first [:data :transaction/reviewed])))
+      ;; Both parts reviewed: the parent row reads as reviewed.
+      (is (true? (get-in after-second [:data :transaction/reviewed]))))))

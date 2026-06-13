@@ -16,4 +16,8 @@
    ["/:id/category" {:put {:handler (handlers/update-transaction-category-handler deps)
                            :name ::update-category}}]
    ["/:id/splits" {:put {:handler (handlers/set-transaction-splits-handler deps)
-                         :name ::set-splits}}]])
+                         :name ::set-splits}}]
+   ["/:id/reviewed" {:put {:handler (handlers/set-transaction-reviewed-handler deps)
+                           :name ::set-reviewed}}]
+   ["/:id/splits/:splitId/reviewed" {:put {:handler (handlers/set-split-reviewed-handler deps)
+                                           :name ::set-split-reviewed}}]])

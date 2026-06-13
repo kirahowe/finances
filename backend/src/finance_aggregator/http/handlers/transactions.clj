@@ -2,8 +2,10 @@
   "Transaction handlers.
 
    Endpoints:
-   - PUT /api/transactions/:id/category - Assign category to transaction
-   - PUT /api/transactions/:id/splits   - Replace a transaction's splits"
+   - PUT /api/transactions/:id/category               - Assign category to transaction
+   - PUT /api/transactions/:id/splits                 - Replace a transaction's splits
+   - PUT /api/transactions/:id/reviewed               - Mark a transaction reviewed
+   - PUT /api/transactions/:id/splits/:splitId/reviewed - Mark one split reviewed"
   (:require
    [finance-aggregator.db.transactions :as db-transactions]
    [finance-aggregator.http.responses :as responses]))
@@ -49,3 +51,43 @@
                                  (:memo s) (assoc :memo (:memo s))))
                        (-> request :body-params :splits))]
       (responses/success-response (db-transactions/set-splits! db-conn tx-id splits)))))
+
+(defn set-transaction-reviewed-handler
+  "Factory: creates handler for PUT /api/transactions/:id/reviewed.
+
+   Expected body-params:
+   - :reviewed (boolean) — true marks reviewed, false clears it
+
+   Args:
+     deps - Map with :db-conn
+
+   Returns:
+     Ring handler function"
+  [{:keys [db-conn]}]
+  (fn [request]
+    (let [tx-id (-> request :path-params :id parse-long)
+          reviewed? (-> request :body-params :reviewed boolean)]
+      (responses/success-response
+       (db-transactions/set-reviewed! db-conn tx-id reviewed?)))))
+
+(defn set-split-reviewed-handler
+  "Factory: creates handler for PUT /api/transactions/:id/splits/:splitId/reviewed.
+
+   Marks one split part reviewed independently of the parent and its siblings, and
+   returns the refreshed parent transaction.
+
+   Expected body-params:
+   - :reviewed (boolean) — true marks reviewed, false clears it
+
+   Args:
+     deps - Map with :db-conn
+
+   Returns:
+     Ring handler function"
+  [{:keys [db-conn]}]
+  (fn [request]
+    (let [tx-id (-> request :path-params :id parse-long)
+          split-id (-> request :path-params :splitId parse-long)
+          reviewed? (-> request :body-params :reviewed boolean)]
+      (responses/success-response
+       (db-transactions/set-split-reviewed! db-conn tx-id split-id reviewed?)))))
