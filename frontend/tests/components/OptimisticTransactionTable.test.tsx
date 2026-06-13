@@ -457,6 +457,238 @@ describe('OptimisticTransactionTable', () => {
     expect(boxes[1].checked).toBe(false);
   });
 
+  it('renders the description as an editable button and opens an input seeded with the text', async () => {
+    const user = userEvent.setup();
+    renderWithRouter(
+      <OptimisticTransactionTable
+        transactions={mockTransactions}
+        categories={mockCategories}
+        sorting={[]}
+        onSortingChange={vi.fn()}
+        onEditDescription={vi.fn()}
+      />
+    );
+
+    await user.click(screen.getByRole('button', { name: 'Purchase 1' }));
+    const input = screen.getByRole('textbox', { name: 'Edit description' });
+    expect(input).toHaveValue('Purchase 1');
+  });
+
+  it('Enter saves the description edit and advances to the next row', async () => {
+    const user = userEvent.setup();
+    const onEditDescription = vi.fn();
+    const rows: Transaction[] = [
+      { ...mockTransactions[0], 'db/id': 1, 'transaction/description': 'First' },
+      {
+        ...mockTransactions[0],
+        'db/id': 2,
+        'transaction/payee': 'Store B',
+        'transaction/description': 'Second',
+      },
+    ];
+    renderWithRouter(
+      <OptimisticTransactionTable
+        transactions={rows}
+        categories={mockCategories}
+        sorting={[]}
+        onSortingChange={vi.fn()}
+        onEditDescription={onEditDescription}
+      />
+    );
+
+    await user.click(screen.getByRole('button', { name: 'First' }));
+    const input = screen.getByRole('textbox', { name: 'Edit description' });
+    await user.clear(input);
+    await user.type(input, 'Cleaned first');
+    await user.keyboard('{Enter}');
+
+    expect(onEditDescription).toHaveBeenCalledWith(1, 'Cleaned first');
+    // The editor advances to the next row's description, seeded with its value.
+    expect(screen.getByRole('textbox', { name: 'Edit description' })).toHaveValue('Second');
+  });
+
+  it('Escape cancels the description edit without reporting it', async () => {
+    const user = userEvent.setup();
+    const onEditDescription = vi.fn();
+    renderWithRouter(
+      <OptimisticTransactionTable
+        transactions={mockTransactions}
+        categories={mockCategories}
+        sorting={[]}
+        onSortingChange={vi.fn()}
+        onEditDescription={onEditDescription}
+      />
+    );
+
+    await user.click(screen.getByRole('button', { name: 'Purchase 1' }));
+    const input = screen.getByRole('textbox', { name: 'Edit description' });
+    await user.clear(input);
+    await user.type(input, 'discard me');
+    await user.keyboard('{Escape}');
+
+    expect(onEditDescription).not.toHaveBeenCalled();
+    // The editor closed, restoring the original text button.
+    expect(screen.getByRole('button', { name: 'Purchase 1' })).toBeInTheDocument();
+  });
+
+  it('clicking away (blur) saves the description edit', async () => {
+    const user = userEvent.setup();
+    const onEditDescription = vi.fn();
+    renderWithRouter(
+      <OptimisticTransactionTable
+        transactions={mockTransactions}
+        categories={mockCategories}
+        sorting={[]}
+        onSortingChange={vi.fn()}
+        onEditDescription={onEditDescription}
+      />
+    );
+
+    await user.click(screen.getByRole('button', { name: 'Purchase 1' }));
+    const input = screen.getByRole('textbox', { name: 'Edit description' });
+    await user.clear(input);
+    await user.type(input, 'Saved on blur');
+    await user.tab();
+
+    expect(onEditDescription).toHaveBeenCalledWith(1, 'Saved on blur');
+  });
+
+  it('clearing an overridden description reports an empty override (revert to the import)', async () => {
+    const user = userEvent.setup();
+    const onEditDescription = vi.fn();
+    const overridden: Transaction[] = [
+      {
+        ...mockTransactions[0],
+        'transaction/description': 'IMPORTED',
+        'transaction/user-description': 'My override',
+        'transaction/effective-description': 'My override',
+      },
+    ];
+    renderWithRouter(
+      <OptimisticTransactionTable
+        transactions={overridden}
+        categories={mockCategories}
+        sorting={[]}
+        onSortingChange={vi.fn()}
+        onEditDescription={onEditDescription}
+      />
+    );
+
+    await user.click(screen.getByRole('button', { name: 'My override' }));
+    const input = screen.getByRole('textbox', { name: 'Edit description' });
+    await user.clear(input);
+    await user.keyboard('{Enter}');
+
+    expect(onEditDescription).toHaveBeenCalledWith(1, '');
+  });
+
+  it('clearing a description that has no override reports nothing', async () => {
+    const user = userEvent.setup();
+    const onEditDescription = vi.fn();
+    renderWithRouter(
+      <OptimisticTransactionTable
+        transactions={mockTransactions}
+        categories={mockCategories}
+        sorting={[]}
+        onSortingChange={vi.fn()}
+        onEditDescription={onEditDescription}
+      />
+    );
+
+    // The row shows only its import, so clearing it leaves nothing to retract — no PUT.
+    await user.click(screen.getByRole('button', { name: 'Purchase 1' }));
+    const input = screen.getByRole('textbox', { name: 'Edit description' });
+    await user.clear(input);
+    await user.keyboard('{Enter}');
+
+    expect(onEditDescription).not.toHaveBeenCalled();
+  });
+
+  it('trims surrounding whitespace from a saved description', async () => {
+    const user = userEvent.setup();
+    const onEditDescription = vi.fn();
+    renderWithRouter(
+      <OptimisticTransactionTable
+        transactions={mockTransactions}
+        categories={mockCategories}
+        sorting={[]}
+        onSortingChange={vi.fn()}
+        onEditDescription={onEditDescription}
+      />
+    );
+
+    await user.click(screen.getByRole('button', { name: 'Purchase 1' }));
+    const input = screen.getByRole('textbox', { name: 'Edit description' });
+    await user.clear(input);
+    await user.type(input, "  Trader Joe's  ");
+    await user.keyboard('{Enter}');
+
+    expect(onEditDescription).toHaveBeenCalledWith(1, "Trader Joe's");
+  });
+
+  it('a whitespace-only edit of an overridden description clears it (revert to the import)', async () => {
+    const user = userEvent.setup();
+    const onEditDescription = vi.fn();
+    const overridden: Transaction[] = [
+      {
+        ...mockTransactions[0],
+        'transaction/description': 'IMPORTED',
+        'transaction/user-description': 'My override',
+        'transaction/effective-description': 'My override',
+      },
+    ];
+    renderWithRouter(
+      <OptimisticTransactionTable
+        transactions={overridden}
+        categories={mockCategories}
+        sorting={[]}
+        onSortingChange={vi.fn()}
+        onEditDescription={onEditDescription}
+      />
+    );
+
+    await user.click(screen.getByRole('button', { name: 'My override' }));
+    const input = screen.getByRole('textbox', { name: 'Edit description' });
+    await user.clear(input);
+    await user.type(input, '   ');
+    await user.keyboard('{Enter}');
+
+    expect(onEditDescription).toHaveBeenCalledWith(1, '');
+  });
+
+  it('opening and closing a description without a change reports nothing', async () => {
+    const user = userEvent.setup();
+    const onEditDescription = vi.fn();
+    renderWithRouter(
+      <OptimisticTransactionTable
+        transactions={mockTransactions}
+        categories={mockCategories}
+        sorting={[]}
+        onSortingChange={vi.fn()}
+        onEditDescription={onEditDescription}
+      />
+    );
+
+    await user.click(screen.getByRole('button', { name: 'Purchase 1' }));
+    await user.tab();
+
+    expect(onEditDescription).not.toHaveBeenCalled();
+  });
+
+  it('leaves the Description column read-only when no edit handler is given', () => {
+    renderWithRouter(
+      <OptimisticTransactionTable
+        transactions={mockTransactions}
+        categories={mockCategories}
+        sorting={[]}
+        onSortingChange={vi.fn()}
+      />
+    );
+
+    expect(screen.getByText('Purchase 1')).toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: 'Purchase 1' })).not.toBeInTheDocument();
+  });
+
   it('reports a split reviewed toggle keyed on the split id', async () => {
     const user = userEvent.setup();
     const onToggleSplitReviewed = vi.fn();
@@ -476,5 +708,114 @@ describe('OptimisticTransactionTable', () => {
 
     // Parent transaction db/id 5, first split db/id 51.
     expect(onToggleSplitReviewed).toHaveBeenCalledWith(5, 51, true);
+  });
+
+  it('renders an editable description on each split part, showing its memo', () => {
+    renderWithRouter(
+      <OptimisticTransactionTable
+        transactions={mockTransactionWithSplits}
+        categories={mockCategories}
+        sorting={[]}
+        onSortingChange={vi.fn()}
+        onSplit={vi.fn()}
+        onEditSplitDescription={vi.fn()}
+      />
+    );
+
+    // Part 51 carries memo 'food'; part 52 has none and shows the dash placeholder
+    // (labeled "Add description" for screen readers rather than "dash").
+    expect(screen.getByRole('button', { name: 'food' })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Add description' })).toBeInTheDocument();
+    // Both parts still show the branch marker.
+    expect(document.querySelectorAll('.split-icon').length).toBe(2);
+  });
+
+  it('edits a split description in place and reports (txId, splitId, value)', async () => {
+    const user = userEvent.setup();
+    const onEditSplitDescription = vi.fn();
+    renderWithRouter(
+      <OptimisticTransactionTable
+        transactions={mockTransactionWithSplits}
+        categories={mockCategories}
+        sorting={[]}
+        onSortingChange={vi.fn()}
+        onSplit={vi.fn()}
+        onEditSplitDescription={onEditSplitDescription}
+      />
+    );
+
+    await user.click(screen.getByRole('button', { name: 'food' }));
+    const input = screen.getByRole('textbox', { name: 'Edit description' });
+    expect(input).toHaveValue('food');
+    await user.clear(input);
+    await user.type(input, 'Groceries portion');
+    await user.keyboard('{Enter}');
+
+    // Parent transaction db/id 5, first split db/id 51.
+    expect(onEditSplitDescription).toHaveBeenCalledWith(5, 51, 'Groceries portion');
+  });
+
+  it('adds a description to a split part that has none', async () => {
+    const user = userEvent.setup();
+    const onEditSplitDescription = vi.fn();
+    renderWithRouter(
+      <OptimisticTransactionTable
+        transactions={mockTransactionWithSplits}
+        categories={mockCategories}
+        sorting={[]}
+        onSortingChange={vi.fn()}
+        onSplit={vi.fn()}
+        onEditSplitDescription={onEditSplitDescription}
+      />
+    );
+
+    await user.click(screen.getByRole('button', { name: 'Add description' }));
+    const input = screen.getByRole('textbox', { name: 'Edit description' });
+    expect(input).toHaveValue('');
+    await user.type(input, 'Salary portion');
+    await user.keyboard('{Enter}');
+
+    // Parent transaction db/id 5, second split db/id 52.
+    expect(onEditSplitDescription).toHaveBeenCalledWith(5, 52, 'Salary portion');
+  });
+
+  it('Escape cancels a split description edit without reporting it', async () => {
+    const user = userEvent.setup();
+    const onEditSplitDescription = vi.fn();
+    renderWithRouter(
+      <OptimisticTransactionTable
+        transactions={mockTransactionWithSplits}
+        categories={mockCategories}
+        sorting={[]}
+        onSortingChange={vi.fn()}
+        onSplit={vi.fn()}
+        onEditSplitDescription={onEditSplitDescription}
+      />
+    );
+
+    await user.click(screen.getByRole('button', { name: 'food' }));
+    const input = screen.getByRole('textbox', { name: 'Edit description' });
+    await user.clear(input);
+    await user.type(input, 'discard me');
+    await user.keyboard('{Escape}');
+
+    expect(onEditSplitDescription).not.toHaveBeenCalled();
+    expect(screen.getByRole('button', { name: 'food' })).toBeInTheDocument();
+  });
+
+  it('leaves split descriptions as the marker only when no split edit handler is given', () => {
+    renderWithRouter(
+      <OptimisticTransactionTable
+        transactions={mockTransactionWithSplits}
+        categories={mockCategories}
+        sorting={[]}
+        onSortingChange={vi.fn()}
+        onSplit={vi.fn()}
+      />
+    );
+
+    // No editable description buttons on the parts; just the two branch markers.
+    expect(screen.queryByRole('button', { name: 'food' })).not.toBeInTheDocument();
+    expect(document.querySelectorAll('.split-icon').length).toBe(2);
   });
 });

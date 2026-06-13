@@ -158,7 +158,7 @@ export function SplitTransactionModal({
         <div className="split-row split-row-head">
           <span>Amount</span>
           <span>Category</span>
-          <span>Memo</span>
+          <span>Description</span>
           <span className="sr-only">Remove</span>
         </div>
 
@@ -212,7 +212,7 @@ export function SplitTransactionModal({
             <input
               className="form-input"
               type="text"
-              aria-label="Split memo"
+              aria-label="Split description"
               placeholder="Optional"
               value={row.memo}
               onChange={(e) => updateRow(row.key, { memo: e.target.value })}

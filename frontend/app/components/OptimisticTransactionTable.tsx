@@ -17,6 +17,7 @@ import { sortSplits } from '../lib/splitMath';
 import { columnDefSizing } from '../lib/transactionColumns';
 import { useAutoColumnSizing } from '../lib/useAutoColumnSizing';
 import { CategoryDropdown } from './CategoryDropdown';
+import { EditableDescriptionCell } from './EditableDescriptionCell';
 import { RowActionsMenu, type RowAction } from './RowActionsMenu';
 import '../styles/components/split-rows.css';
 import '../styles/components/transfer-modal.css';
@@ -62,9 +63,17 @@ interface OptimisticTransactionTableProps {
   onOpenTransfer?: (transaction: Transaction) => void;
   // Reviewed toggles. The table renders the checkbox straight from the (already
   // overlaid) data and reports clicks up; the owner holds the optimistic projection and
-  // debounces persistence (see reviewedOverlay / useReviewedSync).
+  // debounces persistence (see reviewedOverlay / useWriteBehind).
   onToggleReviewed?: (transactionId: number, reviewed: boolean) => void;
   onToggleSplitReviewed?: (transactionId: number, splitId: number, reviewed: boolean) => void;
+  // Edit a transaction's description in place. The table renders the displayed
+  // (effective) value and reports committed edits up; the owner holds the optimistic
+  // projection and debounces persistence (see descriptionOverlay / useWriteBehind). When
+  // omitted, the Description column is read-only text.
+  onEditDescription?: (transactionId: number, description: string) => void;
+  // Edit one split part's description (its memo) in place, on the part's own row. When
+  // omitted, a split part's description cell shows only the branch marker.
+  onEditSplitDescription?: (transactionId: number, splitId: number, description: string) => void;
 }
 
 export function OptimisticTransactionTable({
@@ -84,8 +93,11 @@ export function OptimisticTransactionTable({
   onOpenTransfer,
   onToggleReviewed,
   onToggleSplitReviewed,
+  onEditDescription,
+  onEditSplitDescription,
 }: OptimisticTransactionTableProps) {
   const [editingTransactionId, setEditingTransactionId] = useState<number | null>(null);
+  const [editingDescriptionId, setEditingDescriptionId] = useState<number | null>(null);
   const fetcher = useFetcher();
 
   // Measured content-fit widths (stretched to fill), used as each column's default
@@ -199,13 +211,55 @@ export function OptimisticTransactionTable({
     setEditingTransactionId(null);
   };
 
-  // One cell of a split part's (child) row. Only the amount and category are
-  // filled (with a branch marker + an Edit action); the rest is blank because the
-  // parent row already carries the date/account/payee context.
+  // One cell of a split part's (child) row. The description carries the branch marker
+  // plus the part's own (editable) description; amount and category are filled too. The
+  // rest is blank because the parent row already carries the date/account/payee context.
   const renderSplitChildCell = (columnId: string, split: Split, tx: Transaction, drift: boolean) => {
     switch (columnId) {
-      case 'description':
-        return <SplitIcon drift={drift} />;
+      case 'description': {
+        if (!onEditSplitDescription) return <SplitIcon drift={drift} />;
+        const memo = split['split/memo'] ?? '';
+        if (editingDescriptionId === split['db/id']) {
+          // Persist only a real change, storing the trimmed value so a spaces-only entry
+          // clears the memo rather than sticking as a blank-looking description.
+          const commit = (t: string) => {
+            const trimmed = t.trim();
+            if (trimmed !== memo) onEditSplitDescription(tx['db/id'], split['db/id'], trimmed);
+          };
+          return (
+            <span className="split-description">
+              <SplitIcon drift={drift} />
+              <EditableDescriptionCell
+                initialValue={memo}
+                onSaveAndNext={(t) => {
+                  commit(t);
+                  setEditingDescriptionId(null);
+                }}
+                onSave={(t) => {
+                  commit(t);
+                  setEditingDescriptionId(null);
+                }}
+                onCancel={() => setEditingDescriptionId(null)}
+              />
+            </span>
+          );
+        }
+        return (
+          <span className="split-description">
+            <SplitIcon drift={drift} />
+            <button
+              type="button"
+              className="description-button"
+              // With a memo, it's the button's accessible name; when empty (the '—'
+              // placeholder), label the add action instead of "dash".
+              aria-label={memo ? undefined : 'Add description'}
+              onClick={() => setEditingDescriptionId(split['db/id'])}
+            >
+              {memo || '—'}
+            </button>
+          </span>
+        );
+      }
       case 'amount': {
         const amount = split['split/amount'];
         return (
@@ -269,12 +323,63 @@ export function OptimisticTransactionTable({
       ...columnDefSizing('payee', autoSizing['payee']),
       cell: (info) => info.getValue(),
     }),
-    columnHelper.accessor('transaction/description', {
-      id: 'description',
-      header: 'Description',
-      ...columnDefSizing('description', autoSizing['description']),
-      cell: (info) => info.getValue() || '—',
-    }),
+    columnHelper.accessor(
+      (row) => row['transaction/effective-description'] ?? row['transaction/description'] ?? '',
+      {
+        id: 'description',
+        header: 'Description',
+        ...columnDefSizing('description', autoSizing['description']),
+        cell: (info) => {
+          const transaction = info.row.original;
+          // `text` is the displayed (effective) value, straight from the accessor — the
+          // single source for what the override-or-import resolves to.
+          const text = info.getValue() as string;
+          if (!onEditDescription) return text || '—';
+          if (editingDescriptionId === transaction['db/id']) {
+            // Persist only a real change. Comparing against `text` (the displayed,
+            // effective value) makes opening/closing a cell — or retyping the same value,
+            // possibly with surrounding whitespace — a no-op. Comparing against the
+            // existing override too keeps clearing a row that has no override a no-op,
+            // rather than firing an empty-override PUT the server would just retract.
+            const currentOverride = transaction['transaction/user-description'] ?? '';
+            const commit = (t: string) => {
+              const trimmed = t.trim();
+              if (trimmed !== text && trimmed !== currentOverride) {
+                onEditDescription(transaction['db/id'], trimmed);
+              }
+            };
+            return (
+              <EditableDescriptionCell
+                initialValue={text}
+                onSaveAndNext={(t) => {
+                  commit(t);
+                  setEditingDescriptionId(
+                    findNextTransactionId(transaction['db/id'], displayedTransactions)
+                  );
+                }}
+                onSave={(t) => {
+                  commit(t);
+                  setEditingDescriptionId(null);
+                }}
+                onCancel={() => setEditingDescriptionId(null)}
+              />
+            );
+          }
+          return (
+            <button
+              type="button"
+              className="description-button"
+              // With text, the description itself is the button's accessible name; when
+              // empty (the '—' placeholder), label the add action instead of "dash".
+              aria-label={text ? undefined : 'Add description'}
+              onClick={() => setEditingDescriptionId(transaction['db/id'])}
+            >
+              {text || '—'}
+            </button>
+          );
+        },
+      }
+    ),
     columnHelper.accessor('transaction/amount', {
       id: 'amount',
       header: 'Amount',
@@ -361,6 +466,7 @@ export function OptimisticTransactionTable({
 
   const cellClassName = (columnId: string): string | undefined => {
     if (columnId === 'amount') return 'amount-cell';
+    if (columnId === 'description') return 'description-cell';
     if (columnId === 'category') return 'category-cell';
     if (columnId === 'reviewed') return 'reviewed-cell';
     if (columnId === 'actions') return 'actions-cell';

@@ -40,7 +40,14 @@ import {
   EMPTY_REVIEWED_OVERRIDES,
   type ReviewedOverrides,
 } from "../lib/reviewedOverlay";
-import { useReviewedSync } from "../lib/useReviewedSync";
+import {
+  applyDescriptionOverlay,
+  setTxDescriptionOverride,
+  setSplitDescriptionOverride,
+  EMPTY_DESCRIPTION_OVERRIDES,
+  type DescriptionOverrides,
+} from "../lib/descriptionOverlay";
+import { useWriteBehind } from "../lib/useWriteBehind";
 import "../styles/pages/dashboard.css";
 import "../styles/components/pagination.css";
 import "../styles/components/category-button.css";
@@ -156,17 +163,24 @@ function TransactionsSection({
     parseColumnSizing(searchParams.get("colw"))
   );
 
-  // Optimistic reviewed projection. A toggle has to show up at once in three places that
-  // all read the transaction list — the table checkbox, the Reviewed filter predicate,
-  // and the filter counts — so we overlay pending toggles onto the loader snapshot here,
-  // above the filter, and derive everything below from `mergedTransactions`. Persistence
-  // is debounced separately so rapid checking isn't chatty (see useReviewedSync).
+  // Optimistic per-row projections. An edit has to show up at once in every place that
+  // reads the transaction list — for a reviewed toggle that's the checkbox, the Reviewed
+  // filter predicate, and the filter counts; for a description edit it's the cell — so we
+  // overlay pending edits onto the loader snapshot here, above the filter, and derive
+  // everything below from `mergedTransactions`. Persistence is debounced separately so a
+  // burst of edits isn't chatty (see useWriteBehind).
   const [reviewedOverrides, setReviewedOverrides] =
     useState<ReviewedOverrides>(EMPTY_REVIEWED_OVERRIDES);
-  const { enqueue } = useReviewedSync();
+  const [descriptionOverrides, setDescriptionOverrides] =
+    useState<DescriptionOverrides>(EMPTY_DESCRIPTION_OVERRIDES);
+  const { enqueue } = useWriteBehind();
   const mergedTransactions = useMemo(
-    () => applyReviewedOverlay(transactions, reviewedOverrides),
-    [transactions, reviewedOverrides]
+    () =>
+      applyDescriptionOverlay(
+        applyReviewedOverlay(transactions, reviewedOverrides),
+        descriptionOverrides
+      ),
+    [transactions, reviewedOverrides, descriptionOverrides]
   );
 
   const handleToggleReviewed = (transactionId: number, reviewed: boolean) => {
@@ -181,6 +195,24 @@ function TransactionsSection({
   ) => {
     setReviewedOverrides((prev) => setSplitOverride(prev, splitId, reviewed));
     enqueue(`split:${splitId}`, () => api.setSplitReviewed(transactionId, splitId, reviewed));
+  };
+
+  const handleEditDescription = (transactionId: number, description: string) => {
+    setDescriptionOverrides((prev) => setTxDescriptionOverride(prev, transactionId, description));
+    enqueue(`desc:${transactionId}`, () =>
+      api.setTransactionDescription(transactionId, description)
+    );
+  };
+
+  const handleEditSplitDescription = (
+    transactionId: number,
+    splitId: number,
+    description: string
+  ) => {
+    setDescriptionOverrides((prev) => setSplitDescriptionOverride(prev, splitId, description));
+    enqueue(`desc-split:${splitId}`, () =>
+      api.setSplitMemo(transactionId, splitId, description)
+    );
   };
 
   // Extract filter options from all transactions (overlaid, so counts track toggles).
@@ -454,6 +486,8 @@ function TransactionsSection({
               onOpenTransfer={setTransferTx}
               onToggleReviewed={handleToggleReviewed}
               onToggleSplitReviewed={handleToggleSplitReviewed}
+              onEditDescription={handleEditDescription}
+              onEditSplitDescription={handleEditSplitDescription}
             />
 
             <Pagination

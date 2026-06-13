@@ -74,6 +74,77 @@
   word-wrap: normal;
 }
 
+/* Description is editable in place. The resting state is a quiet, full-width button
+   (so the whole cell is a click target, including an empty "—"); editing swaps in an
+   input that shares the same box, so opening the editor never shifts the row. */
+.description-cell {
+  width: auto;
+  max-width: none;
+}
+
+.description-button {
+  background: none;
+  border: 1px solid transparent;
+  color: inherit;
+  cursor: text;
+  padding: var(--category-field-padding-y) var(--category-field-padding-x);
+  margin: calc(-1 * var(--category-field-padding-y))
+    calc(-1 * var(--category-field-padding-x));
+  border-radius: var(--radius-sm);
+  font-family: inherit;
+  font-size: inherit;
+  text-align: left;
+  width: 100%;
+  /* Description is a flexible column that clips first, so keep it on one line with an
+     ellipsis (and so it measures correctly when auto-sizing). */
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  transition: background-color 0.15s var(--ease-out),
+    border-color 0.15s var(--ease-out);
+}
+
+.description-button:hover {
+  background-color: var(--color-accent-soft);
+  border-color: #cfe1d8;
+}
+
+.description-input {
+  width: 100%;
+  /* Shares .description-button's box so opening the editor never shifts the row; the
+     active state adds only the pine border + focus ring on top. */
+  padding: var(--category-field-padding-y) var(--category-field-padding-x);
+  margin: calc(-1 * var(--category-field-padding-y))
+    calc(-1 * var(--category-field-padding-x));
+  border: 1px solid var(--color-primary);
+  border-radius: var(--radius-sm);
+  font-family: inherit;
+  font-size: inherit;
+  line-height: inherit;
+  color: var(--color-ink);
+  background: var(--color-surface);
+  box-shadow: 0 0 0 3px var(--color-accent-soft);
+}
+
+.description-input:focus {
+  outline: none;
+}
+
+/* A split part's description cell: the branch marker followed by its own editable memo,
+   which flexes to fill the remaining width (the marker stays fixed). */
+.split-description {
+  display: flex;
+  align-items: center;
+  gap: var(--spacing-xs);
+}
+
+.split-description .description-button,
+.split-description .description-input {
+  flex: 1 1 auto;
+  width: auto;
+  min-width: 0;
+}
+
 .th-sortable {
   cursor: pointer;
 }

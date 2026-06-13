@@ -5,7 +5,7 @@
 // checkbox, the Reviewed filter predicate, and the filter's counts. To keep them in
 // sync we overlay the user's pending toggles onto the loader snapshot ONCE, above the
 // filter, and render everything from that single projection. Persistence is decoupled
-// (see useReviewedSync) so the UI never waits on — or re-fetches per — the network.
+// (see useWriteBehind) so the UI never waits on — or re-fetches per — the network.
 
 import type { Transaction } from './api';
 
