@@ -76,6 +76,19 @@ export async function action({ request }: Route.ActionArgs) {
     );
   }
 
+  if (intent === "toggle-transaction-reviewed") {
+    const transactionId = parseInt(formData.get("transactionId") as string);
+    const reviewed = formData.get("reviewed") === "true";
+    await api.setTransactionReviewed(transactionId, reviewed);
+  }
+
+  if (intent === "toggle-split-reviewed") {
+    const transactionId = parseInt(formData.get("transactionId") as string);
+    const splitId = parseInt(formData.get("splitId") as string);
+    const reviewed = formData.get("reviewed") === "true";
+    await api.setSplitReviewed(transactionId, splitId, reviewed);
+  }
+
   return { success: true };
 }
 
@@ -162,9 +175,17 @@ function TransactionsSection({
       (tx) => tx["transaction/category"]?.["category/name"] || "Uncategorized"
     );
 
+    // Reviewed is a two-value filter; selecting neither (the default) shows all.
+    const reviewedOptions = extractFilterOptions(
+      transactions,
+      (tx) => (tx["transaction/reviewed"] ? "reviewed" : "unreviewed"),
+      (tx) => (tx["transaction/reviewed"] ? "Reviewed" : "Unreviewed")
+    );
+
     return [
       { field: "account", label: "Account", options: accountOptions },
       { field: "category", label: "Category", options: categoryOptions },
+      { field: "reviewed", label: "Reviewed", options: reviewedOptions },
     ];
   }, [transactions]);
 
@@ -173,6 +194,7 @@ function TransactionsSection({
     const filtered = applyFilters(transactions, filters, {
       account: (tx: Transaction) => tx["transaction/account"]?.["db/id"],
       category: (tx: Transaction) => tx["transaction/category"]?.["db/id"],
+      reviewed: (tx: Transaction) => (tx["transaction/reviewed"] ? "reviewed" : "unreviewed"),
     });
     return hideTransfers ? filtered.filter((tx) => !tx['transaction/transfer-hidden']) : filtered;
   }, [transactions, filters, hideTransfers]);

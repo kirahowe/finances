@@ -104,6 +104,28 @@ describe('OptimisticTransactionTable', () => {
     return render(<RouterProvider router={router} />);
   };
 
+  // Like renderWithRouter, but captures every fetcher submission's form fields so a
+  // test can assert what the reviewed toggle posted.
+  const renderCapturingSubmissions = (component: React.ReactElement) => {
+    const submissions: Array<Record<string, string>> = [];
+    const router = createMemoryRouter(
+      [
+        {
+          path: '/',
+          element: component,
+          action: async ({ request }) => {
+            const entries = Object.fromEntries(await request.formData());
+            submissions.push(entries as Record<string, string>);
+            return { success: true };
+          },
+        },
+      ],
+      { initialEntries: ['/'] }
+    );
+    render(<RouterProvider router={router} />);
+    return submissions;
+  };
+
   it('renders transaction table with categories', async () => {
     renderWithRouter(
       <OptimisticTransactionTable
@@ -358,5 +380,101 @@ describe('OptimisticTransactionTable', () => {
     // Transaction without account should show dash for both account and institution
     const dashes = screen.getAllByText('—');
     expect(dashes.length).toBeGreaterThanOrEqual(2); // At least account and institution columns
+  });
+
+  it('renders a reviewed checkbox per row reflecting the stored flag', () => {
+    const rows: Transaction[] = [
+      { ...mockTransactions[0], 'db/id': 1, 'transaction/reviewed': true },
+      { ...mockTransactions[0], 'db/id': 2, 'transaction/payee': 'Store B' },
+    ];
+    renderWithRouter(
+      <OptimisticTransactionTable
+        transactions={rows}
+        categories={mockCategories}
+        sorting={[]}
+        onSortingChange={vi.fn()}
+      />
+    );
+
+    expect(screen.getByRole('columnheader', { name: /reviewed/i })).toBeInTheDocument();
+    const boxes = screen.getAllByRole('checkbox') as HTMLInputElement[];
+    expect(boxes.length).toBe(2);
+    expect(boxes[0].checked).toBe(true);
+    expect(boxes[1].checked).toBe(false);
+  });
+
+  it('posts a reviewed toggle for the clicked row', async () => {
+    const user = userEvent.setup();
+    const rows: Transaction[] = [{ ...mockTransactions[0], 'db/id': 7 }];
+    const submissions = renderCapturingSubmissions(
+      <OptimisticTransactionTable
+        transactions={rows}
+        categories={mockCategories}
+        sorting={[]}
+        onSortingChange={vi.fn()}
+      />
+    );
+
+    await user.click(screen.getByRole('checkbox'));
+
+    expect(submissions).toContainEqual({
+      intent: 'toggle-transaction-reviewed',
+      transactionId: '7',
+      reviewed: 'true',
+    });
+  });
+
+  it('reviews splits per part with no checkbox on the split parent', () => {
+    const reviewedSplit: Transaction[] = [
+      {
+        ...mockTransactionWithSplits[0],
+        'transaction/splits': [
+          { ...mockTransactionWithSplits[0]['transaction/splits']![0], 'split/reviewed': true },
+          { ...mockTransactionWithSplits[0]['transaction/splits']![1] },
+        ],
+      },
+    ];
+    renderWithRouter(
+      <OptimisticTransactionTable
+        transactions={reviewedSplit}
+        categories={mockCategories}
+        sorting={[]}
+        onSortingChange={vi.fn()}
+        onSplit={vi.fn()}
+      />
+    );
+
+    // The parent row's reviewed cell is blank — only the two child rows carry a box.
+    const parentRow = document.querySelector('tr.is-split-parent')!;
+    expect(parentRow.querySelector('input[type="checkbox"]')).toBeNull();
+
+    const boxes = screen.getAllByRole('checkbox') as HTMLInputElement[];
+    expect(boxes.length).toBe(2);
+    // First part reviewed, second not — reviewing one leg never touches the sibling.
+    expect(boxes[0].checked).toBe(true);
+    expect(boxes[1].checked).toBe(false);
+  });
+
+  it('posts a split reviewed toggle keyed on the split id', async () => {
+    const user = userEvent.setup();
+    const submissions = renderCapturingSubmissions(
+      <OptimisticTransactionTable
+        transactions={mockTransactionWithSplits}
+        categories={mockCategories}
+        sorting={[]}
+        onSortingChange={vi.fn()}
+        onSplit={vi.fn()}
+      />
+    );
+
+    const boxes = screen.getAllByRole('checkbox');
+    await user.click(boxes[0]);
+
+    expect(submissions).toContainEqual({
+      intent: 'toggle-split-reviewed',
+      transactionId: '5',
+      splitId: '51',
+      reviewed: 'true',
+    });
   });
 });

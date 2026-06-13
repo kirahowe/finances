@@ -27,6 +27,8 @@ export const TRANSACTION_COLUMNS: TransactionColumnMeta[] = [
   { id: 'description', label: 'Description', hideable: true, resizable: true, protected: false, size: 300, minSize: 100 },
   { id: 'amount', label: 'Amount', hideable: true, resizable: true, protected: true, size: 120, minSize: 90 },
   { id: 'category', label: 'Category', hideable: true, resizable: true, protected: true, size: 190, minSize: 150 },
+  // A fixed-width checkbox column; protected so the checkbox is never clipped.
+  { id: 'reviewed', label: 'Reviewed', hideable: true, resizable: false, protected: true, size: 90, minSize: 80 },
   // The row-actions caret is structural, not data — never hidden or resized.
   { id: 'actions', label: '', hideable: false, resizable: false, protected: true, size: 56, minSize: 56 },
 ];

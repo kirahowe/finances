@@ -80,6 +80,9 @@ export function OptimisticTransactionTable({
 }: OptimisticTransactionTableProps) {
   const [editingTransactionId, setEditingTransactionId] = useState<number | null>(null);
   const fetcher = useFetcher();
+  // A separate fetcher for reviewed toggles so its in-flight formData (used for the
+  // optimistic checkbox state) never collides with the category fetcher's.
+  const reviewedFetcher = useFetcher();
   // Measured content-fit widths (stretched to fill), used as each column's default
   // size. A user resize (columnSizing) overrides per-column. Not persisted — it's
   // derived from the data + container width on each load.
@@ -191,6 +194,45 @@ export function OptimisticTransactionTable({
     setEditingTransactionId(null);
   };
 
+  // Optimistic reviewed state for a transaction row: while a toggle for this row is
+  // in flight, reflect the pending value from the fetcher's formData; otherwise read
+  // the server's effective flag (for a split row that's the all-parts-reviewed roll-up).
+  const isReviewed = (transaction: Transaction): boolean => {
+    const pending =
+      reviewedFetcher.state !== 'idle' &&
+      reviewedFetcher.formData?.get('intent') === 'toggle-transaction-reviewed' &&
+      reviewedFetcher.formData?.get('transactionId') === transaction['db/id'].toString();
+    if (pending) return reviewedFetcher.formData?.get('reviewed') === 'true';
+    return transaction['transaction/reviewed'] === true;
+  };
+
+  // Optimistic reviewed state for a single split, keyed on the split id.
+  const isSplitReviewed = (split: Split): boolean => {
+    const pending =
+      reviewedFetcher.state !== 'idle' &&
+      reviewedFetcher.formData?.get('intent') === 'toggle-split-reviewed' &&
+      reviewedFetcher.formData?.get('splitId') === split['db/id'].toString();
+    if (pending) return reviewedFetcher.formData?.get('reviewed') === 'true';
+    return split['split/reviewed'] === true;
+  };
+
+  const handleReviewedToggle = (transactionId: number, next: boolean) => {
+    const formData = new FormData();
+    formData.set('intent', 'toggle-transaction-reviewed');
+    formData.set('transactionId', transactionId.toString());
+    formData.set('reviewed', String(next));
+    reviewedFetcher.submit(formData, { method: 'post' });
+  };
+
+  const handleSplitReviewedToggle = (transactionId: number, splitId: number, next: boolean) => {
+    const formData = new FormData();
+    formData.set('intent', 'toggle-split-reviewed');
+    formData.set('transactionId', transactionId.toString());
+    formData.set('splitId', splitId.toString());
+    formData.set('reviewed', String(next));
+    reviewedFetcher.submit(formData, { method: 'post' });
+  };
+
   // One cell of a split part's (child) row. Only the amount and category are
   // filled (with a branch marker + an Edit action); the rest is blank because the
   // parent row already carries the date/account/payee context.
@@ -219,6 +261,18 @@ export function OptimisticTransactionTable({
             </button>
           </div>
         );
+      case 'reviewed': {
+        const checked = isSplitReviewed(split);
+        return (
+          <input
+            type="checkbox"
+            className="reviewed-checkbox"
+            checked={checked}
+            onChange={(e) => handleSplitReviewedToggle(tx['db/id'], split['db/id'], e.target.checked)}
+            aria-label={checked ? 'Mark split as not reviewed' : 'Mark split as reviewed'}
+          />
+        );
+      }
       default:
         return null;
     }
@@ -312,6 +366,24 @@ export function OptimisticTransactionTable({
       },
     }),
     columnHelper.display({
+      id: 'reviewed',
+      header: 'Reviewed',
+      ...columnDefSizing('reviewed'),
+      cell: (info) => {
+        const transaction = info.row.original;
+        const checked = isReviewed(transaction);
+        return (
+          <input
+            type="checkbox"
+            className="reviewed-checkbox"
+            checked={checked}
+            onChange={(e) => handleReviewedToggle(transaction['db/id'], e.target.checked)}
+            aria-label={checked ? 'Mark as not reviewed' : 'Mark as reviewed'}
+          />
+        );
+      },
+    }),
+    columnHelper.display({
       id: 'actions',
       header: '',
       ...columnDefSizing('actions'),
@@ -324,6 +396,7 @@ export function OptimisticTransactionTable({
   const cellClassName = (columnId: string): string | undefined => {
     if (columnId === 'amount') return 'amount-cell';
     if (columnId === 'category') return 'category-cell';
+    if (columnId === 'reviewed') return 'reviewed-cell';
     if (columnId === 'actions') return 'actions-cell';
     return undefined;
   };
@@ -471,9 +544,10 @@ export function OptimisticTransactionTable({
                   {row.getVisibleCells().map((cell) => {
                     const id = cell.column.id;
                     // The parent carries context only: blank the amount (so the total
-                    // isn't shown twice) and the category (each part owns its own
-                    // category; the parent has none). The row menu stays available.
-                    const blank = id === 'amount' || id === 'category';
+                    // isn't shown twice), the category (each part owns its own
+                    // category; the parent has none) and the reviewed checkbox (each
+                    // part is reviewed on its own row). The row menu stays available.
+                    const blank = id === 'amount' || id === 'category' || id === 'reviewed';
                     return (
                       <td key={cell.id} className={cellClassName(id)}>
                         {blank ? null : flexRender(cell.column.columnDef.cell, cell.getContext())}

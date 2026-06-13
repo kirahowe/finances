@@ -98,6 +98,10 @@ export const routes = {
       buildUrl('api', 'transactions', transactionId, 'category'),
     setSplits: (transactionId: number) =>
       buildUrl('api', 'transactions', transactionId, 'splits'),
+    setReviewed: (transactionId: number) =>
+      buildUrl('api', 'transactions', transactionId, 'reviewed'),
+    setSplitReviewed: (transactionId: number, splitId: number) =>
+      buildUrl('api', 'transactions', transactionId, 'splits', splitId, 'reviewed'),
   },
 
   // Transfer matching

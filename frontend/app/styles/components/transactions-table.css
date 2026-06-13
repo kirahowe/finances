@@ -41,6 +41,18 @@
   padding-left: 0;
 }
 
+/* The reviewed checkbox sits centered in its fixed-width column (header included). */
+.table.table-resizable .reviewed-cell {
+  text-align: center;
+}
+
+.reviewed-checkbox {
+  width: 16px;
+  height: 16px;
+  cursor: pointer;
+  accent-color: var(--color-primary);
+}
+
 .table.table-resizable th {
   position: relative;
   user-select: none;

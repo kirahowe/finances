@@ -76,6 +76,8 @@ const SplitSchema = z.object({
   'split/order': z.number().optional(),
   'split/memo': z.string().nullable().optional(),
   'split/category': SplitCategoryRefSchema.nullable().optional(),
+  // Each split is reviewed independently of the parent and its siblings.
+  'split/reviewed': z.boolean().optional(),
 });
 
 export type Split = z.infer<typeof SplitSchema>;
@@ -105,6 +107,9 @@ const TransactionSchema = z.object({
   'transaction/transfer-pair': TransferPairRefSchema.nullable().optional(),
   // Server-computed: true when the Hide-transfers toggle should remove this row.
   'transaction/transfer-hidden': z.boolean().optional(),
+  // Effective reviewed status. For an unsplit row it's the stored flag; for a split
+  // row the server derives it as "every split reviewed". Absent means not reviewed.
+  'transaction/reviewed': z.boolean().optional(),
 });
 
 // One leg of a transfer suggestion / a manual-match candidate.
@@ -493,6 +498,37 @@ export const api = {
       method: 'PUT',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ splits }),
+    });
+    const json = await response.json();
+    if (!response.ok || !json.success) {
+      throw new Error(json.error || `HTTP ${response.status}: ${response.statusText}`);
+    }
+    const result = ApiResponseSchema(TransactionSchema).parse(json);
+    return result.data;
+  },
+
+  // Mark a transaction reviewed (or clear it). Returns the refreshed transaction.
+  async setTransactionReviewed(transactionId: number, reviewed: boolean): Promise<Transaction> {
+    const response = await fetch(routes.transactions.setReviewed(transactionId), {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ reviewed }),
+    });
+    const json = await response.json();
+    if (!response.ok || !json.success) {
+      throw new Error(json.error || `HTTP ${response.status}: ${response.statusText}`);
+    }
+    const result = ApiResponseSchema(TransactionSchema).parse(json);
+    return result.data;
+  },
+
+  // Mark one split reviewed (or clear it). Returns the refreshed parent transaction,
+  // including its now-recomputed effective reviewed roll-up.
+  async setSplitReviewed(transactionId: number, splitId: number, reviewed: boolean): Promise<Transaction> {
+    const response = await fetch(routes.transactions.setSplitReviewed(transactionId, splitId), {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ reviewed }),
     });
     const json = await response.json();
     if (!response.ok || !json.success) {
