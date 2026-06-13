@@ -138,6 +138,17 @@
   cursor: default;
 }
 
+/* A read-only counterpart row (the matched-transfer view): same frame as a
+   clickable candidate, but inert — no hover affordance or pointer. */
+.transfer-candidate.is-static {
+  cursor: default;
+}
+
+.transfer-candidate.is-static:hover {
+  background: none;
+  border-color: var(--color-border);
+}
+
 .transfer-modal-actions {
   display: flex;
   justify-content: space-between;
@@ -166,22 +177,27 @@
 }
 
 /* Small status pill under the category: matched reads as a quiet pine "linked"
-   tag; unmatched is an outlined "open to-do" tag. The match/unmatch actions live
-   in the row menu. */
+   tag; unmatched is an outlined "open to-do" tag. Both are clickable buttons that
+   open the transfer modal (to view/unmatch, or to match a counterpart). */
 .transfer-status {
   display: inline-block;
   align-self: flex-start;
   max-width: 100%;
+  font-family: inherit;
   font-size: 0.6rem;
   font-weight: 600;
   letter-spacing: 0.05em;
   text-transform: uppercase;
   padding: 0.08rem 0.4rem;
+  border: none;
   border-radius: var(--radius-pill);
   line-height: 1.3;
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
+  cursor: pointer;
+  transition: background-color 0.15s var(--ease-out), color 0.15s var(--ease-out),
+    border-color 0.15s var(--ease-out);
 }
 
 .transfer-status-matched {
@@ -189,8 +205,19 @@
   color: var(--color-pine-hover);
 }
 
+.transfer-status-matched:hover {
+  background: var(--color-pine);
+  color: #fff;
+}
+
 .transfer-status-unmatched {
   background: var(--color-surface);
   color: var(--color-ink-soft);
   border: 1px solid var(--color-border-strong);
+}
+
+.transfer-status-unmatched:hover {
+  background: var(--color-paper-deep);
+  color: var(--color-ink);
+  border-color: var(--color-ink-soft);
 }

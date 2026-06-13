@@ -26,8 +26,15 @@ export function MatchTransferModal({ transaction, onClose, onSaved }: MatchTrans
     return () => document.removeEventListener('keydown', onKey);
   }, [onClose]);
 
+  // A transfer-categorized row is in one of two states: already linked to a
+  // counterpart (show the partner + an Unmatch action) or open (search for a
+  // counterpart to link). One modal covers both.
+  const pair = transaction['transaction/transfer-pair'];
+  const isMatched = !!pair;
+
   const txId = transaction['db/id'];
   useEffect(() => {
+    if (isMatched) return;
     let active = true;
     api
       .getMatchCandidates(txId)
@@ -40,7 +47,7 @@ export function MatchTransferModal({ transaction, onClose, onSaved }: MatchTrans
     return () => {
       active = false;
     };
-  }, [txId]);
+  }, [txId, isMatched]);
 
   const isOutflow = transaction['transaction/amount'] < 0;
 
@@ -58,72 +65,124 @@ export function MatchTransferModal({ transaction, onClose, onSaved }: MatchTrans
     }
   };
 
+  const unmatch = async () => {
+    setSubmitting(true);
+    setError(null);
+    try {
+      await api.unmatchTransfer(transaction['db/id']);
+      onSaved();
+    } catch (e) {
+      setError(e instanceof Error ? e.message : 'Failed to unmatch transfer');
+      setSubmitting(false);
+    }
+  };
+
   return (
     <div className="modal-backdrop" onClick={onClose}>
       <div
         className="modal-content transfer-modal-content"
         role="dialog"
         aria-modal="true"
-        aria-label="Match transfer"
+        aria-label={isMatched ? 'Matched transfer' : 'Match transfer'}
         onClick={(e) => e.stopPropagation()}
       >
-        <h2>Match transfer</h2>
+        <h2>{isMatched ? 'Matched transfer' : 'Match transfer'}</h2>
         <p className="split-modal-sub">
           <span>{transaction['transaction/payee']}</span>
           <span className={`numeric ${transaction['transaction/amount'] >= 0 ? 'positive' : 'negative'}`}>
             {formatAmount(transaction['transaction/amount'])}
           </span>
         </p>
-        <p className="transfer-modal-hint">
-          Pick the matching transaction on another account to link them as a transfer.
-        </p>
 
-        {loadError && <div className="error-banner">{loadError}</div>}
-        {!candidates && !loadError && <div className="transfer-empty">Searching…</div>}
+        {isMatched ? (
+          <>
+            <p className="transfer-modal-hint">
+              Linked as a transfer with the matching transaction on another account.
+            </p>
 
-        {candidates && candidates.length === 0 && (
-          <div className="transfer-empty">
-            No matching transaction found on another account. This transfer stays visible —
-            you can match it later once the other side is imported.
-          </div>
-        )}
-
-        {candidates && candidates.length > 0 && (
-          <div className="transfer-suggestion-list">
-            {candidates.map((c) => (
-              <button
-                key={c['db/id']}
-                type="button"
-                className="transfer-candidate"
-                disabled={submitting}
-                onClick={() => link(c)}
-              >
+            <div className="transfer-suggestion-list">
+              <div className="transfer-candidate is-static">
                 <div className="transfer-suggestion-body">
                   <div className="transfer-suggestion-route">
-                    <span>{c['transaction/account']?.['account/external-name'] ?? 'Unknown'}</span>
+                    <span>{pair['transaction/account']?.['account/external-name'] ?? 'Another account'}</span>
                   </div>
-                  <div className="transfer-suggestion-meta">
-                    {c['transaction/payee']}
-                    {c['transaction/posted-date'] && ` · ${formatDate(c['transaction/posted-date'])}`}
-                  </div>
+                  {pair['transaction/posted-date'] && (
+                    <div className="transfer-suggestion-meta">{formatDate(pair['transaction/posted-date'])}</div>
+                  )}
                 </div>
                 <span
-                  className={`numeric transfer-suggestion-amount ${c['transaction/amount'] >= 0 ? 'positive' : 'negative'}`}
+                  className={`numeric transfer-suggestion-amount ${pair['transaction/amount'] >= 0 ? 'positive' : 'negative'}`}
                 >
-                  {formatAmount(c['transaction/amount'])}
+                  {formatAmount(pair['transaction/amount'])}
                 </span>
+              </div>
+            </div>
+
+            {error && <div className="error-banner">{error}</div>}
+
+            <div className="transfer-modal-actions">
+              <button type="button" className="button button-danger" onClick={unmatch} disabled={submitting}>
+                Unmatch transfer
               </button>
-            ))}
-          </div>
+              <button type="button" className="button button-secondary" onClick={onClose} disabled={submitting}>
+                Close
+              </button>
+            </div>
+          </>
+        ) : (
+          <>
+            <p className="transfer-modal-hint">
+              Pick the matching transaction on another account to link them as a transfer.
+            </p>
+
+            {loadError && <div className="error-banner">{loadError}</div>}
+            {!candidates && !loadError && <div className="transfer-empty">Searching…</div>}
+
+            {candidates && candidates.length === 0 && (
+              <div className="transfer-empty">
+                No matching transaction found on another account. This transfer stays visible —
+                you can match it later once the other side is imported.
+              </div>
+            )}
+
+            {candidates && candidates.length > 0 && (
+              <div className="transfer-suggestion-list">
+                {candidates.map((c) => (
+                  <button
+                    key={c['db/id']}
+                    type="button"
+                    className="transfer-candidate"
+                    disabled={submitting}
+                    onClick={() => link(c)}
+                  >
+                    <div className="transfer-suggestion-body">
+                      <div className="transfer-suggestion-route">
+                        <span>{c['transaction/account']?.['account/external-name'] ?? 'Unknown'}</span>
+                      </div>
+                      <div className="transfer-suggestion-meta">
+                        {c['transaction/payee']}
+                        {c['transaction/posted-date'] && ` · ${formatDate(c['transaction/posted-date'])}`}
+                      </div>
+                    </div>
+                    <span
+                      className={`numeric transfer-suggestion-amount ${c['transaction/amount'] >= 0 ? 'positive' : 'negative'}`}
+                    >
+                      {formatAmount(c['transaction/amount'])}
+                    </span>
+                  </button>
+                ))}
+              </div>
+            )}
+
+            {error && <div className="error-banner">{error}</div>}
+
+            <div className="transfer-modal-actions">
+              <button type="button" className="button button-secondary" onClick={onClose} disabled={submitting}>
+                Close
+              </button>
+            </div>
+          </>
         )}
-
-        {error && <div className="error-banner">{error}</div>}
-
-        <div className="transfer-modal-actions">
-          <button type="button" className="button button-secondary" onClick={onClose} disabled={submitting}>
-            Close
-          </button>
-        </div>
       </div>
     </div>
   );

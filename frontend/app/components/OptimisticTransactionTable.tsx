@@ -58,8 +58,8 @@ interface OptimisticTransactionTableProps {
   columnSizing?: ColumnSizingState;
   onColumnSizingChange?: OnChangeFn<ColumnSizingState>;
   onSplit?: (transaction: Transaction) => void;
-  onMatch?: (transaction: Transaction) => void;
-  onUnmatch?: (transaction: Transaction) => void;
+  // Open the transfer modal for a transfer row (matched or unmatched).
+  onOpenTransfer?: (transaction: Transaction) => void;
 }
 
 export function OptimisticTransactionTable({
@@ -76,8 +76,7 @@ export function OptimisticTransactionTable({
   columnSizing = {},
   onColumnSizingChange,
   onSplit,
-  onMatch,
-  onUnmatch,
+  onOpenTransfer,
 }: OptimisticTransactionTableProps) {
   const [editingTransactionId, setEditingTransactionId] = useState<number | null>(null);
   const fetcher = useFetcher();
@@ -133,31 +132,39 @@ export function OptimisticTransactionTable({
     };
   };
 
-  // A quiet, non-interactive transfer status pill for the category cell: "Matched"
-  // on a matched transfer, or "Unmatched" on a transfer-categorized row with no
-  // counterpart. The match/unmatch *actions* live in the row menu.
+  // A transfer status pill for the category cell: "Matched" on a matched transfer,
+  // or "Unmatched" on a transfer-categorized row with no counterpart. Clicking
+  // either opens the transfer modal (to view/unmatch or to match a counterpart).
   const renderTransferStatus = (transaction: Transaction) => {
     const pair = transaction['transaction/transfer-pair'];
     if (pair) {
       const partnerName = pair['transaction/account']?.['account/external-name'] ?? 'another account';
       return (
-        <span
+        <button
+          type="button"
           className="transfer-status transfer-status-matched"
           title={`Matched transfer with ${partnerName} (${formatAmount(pair['transaction/amount'])})`}
+          onClick={() => onOpenTransfer?.(transaction)}
         >
           Matched
-        </span>
+        </button>
       );
     }
     const isTransferType = transaction['transaction/category']?.['category/type'] === 'transfer';
     return isTransferType ? (
-      <span className="transfer-status transfer-status-unmatched" title="Transfer with no matched counterpart">
+      <button
+        type="button"
+        className="transfer-status transfer-status-unmatched"
+        title="Transfer with no matched counterpart — click to match"
+        onClick={() => onOpenTransfer?.(transaction)}
+      >
         Unmatched
-      </span>
+      </button>
     ) : null;
   };
 
-  // Actions for a row's "⌄" menu: split/edit-split and match/unmatch, as available.
+  // Actions for a row's "⌄" menu. Transfer matching lives on the status pill now,
+  // so only split/edit-split remains here.
   const rowActions = (transaction: Transaction): RowAction[] => {
     const actions: RowAction[] = [];
     const isSplit = (transaction['transaction/splits']?.length ?? 0) > 0;
@@ -167,13 +174,6 @@ export function OptimisticTransactionTable({
         label: isSplit ? 'Edit split' : 'Split transaction',
         onSelect: () => onSplit(transaction),
       });
-    }
-    if (transaction['transaction/transfer-pair']) {
-      if (onUnmatch) {
-        actions.push({ label: 'Unmatch transfer', onSelect: () => onUnmatch(transaction), danger: true });
-      }
-    } else if (onMatch) {
-      actions.push({ label: 'Match as transfer', onSelect: () => onMatch(transaction) });
     }
     return actions;
   };

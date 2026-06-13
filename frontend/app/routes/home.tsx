@@ -7,7 +7,6 @@ import { OptimisticTransactionTable } from "../components/OptimisticTransactionT
 import { SplitTransactionModal } from "../components/SplitTransactionModal";
 import { TransferReviewModal } from "../components/TransferReviewModal";
 import { MatchTransferModal } from "../components/MatchTransferModal";
-import { ErrorDisplay } from "../components/ErrorDisplay";
 import { Pagination } from "../components/Pagination";
 import { FilterBar, type FilterConfig } from "../components/FilterBar";
 import { ColumnPicker } from "../components/ColumnPicker";
@@ -117,9 +116,8 @@ function TransactionsSection({
     const raw = Number(searchParams.get("pageSize"));
     return (PAGE_SIZE_OPTIONS as readonly number[]).includes(raw) ? (raw as PageSize) : 25;
   });
-  const [error, setError] = useState<string | null>(null);
   const [splitTx, setSplitTx] = useState<Transaction | null>(null);
-  const [matchTx, setMatchTx] = useState<Transaction | null>(null);
+  const [transferTx, setTransferTx] = useState<Transaction | null>(null);
   const [reviewing, setReviewing] = useState(false);
   const [hideTransfers, setHideTransfers] = useState(
     () => searchParams.get("hideTransfers") === "1"
@@ -252,15 +250,6 @@ function TransactionsSection({
     window.history.replaceState(null, "", currentUrl.toString());
   }, [sorting, filters, hideTransfers, columnVisibility, columnSizing, page, pageSize]);
 
-  const handleUnmatchTransfer = async (transaction: Transaction) => {
-    try {
-      await api.unmatchTransfer(transaction["db/id"]);
-      revalidator.revalidate();
-    } catch (err) {
-      setError(err instanceof Error ? err.message : "Failed to unmatch transfer");
-    }
-  };
-
   const handleSortingChange = (
     updaterOrValue: SortingState | ((old: SortingState) => SortingState)
   ) => {
@@ -354,7 +343,6 @@ function TransactionsSection({
 
         {syncStatus && <div className="status-banner">{syncStatus}</div>}
         {syncError && <div className="error-banner">{syncError}</div>}
-        <ErrorDisplay error={error} onDismiss={() => setError(null)} />
 
         <FilterBar
           filters={filterConfigs}
@@ -416,8 +404,7 @@ function TransactionsSection({
               columnSizing={columnSizing}
               onColumnSizingChange={setColumnSizing}
               onSplit={setSplitTx}
-              onMatch={setMatchTx}
-              onUnmatch={handleUnmatchTransfer}
+              onOpenTransfer={setTransferTx}
             />
 
             <Pagination
@@ -451,12 +438,12 @@ function TransactionsSection({
         />
       )}
 
-      {matchTx && (
+      {transferTx && (
         <MatchTransferModal
-          transaction={matchTx}
-          onClose={() => setMatchTx(null)}
+          transaction={transferTx}
+          onClose={() => setTransferTx(null)}
           onSaved={() => {
-            setMatchTx(null);
+            setTransferTx(null);
             revalidator.revalidate();
           }}
         />

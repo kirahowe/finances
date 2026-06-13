@@ -60,17 +60,16 @@ test('Find transfers proposes the seeded pair; confirming then hiding removes it
   await expect(row(page, 'Transfer from Chequing')).toHaveCount(0);
 });
 
-test('An unmatched transfer is flagged and can be matched manually', async ({ page }) => {
+test('An unmatched transfer is flagged and can be matched from its pill', async ({ page }) => {
   await page.goto(MONTH);
 
   // The transfer-typed transaction with no in-window counterpart is flagged.
   const unmatched = row(page, 'Transfer Out');
   await expect(unmatched).toContainText(/unmatched/i);
 
-  // Open the manual-match modal (via the row actions menu) and confirm it lists
-  // the out-of-window counterpart.
-  await unmatched.getByRole('button', { name: 'Transaction actions' }).click();
-  await page.getByRole('menuitem', { name: 'Match as transfer' }).click();
+  // Click the "Unmatched" status pill to open the manual-match modal, and confirm
+  // it lists the out-of-window counterpart.
+  await unmatched.getByRole('button', { name: 'Unmatched', exact: true }).click();
 
   const modal = page.locator('.transfer-modal-content');
   await expect(modal).toBeVisible();
@@ -78,4 +77,25 @@ test('An unmatched transfer is flagged and can be matched manually', async ({ pa
   await expect(candidates).toHaveCount(1);
   await expect(candidates.first()).toContainText('Savings');
   await expect(candidates.first()).toContainText('$750.00');
+});
+
+test('A matched transfer opens its pill modal and can be unmatched', async ({ page }) => {
+  await page.goto(MONTH);
+
+  // The pre-matched credit-card payment shows a "Matched" pill; clicking it opens
+  // the modal showing the linked counterpart on the Visa account.
+  const matched = row(page, 'Visa Payment');
+  await matched.getByRole('button', { name: 'Matched', exact: true }).click();
+
+  const modal = page.locator('.transfer-modal-content');
+  await expect(modal).toBeVisible();
+  await expect(modal.getByRole('heading', { name: 'Matched transfer' })).toBeVisible();
+  await expect(modal).toContainText('Visa');
+  await expect(modal).toContainText('$300.00');
+
+  await modal.getByRole('button', { name: 'Unmatch transfer' }).click();
+  await expect(modal).toBeHidden();
+
+  // Unmatched: this pure transfer has no category, so the row loses its status pill.
+  await expect(matched.getByRole('button', { name: 'Matched', exact: true })).toHaveCount(0);
 });

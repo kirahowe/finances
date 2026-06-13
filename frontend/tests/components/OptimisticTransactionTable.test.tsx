@@ -271,10 +271,9 @@ describe('OptimisticTransactionTable', () => {
     expect(onSplit).toHaveBeenCalledTimes(2);
   });
 
-  it('puts split + transfer actions in the menu, gating split on a non-zero amount', async () => {
+  it('puts only split in the row menu, gating it on a non-zero amount', async () => {
     const user = userEvent.setup();
     const onSplit = vi.fn();
-    const onMatch = vi.fn();
     const zeroAndNormal: Transaction[] = [
       { ...mockTransactions[0], 'db/id': 1, 'transaction/amount': -50 },
       { ...mockTransactions[0], 'db/id': 2, 'transaction/amount': 0, 'transaction/payee': 'Zero' },
@@ -286,23 +285,64 @@ describe('OptimisticTransactionTable', () => {
         sorting={[]}
         onSortingChange={vi.fn()}
         onSplit={onSplit}
-        onMatch={onMatch}
       />
     );
 
+    // Only the non-zero row has an available action (Split), so it's the only row
+    // with a menu trigger; the $0 row's trigger is withheld entirely.
     const triggers = screen.getAllByRole('button', { name: 'Transaction actions' });
-    expect(triggers.length).toBe(2);
+    expect(triggers.length).toBe(1);
 
-    // Non-zero row: both Split and Match are offered.
     await user.click(triggers[0]);
     expect(screen.getByRole('menuitem', { name: 'Split transaction' })).toBeInTheDocument();
-    expect(screen.getByRole('menuitem', { name: 'Match as transfer' })).toBeInTheDocument();
-    await user.keyboard('{Escape}');
+    // Transfer matching moved onto the status pill — it's no longer in the menu.
+    expect(screen.queryByRole('menuitem', { name: 'Match as transfer' })).not.toBeInTheDocument();
+  });
 
-    // $0 row: Split is withheld (can't divide 0 into non-zero parts), Match remains.
-    await user.click(triggers[1]);
-    expect(screen.queryByRole('menuitem', { name: 'Split transaction' })).not.toBeInTheDocument();
-    expect(screen.getByRole('menuitem', { name: 'Match as transfer' })).toBeInTheDocument();
+  it('opens the transfer modal when a matched / unmatched status pill is clicked', async () => {
+    const user = userEvent.setup();
+    const onOpenTransfer = vi.fn();
+    const transferCategory: Category = {
+      'db/id': 3,
+      'category/name': 'Transfer',
+      'category/type': 'transfer',
+    };
+    const pillRows: Transaction[] = [
+      // Unmatched: transfer-categorized with no counterpart.
+      {
+        ...mockTransactions[0],
+        'db/id': 1,
+        'transaction/payee': 'Open transfer',
+        'transaction/category': transferCategory,
+      },
+      // Matched: linked to a counterpart on another account.
+      {
+        ...mockTransactions[0],
+        'db/id': 2,
+        'transaction/payee': 'Linked transfer',
+        'transaction/category': transferCategory,
+        'transaction/transfer-pair': {
+          'db/id': 99,
+          'transaction/amount': 50,
+          'transaction/account': { 'db/id': 11, 'account/external-name': 'Savings' },
+        },
+      },
+    ];
+    renderWithRouter(
+      <OptimisticTransactionTable
+        transactions={pillRows}
+        categories={mockCategories}
+        sorting={[]}
+        onSortingChange={vi.fn()}
+        onOpenTransfer={onOpenTransfer}
+      />
+    );
+
+    await user.click(screen.getByRole('button', { name: 'Unmatched' }));
+    expect(onOpenTransfer).toHaveBeenCalledWith(pillRows[0]);
+
+    await user.click(screen.getByRole('button', { name: 'Matched' }));
+    expect(onOpenTransfer).toHaveBeenCalledWith(pillRows[1]);
   });
 
   it('displays dash when transaction has no account', async () => {

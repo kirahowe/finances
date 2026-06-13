@@ -89,6 +89,20 @@
   box-shadow: var(--shadow-sm);
 }
 
+.button-danger {
+  background-color: var(--color-surface);
+  color: var(--color-error-text);
+  border-color: var(--color-border-strong);
+  box-shadow: none;
+}
+
+.button-danger:hover:not(:disabled) {
+  background-color: var(--color-error-bg);
+  color: var(--color-error-text);
+  border-color: var(--color-error-text);
+  box-shadow: var(--shadow-sm);
+}
+
 .button-small {
   padding: 0.3rem 0.7rem;
   font-size: 0.8rem;
