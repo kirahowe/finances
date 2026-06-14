@@ -39,7 +39,7 @@ const UNCATEGORIZED: DropdownOption = { id: null, name: 'Uncategorized' };
 const sortKey = (c: Category): number =>
   c['category/sort-order'] ?? Number.MAX_SAFE_INTEGER;
 
-const parentIdOf = (c: Category): number | null =>
+export const parentIdOf = (c: Category): number | null =>
   c['category/parent']?.['db/id'] ?? null;
 
 const bySortOrder = (a: Category, b: Category): number => sortKey(a) - sortKey(b);

@@ -11,6 +11,7 @@ import { Pagination } from "../components/Pagination";
 import { FilterBar, type FilterConfig } from "../components/FilterBar";
 import { ColumnPicker } from "../components/ColumnPicker";
 import { MonthNavigator } from "../components/MonthNavigator";
+import { CategoryRollupPane } from "../components/CategoryRollupPane";
 import { parseSortingState, serializeSortingState } from "../lib/sortingState";
 import {
   parseColumnVisibility,
@@ -22,7 +23,6 @@ import { HIDEABLE_COLUMNS, HIDEABLE_COLUMN_IDS } from "../lib/transactionColumns
 import { parseMonthParam, serializeMonth, type MonthState } from "../lib/monthState";
 import type { SortingState, VisibilityState, ColumnSizingState } from "@tanstack/react-table";
 import { PAGE_SIZE_OPTIONS, calculateTotalPages, type PageSize } from "../lib/pagination";
-import { formatAmount } from "../lib/format";
 import {
   parseFilters,
   serializeFilters,
@@ -53,7 +53,17 @@ import "../styles/components/pagination.css";
 import "../styles/components/category-button.css";
 import "../styles/components/filter.css";
 import "../styles/components/month-navigator.css";
+import "../styles/components/category-rollup.css";
 import "../styles/components/transfer-modal.css";
+
+// Accessor map for the transaction filters. `applyFilters` only consults accessors
+// for fields actually present in the filter state, so the same map serves both the
+// table (with the category filter) and the rollup (with the category field stripped).
+const TX_FILTER_ACCESSORS: Record<string, (tx: Transaction) => FilterValue | null | undefined> = {
+  account: (tx) => tx["transaction/account"]?.["db/id"],
+  category: (tx) => tx["transaction/category"]?.["db/id"],
+  reviewed: (tx) => (tx["transaction/reviewed"] ? "reviewed" : "unreviewed"),
+};
 
 export function meta({}: Route.MetaArgs) {
   return [
@@ -248,25 +258,37 @@ function TransactionsSection({
 
   // Apply filters to transactions, then optionally hide matched transfers.
   const filteredTransactions = useMemo(() => {
-    const filtered = applyFilters(mergedTransactions, filters, {
-      account: (tx: Transaction) => tx["transaction/account"]?.["db/id"],
-      category: (tx: Transaction) => tx["transaction/category"]?.["db/id"],
-      reviewed: (tx: Transaction) => (tx["transaction/reviewed"] ? "reviewed" : "unreviewed"),
-    });
+    const filtered = applyFilters(mergedTransactions, filters, TX_FILTER_ACCESSORS);
     return hideTransfers ? filtered.filter((tx) => !tx['transaction/transfer-hidden']) : filtered;
   }, [mergedTransactions, filters, hideTransfers]);
 
-  // Month figures derived from the currently-visible (filtered) set.
-  const summary = useMemo(() => {
-    let inflow = 0;
-    let outflow = 0;
-    for (const tx of filteredTransactions) {
-      const amount = tx["transaction/amount"] ?? 0;
-      if (amount >= 0) inflow += amount;
-      else outflow += amount;
-    }
-    return { count: filteredTransactions.length, inflow, outflow, net: inflow + outflow };
-  }, [filteredTransactions]);
+  // The rollup pane mirrors the month under every filter EXCEPT category (and the
+  // transfer-hide toggle), so clicking a category filters only the table while the
+  // pane stays a stable map you can keep clicking around.
+  const rollupTransactions = useMemo(() => {
+    const withoutCategory = clearFilterField(filters, "category");
+    const base = applyFilters(mergedTransactions, withoutCategory, TX_FILTER_ACCESSORS);
+    return hideTransfers ? base.filter((tx) => !tx["transaction/transfer-hidden"]) : base;
+  }, [mergedTransactions, filters, hideTransfers]);
+
+  const activeCategoryIds = useMemo(
+    () => new Set((filters.category ?? []).map(Number)),
+    [filters.category]
+  );
+
+  // Clicking a rollup row replaces the category filter with that row's ids; clicking
+  // the already-active row clears it.
+  const handleSelectCategory = (ids: number[]) => {
+    setFilters((prev) => {
+      const current = prev.category ?? [];
+      const allActive =
+        ids.length > 0 &&
+        ids.length === current.length &&
+        ids.every((id) => current.includes(id));
+      return allActive ? clearFilterField(prev, "category") : { ...prev, category: ids };
+    });
+    setPage(0);
+  };
 
   // Keep `page` in range if the visible set shrinks (filters, hide-transfers) or the
   // URL carried a stale page beyond the available pages — otherwise the table would
@@ -390,115 +412,102 @@ function TransactionsSection({
         <h2 className="page-title">Transactions</h2>
       </div>
 
-      <div className="summary-bar">
-        <div className="summary-item">
-          <span className="eyebrow">Net</span>
-          <span className={`summary-value ${summary.net >= 0 ? "positive" : "negative"}`}>
-            {formatAmount(summary.net)}
-          </span>
-        </div>
-        <div className="summary-item">
-          <span className="eyebrow">Inflows</span>
-          <span className="summary-value positive">{formatAmount(summary.inflow)}</span>
-        </div>
-        <div className="summary-item">
-          <span className="eyebrow">Outflows</span>
-          <span className="summary-value negative">{formatAmount(summary.outflow)}</span>
-        </div>
-        <div className="summary-divider" />
-        <div className="summary-item">
-          <span className="eyebrow">Transactions</span>
-          <span className="summary-value">{summary.count}</span>
-        </div>
-      </div>
+      <div className="transactions-layout">
+        <div className="card">
+          <MonthNavigator
+            currentMonth={currentMonth}
+            onMonthChange={handleMonthChange}
+            onSync={handleSyncMonth}
+            isSyncing={isSyncing}
+          />
 
-      <div className="card">
-        <MonthNavigator
-          currentMonth={currentMonth}
-          onMonthChange={handleMonthChange}
-          onSync={handleSyncMonth}
-          isSyncing={isSyncing}
-        />
+          {syncStatus && <div className="status-banner">{syncStatus}</div>}
+          {syncError && <div className="error-banner">{syncError}</div>}
 
-        {syncStatus && <div className="status-banner">{syncStatus}</div>}
-        {syncError && <div className="error-banner">{syncError}</div>}
+          <FilterBar
+            filters={filterConfigs}
+            filterState={filters}
+            onToggleValue={handleToggleFilterValue}
+            onClearField={handleClearFilterField}
+            onClearAll={handleClearAllFilters}
+            inlineControls={
+              <label className="transfer-toggle">
+                <input
+                  type="checkbox"
+                  checked={hideTransfers}
+                  onChange={(e) => {
+                    setHideTransfers(e.target.checked);
+                    setPage(0);
+                  }}
+                />
+                <span>Hide transfers</span>
+              </label>
+            }
+            trailingControls={
+              <>
+                <ColumnPicker
+                  columns={HIDEABLE_COLUMNS}
+                  visibility={columnVisibility}
+                  onChange={setColumnVisibility}
+                  onResetWidths={() => setColumnSizing({})}
+                />
+                <button
+                  type="button"
+                  className="button button-secondary"
+                  onClick={() => setReviewing(true)}
+                >
+                  Find transfers
+                </button>
+              </>
+            }
+          />
 
-        <FilterBar
-          filters={filterConfigs}
-          filterState={filters}
-          onToggleValue={handleToggleFilterValue}
-          onClearField={handleClearFilterField}
-          onClearAll={handleClearAllFilters}
-          inlineControls={
-            <label className="transfer-toggle">
-              <input
-                type="checkbox"
-                checked={hideTransfers}
-                onChange={(e) => {
-                  setHideTransfers(e.target.checked);
-                  setPage(0);
-                }}
-              />
-              <span>Hide transfers</span>
-            </label>
-          }
-          trailingControls={
+          {filteredTransactions.length === 0 ? (
+            <div className="empty-state">
+              <div className="empty-state-title">No transactions this month</div>
+              <p>
+                Use the month controls to browse another period, or sync this month
+                to pull the latest activity from your connected accounts.
+              </p>
+            </div>
+          ) : (
             <>
-              <ColumnPicker
-                columns={HIDEABLE_COLUMNS}
-                visibility={columnVisibility}
-                onChange={setColumnVisibility}
-                onResetWidths={() => setColumnSizing({})}
+              <OptimisticTransactionTable
+                transactions={filteredTransactions}
+                categories={categories}
+                page={page}
+                pageSize={pageSize}
+                sorting={sorting}
+                onSortingChange={handleSortingChange}
+                columnVisibility={columnVisibility}
+                onColumnVisibilityChange={setColumnVisibility}
+                columnSizing={columnSizing}
+                onColumnSizingChange={setColumnSizing}
+                onSplit={setSplitTx}
+                onOpenTransfer={setTransferTx}
+                onToggleReviewed={handleToggleReviewed}
+                onToggleSplitReviewed={handleToggleSplitReviewed}
+                onEditDescription={handleEditDescription}
+                onEditSplitDescription={handleEditSplitDescription}
               />
-              <button
-                type="button"
-                className="button button-secondary"
-                onClick={() => setReviewing(true)}
-              >
-                Find transfers
-              </button>
+
+              <Pagination
+                currentPage={page}
+                pageSize={pageSize}
+                totalItems={filteredTransactions.length}
+                onPageChange={setPage}
+                onPageSizeChange={setPageSize}
+              />
             </>
-          }
+          )}
+        </div>
+
+        <CategoryRollupPane
+          transactions={rollupTransactions}
+          categories={categories}
+          activeCategoryIds={activeCategoryIds}
+          onSelectCategory={handleSelectCategory}
         />
-
-        {filteredTransactions.length === 0 ? (
-          <div className="empty-state">
-            <div className="empty-state-title">No transactions this month</div>
-            <p>
-              Use the month controls to browse another period, or sync this month
-              to pull the latest activity from your connected accounts.
-            </p>
-          </div>
-        ) : (
-          <>
-            <OptimisticTransactionTable
-              transactions={filteredTransactions}
-              categories={categories}
-              page={page}
-              pageSize={pageSize}
-              sorting={sorting}
-              onSortingChange={handleSortingChange}
-              columnVisibility={columnVisibility}
-              onColumnVisibilityChange={setColumnVisibility}
-              columnSizing={columnSizing}
-              onColumnSizingChange={setColumnSizing}
-              onSplit={setSplitTx}
-              onOpenTransfer={setTransferTx}
-              onToggleReviewed={handleToggleReviewed}
-              onToggleSplitReviewed={handleToggleSplitReviewed}
-              onEditDescription={handleEditDescription}
-              onEditSplitDescription={handleEditSplitDescription}
-            />
-
-            <Pagination
-              currentPage={page}
-              pageSize={pageSize}
-              totalItems={filteredTransactions.length}
-              onPageChange={setPage}
-              onPageSizeChange={setPageSize}
-            />
-          </>
-        )}
       </div>
 
       {splitTx && (
