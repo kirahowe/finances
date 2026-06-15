@@ -1,15 +1,17 @@
 import type { Category, Transaction } from './api';
 import type { CategoryType } from './categoryTypes';
+import type { FilterValue } from './filterState';
 import { parentIdOf } from './categoryHierarchy';
+import { uncategorizedTokenForType } from './categoryFilter';
 
 /**
  * One line in the rollup pane. `amount` is a positive display magnitude (the
- * section heading conveys direction); `ids` are the category ids a click filters
- * the table to — a group row carries its parent plus every child, a leaf carries
- * just itself, and the non-clickable "Uncategorized" row carries none.
+ * section heading conveys direction); `ids` are the category-filter values a click
+ * applies to the table — a group row carries its parent plus every child, a leaf
+ * carries just itself, and an "Uncategorized" row carries its by-sign sentinel.
  */
 export interface RollupRow {
-  ids: number[];
+  ids: FilterValue[];
   name: string;
   depth: 0 | 1;
   /** A top-level category that has children with activity (rendered emphasized). */
@@ -188,12 +190,12 @@ export function buildCategoryRollup(
 
     if (uncategorized !== 0) {
       rows.push({
-        ids: [],
+        ids: [uncategorizedTokenForType(type)],
         name: 'Uncategorized',
         depth: 0,
         isGroup: false,
         amount: Math.abs(uncategorized),
-        clickable: false,
+        clickable: true,
       });
     }
 

@@ -61,11 +61,15 @@ export function filterOptionsByQuery(
 /**
  * Apply filters to a dataset
  * Returns items that match ALL active filters (AND logic within each filter, OR logic across values)
+ *
+ * An accessor may return a single value or an array of values. An array means the
+ * item belongs to several buckets at once (e.g. a split transaction touching
+ * multiple categories) and matches if ANY of its values is selected.
  */
 export function applyFilters<T>(
   items: T[],
   filters: Record<string, FilterValue[]>,
-  accessors: Record<string, (item: T) => FilterValue | null | undefined>
+  accessors: Record<string, (item: T) => FilterValue | FilterValue[] | null | undefined>
 ): T[] {
   // If no filters, return all items
   if (Object.keys(filters).length === 0) {
@@ -90,7 +94,9 @@ export function applyFilters<T>(
       }
 
       // Item must match ANY of the values for this field (OR logic)
-      return values.includes(itemValue);
+      return Array.isArray(itemValue)
+        ? itemValue.some(v => values.includes(v))
+        : values.includes(itemValue);
     });
   });
 }

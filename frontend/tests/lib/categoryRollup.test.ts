@@ -1,5 +1,6 @@
 import { describe, it, expect } from 'vitest';
 import { buildCategoryRollup } from '../../app/lib/categoryRollup';
+import { UNCATEGORIZED_INCOME, UNCATEGORIZED_EXPENSE } from '../../app/lib/categoryFilter';
 import type { Category, Transaction } from '../../app/lib/api';
 import type { CategoryType } from '../../app/lib/categoryTypes';
 
@@ -150,7 +151,7 @@ describe('buildCategoryRollup', () => {
     expect(r.grandTotal).toBeCloseTo(2000);
   });
 
-  it('buckets uncategorized transactions by sign and makes them non-clickable', () => {
+  it('buckets uncategorized transactions by sign as clickable rows carrying their sentinel', () => {
     const cats = [cat(1, 'Paycheck', 'income', undefined, 1)];
     const txns = [tx(10, 5000, 1), tx(11, -200, null), tx(12, 300, null)];
 
@@ -158,9 +159,9 @@ describe('buildCategoryRollup', () => {
 
     const incomeUncat = r.income.rows.find((row) => row.name === 'Uncategorized');
     const expenseUncat = r.expenses.rows.find((row) => row.name === 'Uncategorized');
-    expect(incomeUncat).toMatchObject({ clickable: false, ids: [] });
+    expect(incomeUncat).toMatchObject({ clickable: true, ids: [UNCATEGORIZED_INCOME] });
     expect(incomeUncat?.amount).toBeCloseTo(300);
-    expect(expenseUncat).toMatchObject({ clickable: false, ids: [] });
+    expect(expenseUncat).toMatchObject({ clickable: true, ids: [UNCATEGORIZED_EXPENSE] });
     expect(expenseUncat?.amount).toBeCloseTo(200);
     // Uncategorized real money still counts toward the net.
     expect(r.grandTotal).toBeCloseTo(5100);

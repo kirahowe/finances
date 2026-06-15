@@ -33,6 +33,7 @@ import {
   type FilterValue,
 } from "../lib/filterState";
 import { extractFilterOptions, applyFilters, type FilterOption } from "../lib/filterOptions";
+import { categoryFilterValues, buildCategoryOptions } from "../lib/categoryFilter";
 import {
   applyReviewedOverlay,
   setTxOverride,
@@ -55,15 +56,6 @@ import "../styles/components/filter.css";
 import "../styles/components/month-navigator.css";
 import "../styles/components/category-rollup.css";
 import "../styles/components/transfer-modal.css";
-
-// Accessor map for the transaction filters. `applyFilters` only consults accessors
-// for fields actually present in the filter state, so the same map serves both the
-// table (with the category filter) and the rollup (with the category field stripped).
-const TX_FILTER_ACCESSORS: Record<string, (tx: Transaction) => FilterValue | null | undefined> = {
-  account: (tx) => tx["transaction/account"]?.["db/id"],
-  category: (tx) => tx["transaction/category"]?.["db/id"],
-  reviewed: (tx) => (tx["transaction/reviewed"] ? "reviewed" : "unreviewed"),
-};
 
 export function meta({}: Route.MetaArgs) {
   return [
@@ -193,6 +185,31 @@ function TransactionsSection({
     [transactions, reviewedOverrides, descriptionOverrides]
   );
 
+  // Category metadata derived once from the full list: which ids exist (so a
+  // deleted/unknown ref routes to Uncategorized, mirroring the rollup) and names
+  // for the filter dropdown labels.
+  const { presentCategoryIds, categoryNameById } = useMemo(() => {
+    const present = new Set(categories.map((c) => c["db/id"]));
+    const names = new Map(categories.map((c) => [c["db/id"], c["category/name"]]));
+    return { presentCategoryIds: present, categoryNameById: names };
+  }, [categories]);
+
+  // Accessor map for the transaction filters. `applyFilters` only consults accessors
+  // for fields present in the filter state, so the same map serves both the table
+  // (with the category filter) and the rollup (with the category field stripped). The
+  // category accessor is split-aware and returns several values: a transaction
+  // matches each of its parts' categories, or a by-sign Uncategorized sentinel for
+  // parts with none.
+  const txFilterAccessors = useMemo(
+    () => ({
+      account: (tx: Transaction) => tx["transaction/account"]?.["db/id"],
+      category: (tx: Transaction) => categoryFilterValues(tx, presentCategoryIds),
+      reviewed: (tx: Transaction) =>
+        tx["transaction/reviewed"] ? "reviewed" : "unreviewed",
+    }),
+    [presentCategoryIds]
+  );
+
   const handleToggleReviewed = (transactionId: number, reviewed: boolean) => {
     setReviewedOverrides((prev) => setTxOverride(prev, transactionId, reviewed));
     enqueue(`tx:${transactionId}`, () => api.setTransactionReviewed(transactionId, reviewed));
@@ -233,10 +250,10 @@ function TransactionsSection({
       (tx) => tx["transaction/account"]?.["account/external-name"] || "Unknown"
     );
 
-    const categoryOptions = extractFilterOptions(
+    const categoryOptions = buildCategoryOptions(
       mergedTransactions,
-      (tx) => tx["transaction/category"]?.["db/id"],
-      (tx) => tx["transaction/category"]?.["category/name"] || "Uncategorized"
+      presentCategoryIds,
+      categoryNameById
     );
 
     // Reviewed is a fixed two-value filter: both options always show (even when the
@@ -254,31 +271,25 @@ function TransactionsSection({
       { field: "category", label: "Category", options: categoryOptions },
       { field: "reviewed", label: "Reviewed", options: reviewedOptions },
     ];
-  }, [mergedTransactions]);
+  }, [mergedTransactions, presentCategoryIds, categoryNameById]);
 
   // Apply filters to transactions, then optionally hide matched transfers.
   const filteredTransactions = useMemo(() => {
-    const filtered = applyFilters(mergedTransactions, filters, TX_FILTER_ACCESSORS);
+    const filtered = applyFilters(mergedTransactions, filters, txFilterAccessors);
     return hideTransfers ? filtered.filter((tx) => !tx['transaction/transfer-hidden']) : filtered;
-  }, [mergedTransactions, filters, hideTransfers]);
+  }, [mergedTransactions, filters, hideTransfers, txFilterAccessors]);
 
-  // The rollup pane mirrors the month under every filter EXCEPT category (and the
-  // transfer-hide toggle), so clicking a category filters only the table while the
-  // pane stays a stable map you can keep clicking around.
-  const rollupTransactions = useMemo(() => {
-    const withoutCategory = clearFilterField(filters, "category");
-    const base = applyFilters(mergedTransactions, withoutCategory, TX_FILTER_ACCESSORS);
-    return hideTransfers ? base.filter((tx) => !tx["transaction/transfer-hidden"]) : base;
-  }, [mergedTransactions, filters, hideTransfers]);
-
+  // The rollup pane is a stable map of the whole month — no table filter (account,
+  // category, reviewed, hide-transfers) touches it. You can keep clicking around it
+  // to filter the table while the overview itself never shifts under you.
   const activeCategoryIds = useMemo(
-    () => new Set((filters.category ?? []).map(Number)),
+    () => new Set<FilterValue>(filters.category ?? []),
     [filters.category]
   );
 
   // Clicking a rollup row replaces the category filter with that row's ids; clicking
   // the already-active row clears it.
-  const handleSelectCategory = (ids: number[]) => {
+  const handleSelectCategory = (ids: FilterValue[]) => {
     setFilters((prev) => {
       const current = prev.category ?? [];
       const allActive =
@@ -503,7 +514,7 @@ function TransactionsSection({
         </div>
 
         <CategoryRollupPane
-          transactions={rollupTransactions}
+          transactions={mergedTransactions}
           categories={categories}
           activeCategoryIds={activeCategoryIds}
           onSelectCategory={handleSelectCategory}

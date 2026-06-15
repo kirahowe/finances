@@ -80,6 +80,11 @@ describe('filterState', () => {
       const result = parseFilters('id=1,2&name=test');
       expect(result).toEqual({ id: [1, 2], name: ['test'] });
     });
+
+    it('round-trips uncategorized sentinel strings (with colons) mixed with numeric ids', () => {
+      const filters = { category: [42, 'uncategorized:income', 'uncategorized:expense'] };
+      expect(parseFilters(serializeFilters(filters))).toEqual(filters);
+    });
   });
 
   describe('addFilterValue', () => {

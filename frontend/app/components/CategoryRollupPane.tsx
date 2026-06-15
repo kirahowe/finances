@@ -6,15 +6,16 @@ import {
   type RollupSection,
 } from "../lib/categoryRollup";
 import type { CategoryType } from "../lib/categoryTypes";
+import type { FilterValue } from "../lib/filterState";
 import { formatAmount } from "../lib/format";
 
 interface CategoryRollupPaneProps {
   transactions: Transaction[];
   categories: Category[];
-  /** Category ids currently in the table's category filter. */
-  activeCategoryIds: Set<number>;
+  /** Category-filter values currently active for the table. */
+  activeCategoryIds: Set<FilterValue>;
   /** Apply (or toggle off) the category filter for the clicked row's ids. */
-  onSelectCategory: (ids: number[]) => void;
+  onSelectCategory: (ids: FilterValue[]) => void;
 }
 
 const SECTION_LABELS: Record<CategoryType, string> = {
@@ -24,7 +25,7 @@ const SECTION_LABELS: Record<CategoryType, string> = {
 };
 
 /** A row is active when its ids exactly match the current category filter. */
-const isRowActive = (row: RollupRow, active: Set<number>): boolean =>
+const isRowActive = (row: RollupRow, active: Set<FilterValue>): boolean =>
   row.clickable &&
   row.ids.length > 0 &&
   row.ids.length === active.size &&
@@ -37,7 +38,7 @@ function RollupRowView({
 }: {
   row: RollupRow;
   active: boolean;
-  onSelect: (ids: number[]) => void;
+  onSelect: (ids: FilterValue[]) => void;
 }) {
   const className = [
     "rollup-row",
@@ -92,17 +93,17 @@ function RollupSectionView({
   onSelectCategory,
 }: {
   section: RollupSection;
-  activeCategoryIds: Set<number>;
-  onSelectCategory: (ids: number[]) => void;
+  activeCategoryIds: Set<FilterValue>;
+  onSelectCategory: (ids: FilterValue[]) => void;
 }) {
   const label = SECTION_LABELS[section.type];
   return (
     <section className="rollup-section">
       <h3 className="rollup-section-title">{label}</h3>
       <ul className="rollup-rows">
-        {section.rows.map((row, i) => (
+        {section.rows.map((row) => (
           <RollupRowView
-            key={row.ids.length > 0 ? row.ids.join(",") : `uncat-${i}`}
+            key={row.ids.join(",")}
             row={row}
             active={isRowActive(row, activeCategoryIds)}
             onSelect={onSelectCategory}

@@ -257,5 +257,37 @@ describe('filterOptions', () => {
         { id: 3, priority: 1 },
       ]);
     });
+
+    describe('array-valued accessors', () => {
+      const arrayItems = [
+        { id: 1, cats: [10], account: 1 },
+        { id: 2, cats: [10, 20], account: 2 },
+        { id: 3, cats: [30], account: 1 },
+      ];
+      const arrayAccessors = {
+        cats: (i: (typeof arrayItems)[0]) => i.cats,
+        account: (i: (typeof arrayItems)[0]) => i.account,
+      };
+
+      it('matches when any of the item array values is selected (OR within field)', () => {
+        const out = applyFilters(arrayItems, { cats: [20] }, arrayAccessors);
+        expect(out.map((i) => i.id)).toEqual([2]);
+      });
+
+      it('matches every item sharing a value', () => {
+        const out = applyFilters(arrayItems, { cats: [10] }, arrayAccessors);
+        expect(out.map((i) => i.id)).toEqual([1, 2]);
+      });
+
+      it('combines an array field with a scalar field (AND across fields)', () => {
+        const out = applyFilters(arrayItems, { cats: [10], account: [2] }, arrayAccessors);
+        expect(out.map((i) => i.id)).toEqual([2]);
+      });
+
+      it('returns nothing when no array value is selected', () => {
+        const out = applyFilters(arrayItems, { cats: [999] }, arrayAccessors);
+        expect(out).toEqual([]);
+      });
+    });
   });
 });
