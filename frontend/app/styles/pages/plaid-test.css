@@ -13,7 +13,7 @@
   margin-bottom: var(--spacing-sm);
   font-family: var(--font-display);
   color: var(--color-ink);
-  font-size: 1.1rem;
+  font-size: var(--text-md);
 }
 
 .summary {
@@ -33,7 +33,7 @@
   border-radius: var(--border-radius);
   overflow-x: auto;
   font-family: var(--font-mono);
-  font-size: 0.8rem;
+  font-size: var(--text-sm);
   line-height: 1.6;
   color: var(--color-ink);
   max-height: 400px;
@@ -51,7 +51,7 @@ details summary {
   border-radius: var(--border-radius);
   font-weight: 500;
   color: var(--color-ink-soft);
-  font-size: 0.85rem;
+  font-size: var(--text-sm);
 }
 
 details summary:hover {
@@ -72,7 +72,7 @@ details[open] summary {
   padding: 0.15rem 0.4rem;
   border-radius: var(--radius-sm);
   font-family: var(--font-mono);
-  font-size: 0.82rem;
+  font-size: var(--text-sm);
   color: var(--color-ink);
 }
 
@@ -94,12 +94,12 @@ details[open] summary {
 .account-mask {
   color: var(--color-text-muted);
   font-family: var(--font-mono);
-  font-size: 0.85rem;
+  font-size: var(--text-sm);
 }
 
 .plaid-config-note {
   margin-top: var(--spacing-md);
-  font-size: 0.85rem;
+  font-size: var(--text-sm);
   color: var(--color-text-muted);
 }
 

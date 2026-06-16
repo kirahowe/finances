@@ -1,9 +1,13 @@
 /* ============================================================
    Stat cards (Setup overview)
    ============================================================ */
+/* KPI cards stay a tidy, left-aligned strip rather than stretching across the full
+   page width. Each card is capped, so on a wide screen they sit at the left gutter
+   (aligned with the masthead and everything else) instead of ballooning. */
 .stats-grid {
   display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+  grid-template-columns: repeat(auto-fit, minmax(200px, 260px));
+  justify-content: start;
   gap: var(--spacing-md);
   margin-bottom: var(--spacing-xl);
 }
@@ -25,7 +29,7 @@
   top: var(--spacing-lg);
   bottom: var(--spacing-lg);
   width: 3px;
-  border-radius: var(--radius-pill);
+  border-radius: var(--radius-sm);
   background: var(--color-pine);
   opacity: 0.85;
 }
@@ -33,19 +37,20 @@
 .stat-value {
   font-family: var(--font-mono);
   font-variant-numeric: tabular-nums;
-  font-size: 2.4rem;
+  font-size: var(--text-2xl);
   font-weight: 500;
   line-height: 1;
+  letter-spacing: -0.02em;
   color: var(--color-ink);
   margin-bottom: var(--spacing-xs);
 }
 
 .stat-label {
   color: var(--color-text-muted);
-  font-size: 0.7rem;
+  font-size: var(--text-2xs);
   font-weight: 600;
   text-transform: uppercase;
-  letter-spacing: 0.12em;
+  letter-spacing: 0.14em;
 }
 
 /* ============================================================
@@ -55,7 +60,7 @@
   display: inline-block;
   padding: 0.18rem 0.5rem;
   font-family: var(--font-mono);
-  font-size: 0.68rem;
+  font-size: var(--text-2xs);
   font-weight: 500;
   text-transform: uppercase;
   border-radius: var(--radius-sm);
@@ -93,7 +98,7 @@
   margin-bottom: var(--spacing-md);
   border-radius: var(--border-radius);
   color: var(--color-pine-hover);
-  font-size: 0.9rem;
+  font-size: var(--text-base);
 }
 
 .error-banner {
@@ -103,7 +108,7 @@
   margin-bottom: var(--spacing-md);
   border-radius: var(--border-radius);
   color: var(--color-error-text);
-  font-size: 0.9rem;
+  font-size: var(--text-base);
   display: flex;
   align-items: center;
   justify-content: space-between;
@@ -113,7 +118,7 @@
   background: none;
   border: none;
   cursor: pointer;
-  font-size: 1.25rem;
+  font-size: var(--glyph);
   line-height: 1;
   color: var(--color-error-text);
   padding: 0 0.25rem;

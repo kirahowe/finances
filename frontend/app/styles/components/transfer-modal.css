@@ -3,7 +3,7 @@
   display: flex;
   align-items: center;
   gap: var(--spacing-xs);
-  font-size: 0.8rem;
+  font-size: var(--text-sm);
   color: var(--color-text-muted);
   cursor: pointer;
   user-select: none;
@@ -22,7 +22,7 @@
 
 .transfer-modal-hint {
   margin: calc(-1 * var(--spacing-sm)) 0 var(--spacing-lg);
-  font-size: 0.8rem;
+  font-size: var(--text-sm);
   color: var(--color-text-muted);
 }
 
@@ -30,7 +30,7 @@
   padding: var(--spacing-lg) 0;
   text-align: center;
   color: var(--color-text-muted);
-  font-size: 0.9rem;
+  font-size: var(--text-base);
 }
 
 .transfer-suggestion-list {
@@ -71,7 +71,7 @@
   display: flex;
   align-items: center;
   gap: var(--spacing-xs);
-  font-size: 0.9rem;
+  font-size: var(--text-base);
   color: var(--color-ink);
 }
 
@@ -80,13 +80,13 @@
 }
 
 .transfer-suggestion-meta {
-  font-size: 0.72rem;
+  font-size: var(--text-xs);
   color: var(--color-text-muted);
   margin-top: 0.1rem;
 }
 
 .transfer-suggestion-amount {
-  font-size: 0.9rem;
+  font-size: var(--text-base);
   white-space: nowrap;
 }
 
@@ -96,7 +96,7 @@
   color: var(--color-text-muted);
   cursor: pointer;
   font-family: var(--font-body);
-  font-size: 0.66rem;
+  font-size: var(--text-2xs);
   font-weight: 600;
   text-transform: uppercase;
   letter-spacing: 0.06em;
@@ -184,13 +184,13 @@
   align-self: flex-start;
   max-width: 100%;
   font-family: inherit;
-  font-size: 0.6rem;
+  font-size: var(--text-2xs);
   font-weight: 600;
   letter-spacing: 0.05em;
   text-transform: uppercase;
-  padding: 0.08rem 0.4rem;
+  padding: 0.1rem 0.4rem;
   border: none;
-  border-radius: var(--radius-pill);
+  border-radius: var(--radius-sm);
   line-height: 1.3;
   white-space: nowrap;
   overflow: hidden;

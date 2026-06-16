@@ -15,9 +15,18 @@
   table-layout: fixed;
 }
 
-/* Top-align cells: when a transfer row is taller (its category has a status pill
-   beneath), every other cell sits at the top rather than floating in the middle. */
+/* Cells center vertically so a row's text sits midline against its taller controls
+   (the row-actions caret, the reviewed checkbox). The exception is a row carrying
+   real stacked content — a transfer-status tag beneath the category, or a split
+   group — where top-align keeps the date/amount on the category's first line
+   instead of floating to the middle of the taller cell. */
 .table.table-resizable td {
+  vertical-align: middle;
+}
+
+.table.table-resizable tr:has(.transfer-status) td,
+.table.table-resizable tr.is-split-parent td,
+.table.table-resizable tr.split-child-row td {
   vertical-align: top;
 }
 

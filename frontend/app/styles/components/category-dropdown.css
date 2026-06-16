@@ -65,7 +65,7 @@
   text-align: left;
   white-space: normal;
   word-wrap: break-word;
-  font-size: 0.875rem;
+  font-size: var(--text-sm);
 }
 
 /* A parent category: selectable in its own right, emphasized as a group label. */

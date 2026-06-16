@@ -16,9 +16,9 @@
 
 .pagination-size-button {
   min-width: 46px;
-  padding: 0.3rem 0.55rem;
+  padding: var(--control-pad-y-sm) var(--control-pad-x-sm);
   font-family: var(--font-mono);
-  font-size: 0.82rem;
+  font-size: var(--text-sm);
 }
 
 .pagination-navigation {
@@ -28,15 +28,15 @@
 }
 
 .pagination-nav-button {
-  min-width: 38px;
-  padding: 0.3rem 0.55rem;
-  font-size: 1.1rem;
+  min-width: var(--control-square-sm);
+  padding: var(--control-pad-y-sm) 0;
+  font-size: var(--glyph);
   line-height: 1;
 }
 
 .pagination-page-button {
-  min-width: 38px;
-  padding: 0.3rem 0.55rem;
+  min-width: var(--control-square-sm);
+  padding: var(--control-pad-y-sm) var(--control-pad-x-sm);
   font-family: var(--font-mono);
-  font-size: 0.82rem;
+  font-size: var(--text-sm);
 }
