@@ -24,7 +24,7 @@ export const TRANSACTION_COLUMNS: TransactionColumnMeta[] = [
   { id: 'account', label: 'Account', hideable: true, resizable: true, protected: false, size: 150, minSize: 90 },
   { id: 'institution', label: 'Institution', hideable: true, resizable: true, protected: false, size: 190, minSize: 90 },
   { id: 'payee', label: 'Payee', hideable: true, resizable: true, protected: false, size: 240, minSize: 100 },
-  { id: 'description', label: 'Description', hideable: true, resizable: true, protected: false, size: 300, minSize: 100 },
+  { id: 'description', label: 'Description', hideable: true, resizable: true, protected: false, size: 360, minSize: 200 },
   { id: 'amount', label: 'Amount', hideable: true, resizable: true, protected: true, size: 120, minSize: 90 },
   { id: 'category', label: 'Category', hideable: true, resizable: true, protected: true, size: 190, minSize: 150 },
   // A fixed-width checkbox column; protected so the checkbox is never clipped.
@@ -44,11 +44,13 @@ const META_BY_ID: Record<string, TransactionColumnMeta> = Object.fromEntries(
 //  - FLEXIBLE_COLUMN_CAP caps the *default* width of non-protected columns so one
 //    long row can't dominate the initial layout (a double-click still fully fits).
 //  - SHRINK_ORDER is the order flexible columns give up width when the row overflows
-//    the container (description first, account last).
+//    the container. Description carries the most useful free text, so it shrinks LAST;
+//    account and institution (often redundant with payee) give up width first. Date
+//    and amount are protected, so they never shrink or clip.
 //  - GROW_IDS are the wide text columns that absorb spare width to fill the table.
 export const MAX_COLUMN_WIDTH = 600;
 export const FLEXIBLE_COLUMN_CAP = 400;
-export const COLUMN_SHRINK_ORDER = ['description', 'institution', 'payee', 'account'] as const;
+export const COLUMN_SHRINK_ORDER = ['account', 'institution', 'payee', 'description'] as const;
 export const COLUMN_GROW_IDS = ['description', 'payee'] as const;
 
 export const PROTECTED_COLUMN_IDS = new Set(
