@@ -43,13 +43,13 @@
 
 .filter-button-active {
   background-color: var(--color-primary);
-  color: #fff;
+  color: var(--color-on-accent);
   border-color: transparent;
 }
 
 .filter-button-active:hover:not(:disabled) {
   background-color: var(--color-primary-hover);
-  color: #fff;
+  color: var(--color-on-accent);
 }
 
 .filter-button-arrow {
@@ -97,7 +97,7 @@
 .filter-dropdown-search:focus {
   outline: none;
   border-color: var(--color-primary);
-  box-shadow: 0 0 0 3px var(--color-accent-soft);
+  box-shadow: var(--focus-ring);
 }
 
 .filter-dropdown-list {

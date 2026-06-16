@@ -1,8 +1,8 @@
-import { useState, useEffect } from 'react';
+import { useState } from 'react';
 import { api, type Transaction, type Category } from '../lib/api';
 import { CategoryDropdown } from './CategoryDropdown';
+import { Modal } from './Modal';
 import { formatAmount } from '../lib/format';
-import { useBodyScrollLock } from '../lib/useBodyScrollLock';
 import {
   remainingCents,
   canConfirm,
@@ -70,19 +70,6 @@ export function SplitTransactionModal({
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
-  // Keep the page behind the modal from scrolling while it's open.
-  useBodyScrollLock();
-
-  // Escape closes the modal — but defer to an open category dropdown, which owns
-  // the first Escape to close itself.
-  useEffect(() => {
-    const onKey = (e: KeyboardEvent) => {
-      if (e.key === 'Escape' && editingKey === null) onClose();
-    };
-    document.addEventListener('keydown', onKey);
-    return () => document.removeEventListener('keydown', onKey);
-  }, [onClose, editingKey]);
-
   const parentAmount = transaction['transaction/amount'];
   const sign = parentAmount < 0 ? -1 : 1;
   const signChar = sign < 0 ? '−' : '+';
@@ -135,14 +122,12 @@ export function SplitTransactionModal({
   };
 
   return (
-    <div className="modal-backdrop" onClick={onClose}>
-      <div
-        className="modal-content split-modal-content"
-        role="dialog"
-        aria-modal="true"
-        aria-label="Split transaction"
-        onClick={(e) => e.stopPropagation()}
-      >
+    <Modal
+      onClose={onClose}
+      label="Split transaction"
+      className="split-modal-content"
+      closeOnEscape={editingKey === null}
+    >
         <h2>Split transaction</h2>
         <p className="split-modal-sub">
           <span>{transaction['transaction/payee']}</span>
@@ -280,7 +265,6 @@ export function SplitTransactionModal({
             </button>
           </div>
         </div>
-      </div>
-    </div>
+    </Modal>
   );
 }

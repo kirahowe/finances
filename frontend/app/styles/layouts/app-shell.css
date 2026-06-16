@@ -7,7 +7,7 @@
   z-index: 50;
   margin: 0 calc(-1 * var(--spacing-xl));
   padding: var(--spacing-md) var(--spacing-xl) 0;
-  background-color: rgba(246, 243, 236, 0.82);
+  background-color: var(--color-masthead-bg);
   backdrop-filter: saturate(140%) blur(10px);
   -webkit-backdrop-filter: saturate(140%) blur(10px);
 }
@@ -35,7 +35,7 @@
   height: 1.7rem;
   border-radius: var(--radius-sm);
   background: var(--color-pine);
-  color: #fff;
+  color: var(--color-on-accent);
   box-shadow: var(--shadow-sm);
 }
 
@@ -75,7 +75,7 @@
 
 .view-tab:hover {
   color: var(--color-ink);
-  background-color: rgba(33, 31, 26, 0.05);
+  background-color: var(--color-hover-neutral);
 }
 
 .view-tab.is-active {

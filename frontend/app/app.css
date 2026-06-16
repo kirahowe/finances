@@ -1,18 +1,8 @@
-/* Atmosphere: warm paper with a faint top-light, so large surfaces never
-   read as a flat fill. Kept extremely subtle to preserve a clean, dense feel. */
+/* Atmosphere: a faint top-light so large surfaces never read as a flat fill.
+   The gradient itself is themed via --bg-atmosphere (see variables.css). */
 body {
-  background-color: var(--color-paper);
-  background-image:
-    radial-gradient(
-      120% 80% at 50% -10%,
-      rgba(28, 93, 78, 0.05) 0%,
-      rgba(28, 93, 78, 0) 60%
-    ),
-    radial-gradient(
-      100% 60% at 100% 0%,
-      rgba(178, 58, 46, 0.03) 0%,
-      rgba(178, 58, 46, 0) 55%
-    );
+  background-color: var(--color-background);
+  background-image: var(--bg-atmosphere);
   background-attachment: fixed;
 }
 

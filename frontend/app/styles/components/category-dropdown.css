@@ -19,7 +19,7 @@
   line-height: inherit;
   color: var(--color-ink);
   background: var(--color-surface);
-  box-shadow: 0 0 0 3px var(--color-accent-soft);
+  box-shadow: var(--focus-ring);
 }
 
 .category-dropdown-input:focus {

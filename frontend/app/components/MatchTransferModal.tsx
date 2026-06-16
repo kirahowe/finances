@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react';
 import { api, type Transaction, type SuggestionTx } from '../lib/api';
+import { Modal } from './Modal';
 import { formatAmount, formatDate } from '../lib/format';
-import { useBodyScrollLock } from '../lib/useBodyScrollLock';
 import '../styles/components/transfer-modal.css';
 
 interface MatchTransferModalProps {
@@ -15,16 +15,6 @@ export function MatchTransferModal({ transaction, onClose, onSaved }: MatchTrans
   const [loadError, setLoadError] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [submitting, setSubmitting] = useState(false);
-
-  useBodyScrollLock();
-
-  useEffect(() => {
-    const onKey = (e: KeyboardEvent) => {
-      if (e.key === 'Escape') onClose();
-    };
-    document.addEventListener('keydown', onKey);
-    return () => document.removeEventListener('keydown', onKey);
-  }, [onClose]);
 
   // A transfer-categorized row is in one of two states: already linked to a
   // counterpart (show the partner + an Unmatch action) or open (search for a
@@ -78,14 +68,11 @@ export function MatchTransferModal({ transaction, onClose, onSaved }: MatchTrans
   };
 
   return (
-    <div className="modal-backdrop" onClick={onClose}>
-      <div
-        className="modal-content transfer-modal-content"
-        role="dialog"
-        aria-modal="true"
-        aria-label={isMatched ? 'Matched transfer' : 'Match transfer'}
-        onClick={(e) => e.stopPropagation()}
-      >
+    <Modal
+      onClose={onClose}
+      label={isMatched ? 'Matched transfer' : 'Match transfer'}
+      className="transfer-modal-content"
+    >
         <h2>{isMatched ? 'Matched transfer' : 'Match transfer'}</h2>
         <p className="split-modal-sub">
           <span>{transaction['transaction/payee']}</span>
@@ -183,7 +170,6 @@ export function MatchTransferModal({ transaction, onClose, onSaved }: MatchTrans
             </div>
           </>
         )}
-      </div>
-    </div>
+    </Modal>
   );
 }

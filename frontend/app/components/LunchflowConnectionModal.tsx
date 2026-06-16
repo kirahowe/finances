@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useState } from 'react';
 import { api, type Account } from '../lib/api';
+import { Modal } from './Modal';
 import {
   groupByInstitution,
   partitionConnected,
@@ -73,11 +74,11 @@ export function LunchflowConnectionModal({
   const isEmpty = accounts !== null && accounts.length === 0;
 
   return (
-    <div className="modal-backdrop" onClick={onClose}>
-      <div
-        className="modal-content provider-connection-content"
-        onClick={(e) => e.stopPropagation()}
-      >
+    <Modal
+      onClose={onClose}
+      label="Connect Lunchflow accounts"
+      className="provider-connection-content"
+    >
         <h2>Connect Lunchflow Accounts</h2>
 
         {isLoading && <p className="provider-connection-status">Loading accounts…</p>}
@@ -159,7 +160,6 @@ export function LunchflowConnectionModal({
               : `Import ${selected.size} account${selected.size === 1 ? '' : 's'}`}
           </button>
         </div>
-      </div>
-    </div>
+    </Modal>
   );
 }

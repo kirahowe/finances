@@ -40,14 +40,3 @@
   font-family: var(--font-mono);
   font-size: 0.82rem;
 }
-
-.button-primary {
-  background-color: var(--color-primary);
-  color: #fff;
-  border-color: transparent;
-}
-
-.button-primary:hover:not(:disabled) {
-  background-color: var(--color-primary-hover);
-  color: #fff;
-}

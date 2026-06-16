@@ -1,5 +1,6 @@
 import { useMemo, useState } from 'react';
 import { api, type Category } from '../lib/api';
+import { Modal } from './Modal';
 import { CATEGORY_TYPE_OPTIONS, type CategoryType } from '../lib/categoryTypes';
 import { buildBulkRows, type BulkCategoryRow } from '../lib/categoryParse';
 import { generateCategoryIdent } from '../lib/identGenerator';
@@ -108,8 +109,7 @@ export function BulkCategoryModal({ existingCategories, onClose, onCreated }: Bu
   const inPreview = rows !== null;
 
   return (
-    <div className="modal-backdrop" onClick={onClose}>
-      <div className="modal-content bulk-modal-content" onClick={(e) => e.stopPropagation()}>
+    <Modal onClose={onClose} label="Bulk add categories" className="bulk-modal-content">
         <h2>Bulk Add Categories</h2>
 
         {!inPreview && (
@@ -264,7 +264,6 @@ export function BulkCategoryModal({ existingCategories, onClose, onCreated }: Bu
             </div>
           </>
         )}
-      </div>
-    </div>
+    </Modal>
   );
 }

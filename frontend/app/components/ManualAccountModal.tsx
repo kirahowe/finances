@@ -1,5 +1,6 @@
 import { useState } from "react";
 import { useFetcher } from "react-router";
+import { Modal } from "./Modal";
 
 interface ManualAccountModalProps {
   onClose: () => void;
@@ -26,8 +27,7 @@ export function ManualAccountModal({ onClose }: ManualAccountModalProps) {
   };
 
   return (
-    <div className="modal-backdrop" onClick={onClose}>
-      <div className="modal-content" onClick={(e) => e.stopPropagation()}>
+    <Modal onClose={onClose} label="Create manual account">
         <h2>Create Manual Account</h2>
         <form onSubmit={handleSubmit}>
           <div className="form-group">
@@ -87,7 +87,6 @@ export function ManualAccountModal({ onClose }: ManualAccountModalProps) {
             </button>
           </div>
         </form>
-      </div>
-    </div>
+    </Modal>
   );
 }

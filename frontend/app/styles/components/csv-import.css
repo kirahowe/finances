@@ -32,7 +32,7 @@
 
 .wizard-step.active {
   background-color: var(--color-primary);
-  color: #fff;
+  color: var(--color-on-accent);
 }
 
 .wizard-step.completed {
@@ -129,7 +129,7 @@
 
 .success-message {
   background-color: var(--color-accent-soft);
-  border: 1px solid #cfe1d8;
+  border: 1px solid var(--color-pine-soft-border);
   padding: var(--spacing-lg);
   border-radius: var(--radius-lg);
   text-align: center;

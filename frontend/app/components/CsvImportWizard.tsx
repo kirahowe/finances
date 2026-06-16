@@ -1,6 +1,7 @@
 import { useState } from "react";
 import type { CsvMapping, CsvPreview, CsvImportResult } from "../lib/api";
 import { api } from "../lib/api";
+import { Modal } from "./Modal";
 
 interface CsvImportWizardProps {
   accountId: number;
@@ -140,8 +141,7 @@ export function CsvImportWizard({
     mapping["date-format"];
 
   return (
-    <div className="modal-backdrop" onClick={onClose}>
-      <div className="modal-content csv-wizard" onClick={(e) => e.stopPropagation()}>
+    <Modal onClose={onClose} label={`Import CSV for ${accountName}`} className="csv-wizard">
         <div className="wizard-header">
           <h2>Import CSV for {accountName}</h2>
           <div className="wizard-steps">
@@ -358,7 +358,6 @@ export function CsvImportWizard({
             </div>
           </div>
         )}
-      </div>
-    </div>
+    </Modal>
   );
 }

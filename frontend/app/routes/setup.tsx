@@ -8,6 +8,7 @@ import { BulkCategoryModal } from "../components/BulkCategoryModal";
 import { ManualAccountModal } from "../components/ManualAccountModal";
 import { LunchflowConnectionModal } from "../components/LunchflowConnectionModal";
 import { CsvImportWizard } from "../components/CsvImportWizard";
+import { Modal } from "../components/Modal";
 import { generateCategoryIdent } from "../lib/identGenerator";
 import type { CategoryDraft } from "../lib/categoryDraft";
 import { CATEGORY_TYPE_OPTIONS, type CategoryType } from "../lib/categoryTypes";
@@ -499,8 +500,7 @@ function CategoryForm({
   };
 
   return (
-    <div className="modal-backdrop" onClick={onClose}>
-      <div className="modal-content" onClick={(e) => e.stopPropagation()}>
+    <Modal onClose={onClose} label={isEditing ? "Edit category" : "Add category"}>
         <h2>{isEditing ? "Edit Category" : "Add Category"}</h2>
         <fetcher.Form method="post" onSubmit={handleSubmit}>
           <input
@@ -579,7 +579,6 @@ function CategoryForm({
             </button>
           </div>
         </fetcher.Form>
-      </div>
-    </div>
+    </Modal>
   );
 }

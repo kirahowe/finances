@@ -91,7 +91,7 @@
 .bulk-modal-textarea:focus {
   outline: none;
   border-color: var(--color-primary);
-  box-shadow: 0 0 0 3px var(--color-accent-soft);
+  box-shadow: var(--focus-ring);
 }
 
 .bulk-modal-hint {

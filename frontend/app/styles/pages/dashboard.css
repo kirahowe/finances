@@ -60,27 +60,27 @@
   text-transform: uppercase;
   border-radius: var(--radius-sm);
   letter-spacing: 0.06em;
-  background-color: var(--color-paper-deep);
-  color: var(--color-ink-soft);
-  border: 1px solid var(--color-border);
+  background-color: var(--color-badge-bg);
+  color: var(--color-badge-text);
+  border: 1px solid var(--color-badge-border);
 }
 
 .badge-plaid {
-  background-color: #e6efe9;
-  color: var(--color-pine-hover);
-  border-color: #cfe1d8;
+  background-color: var(--color-badge-plaid-bg);
+  color: var(--color-badge-plaid-text);
+  border-color: var(--color-badge-plaid-border);
 }
 
 .badge-manual {
-  background-color: #efe9df;
-  color: #7a5a1e;
-  border-color: #e2d6c0;
+  background-color: var(--color-badge-manual-bg);
+  color: var(--color-badge-manual-text);
+  border-color: var(--color-badge-manual-border);
 }
 
 .badge-lunchflow {
-  background-color: #e7efe2;
-  color: #3f6b2a;
-  border-color: #d4e3c9;
+  background-color: var(--color-badge-lunchflow-bg);
+  color: var(--color-badge-lunchflow-text);
+  border-color: var(--color-badge-lunchflow-border);
 }
 
 /* ============================================================
@@ -88,7 +88,7 @@
    ============================================================ */
 .status-banner {
   background-color: var(--color-accent-soft);
-  border: 1px solid #cfe1d8;
+  border: 1px solid var(--color-pine-soft-border);
   padding: 0.75rem var(--spacing-md);
   margin-bottom: var(--spacing-md);
   border-radius: var(--border-radius);
@@ -121,16 +121,4 @@
 
 .error-banner button:hover {
   opacity: 0.7;
-}
-
-/* Misc helpers */
-.button-group {
-  display: flex;
-  gap: var(--spacing-sm);
-  flex-wrap: wrap;
-}
-
-.button-small {
-  padding: 0.3rem 0.7rem;
-  font-size: 0.8rem;
 }

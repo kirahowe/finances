@@ -130,7 +130,7 @@
 
 .transfer-candidate:hover:not(:disabled) {
   background-color: var(--color-accent-soft);
-  border-color: #cfe1d8;
+  border-color: var(--color-pine-soft-border);
 }
 
 .transfer-candidate:disabled {
@@ -207,7 +207,7 @@
 
 .transfer-status-matched:hover {
   background: var(--color-pine);
-  color: #fff;
+  color: var(--color-on-accent);
 }
 
 .transfer-status-unmatched {

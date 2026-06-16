@@ -20,7 +20,7 @@
 .category-button:hover {
   color: var(--color-pine-hover);
   background-color: var(--color-accent-soft);
-  border-color: #cfe1d8;
+  border-color: var(--color-pine-soft-border);
 }
 
 .category-button:disabled {

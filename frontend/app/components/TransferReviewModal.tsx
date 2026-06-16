@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react';
 import { api, type TransferSuggestion } from '../lib/api';
+import { Modal } from './Modal';
 import { formatAmount, formatDate } from '../lib/format';
-import { useBodyScrollLock } from '../lib/useBodyScrollLock';
 import '../styles/components/transfer-modal.css';
 
 interface TransferReviewModalProps {
@@ -20,16 +20,6 @@ export function TransferReviewModal({ onClose, onApplied }: TransferReviewModalP
   const [error, setError] = useState<string | null>(null);
   const [submitting, setSubmitting] = useState(false);
   const [applied, setApplied] = useState<Set<number>>(new Set());
-
-  useBodyScrollLock();
-
-  useEffect(() => {
-    const onKey = (e: KeyboardEvent) => {
-      if (e.key === 'Escape') onClose();
-    };
-    document.addEventListener('keydown', onKey);
-    return () => document.removeEventListener('keydown', onKey);
-  }, [onClose]);
 
   useEffect(() => {
     let active = true;
@@ -88,14 +78,7 @@ export function TransferReviewModal({ onClose, onApplied }: TransferReviewModalP
   };
 
   return (
-    <div className="modal-backdrop" onClick={onClose}>
-      <div
-        className="modal-content transfer-modal-content"
-        role="dialog"
-        aria-modal="true"
-        aria-label="Review transfers"
-        onClick={(e) => e.stopPropagation()}
-      >
+    <Modal onClose={onClose} label="Review transfers" className="transfer-modal-content">
         <h2>Review transfers</h2>
         <p className="transfer-modal-hint">
           These pairs look like the same money moving between your accounts. Confirm the
@@ -188,7 +171,6 @@ export function TransferReviewModal({ onClose, onApplied }: TransferReviewModalP
             </button>
           )}
         </div>
-      </div>
-    </div>
+    </Modal>
   );
 }
