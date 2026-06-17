@@ -26,7 +26,13 @@ export function HeaderFilterControl({
   const [open, setOpen] = useState(false);
   const buttonRef = useRef<HTMLButtonElement>(null);
   const [pos, setPos] = useState<{ top: number; left: number } | null>(null);
-  const active = selectedValues.length > 0;
+  // Count only selections this funnel actually lists — a value it can neither show as
+  // checked nor clear shouldn't light up its badge. This is what keeps the Category
+  // funnel reading as unfiltered when only the by-sign Uncategorized sentinels are
+  // selected: those are owned by the dedicated toolbar chip and kept out of `options`.
+  const optionValues = new Set(options.map((o) => o.value));
+  const relevantCount = selectedValues.filter((v) => optionValues.has(v)).length;
+  const active = relevantCount > 0;
 
   // Track the button's viewport position so the portaled popover stays anchored to it,
   // including while the table scroll container scrolls.
@@ -52,7 +58,7 @@ export function HeaderFilterControl({
         type="button"
         className={`th-filter-btn ${active ? 'is-active' : ''}`}
         aria-label={
-          active ? `Filter ${label}, ${selectedValues.length} selected` : `Filter ${label}`
+          active ? `Filter ${label}, ${relevantCount} selected` : `Filter ${label}`
         }
         aria-haspopup="dialog"
         aria-expanded={open}
@@ -76,7 +82,7 @@ export function HeaderFilterControl({
         >
           <polygon points="22 3 2 3 10 12.46 10 19 14 21 14 12.46 22 3" />
         </svg>
-        {active && <span className="th-filter-count">{selectedValues.length}</span>}
+        {active && <span className="th-filter-count">{relevantCount}</span>}
       </button>
 
       {open &&

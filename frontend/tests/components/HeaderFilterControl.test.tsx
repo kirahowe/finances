@@ -59,4 +59,25 @@ describe('HeaderFilterControl', () => {
     await user.click(document.body);
     expect(isOpen()).toBe(false);
   });
+
+  it('shows the count of selected values it lists', () => {
+    setup([1, 2]);
+    expect(screen.getByText('2')).toBeInTheDocument();
+    expect(funnel()).toHaveClass('is-active');
+  });
+
+  // Regression: the Category funnel's Uncategorized sentinels live on a separate toolbar
+  // chip and are kept out of `options`, so selecting only those must read as unfiltered —
+  // no badge — rather than counting selections this funnel can't even display.
+  it('reads as unfiltered when only values outside its options are selected', () => {
+    setup(['uncategorized:income', 'uncategorized:expense']);
+    expect(screen.queryByText('2')).not.toBeInTheDocument();
+    expect(funnel()).not.toHaveClass('is-active');
+  });
+
+  it('counts only the listed selections when mixed with unlisted ones', () => {
+    setup([1, 'uncategorized:income']);
+    expect(screen.getByText('1')).toBeInTheDocument();
+    expect(funnel()).toHaveClass('is-active');
+  });
 });
