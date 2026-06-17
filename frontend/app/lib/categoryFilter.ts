@@ -18,7 +18,7 @@ export const isUncategorizedToken = (value: FilterValue): boolean =>
   value === UNCATEGORIZED_INCOME || value === UNCATEGORIZED_EXPENSE;
 
 /** The by-sign uncategorized sentinel a (categoryless) amount falls under. */
-export const uncategorizedTokenForAmount = (amount: number): FilterValue =>
+const uncategorizedTokenForAmount = (amount: number): FilterValue =>
   amount >= 0 ? UNCATEGORIZED_INCOME : UNCATEGORIZED_EXPENSE;
 
 /** The uncategorized sentinel for a rollup section (only Income/Expenses ever has one). */

@@ -1,4 +1,4 @@
-import { useState, useRef, useEffect } from 'react';
+import { useState, useRef, useEffect, type RefObject } from 'react';
 import { filterOptionsByQuery, type FilterOption } from '../lib/filterOptions';
 import type { FilterValue } from '../lib/filterState';
 
@@ -13,6 +13,12 @@ interface FilterDropdownProps {
   // filter popover), drop the dropdown's own absolute positioning so the wrapper owns
   // placement.
   bare?: boolean;
+  // The element that opens this dropdown (a toggle button). A mousedown on it must NOT
+  // count as an outside click — otherwise the close-on-outside-click fires first and the
+  // toggle re-opens, so the trigger could never dismiss its own dropdown. (This app
+  // hydrates `document`, so React's delegated listener and our outside-click listener
+  // share that node; stopPropagation can't help, hence an explicit ignore.)
+  ignoreRef?: RefObject<HTMLElement | null>;
 }
 
 export function FilterDropdown({
@@ -23,6 +29,7 @@ export function FilterDropdown({
   onClear,
   onClose,
   bare = false,
+  ignoreRef,
 }: FilterDropdownProps) {
   const [searchQuery, setSearchQuery] = useState('');
   const [highlightedIndex, setHighlightedIndex] = useState(-1);
@@ -59,9 +66,11 @@ export function FilterDropdown({
   // Handle click outside
   useEffect(() => {
     function handleClickOutside(event: MouseEvent) {
+      const target = event.target as Node;
       if (
         dropdownRef.current &&
-        !dropdownRef.current.contains(event.target as Node)
+        !dropdownRef.current.contains(target) &&
+        !ignoreRef?.current?.contains(target)
       ) {
         onClose();
       }
@@ -71,7 +80,7 @@ export function FilterDropdown({
     return () => {
       document.removeEventListener('mousedown', handleClickOutside);
     };
-  }, [onClose]);
+  }, [onClose, ignoreRef]);
 
   const handleKeyDown = (e: React.KeyboardEvent) => {
     if (e.key === 'Escape') {

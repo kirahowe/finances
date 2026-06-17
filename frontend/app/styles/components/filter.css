@@ -1,5 +1,5 @@
-/* Filter Bar */
-.filter-bar {
+/* Toolbar (search, review-scope toggle, count chips, and right-aligned actions) */
+.toolbar {
   display: flex;
   align-items: center;
   gap: var(--spacing-sm);
@@ -7,7 +7,7 @@
   flex-wrap: wrap;
 }
 
-.filter-bar-filters {
+.toolbar-controls {
   display: flex;
   align-items: center;
   gap: var(--spacing-sm);
@@ -15,7 +15,7 @@
   flex: 1;
 }
 
-.filter-bar-actions {
+.toolbar-actions {
   margin-left: auto;
   display: flex;
   align-items: center;
@@ -106,13 +106,13 @@
 
 /* Inverted when its control is active (solid pine fill). */
 .scope-toggle-btn.is-active .filter-count,
-.count-chip.is-active .filter-count,
-.filter-button-active .filter-count {
+.count-chip.is-active .filter-count {
   background: rgba(255, 255, 255, 0.22);
   color: var(--color-on-accent);
 }
 
-/* Filter Button Container */
+/* Dropdown-trigger button — the secondary button + arrow used by the ColumnPicker (and
+   any other menu trigger styled to match the rest of the toolbar). */
 .filter-button-container {
   position: relative;
   display: inline-flex;
@@ -120,7 +120,6 @@
   align-items: center;
 }
 
-/* Filter Button */
 .filter-button {
   display: inline-flex;
   align-items: center;
@@ -130,27 +129,9 @@
   white-space: nowrap;
 }
 
-.filter-button-active {
-  background-color: var(--color-primary);
-  color: var(--color-on-accent);
-  border-color: transparent;
-}
-
-.filter-button-active:hover:not(:disabled) {
-  background-color: var(--color-primary-hover);
-  color: var(--color-on-accent);
-}
-
 .filter-button-arrow {
   font-size: var(--text-2xs);
   opacity: 0.7;
-}
-
-.filter-button-close {
-  padding: var(--control-pad-y-sm) 0;
-  min-width: var(--control-square-sm);
-  font-size: var(--glyph);
-  line-height: 1;
 }
 
 /* Filter Dropdown */
@@ -304,6 +285,12 @@
 .th-filter-btn:hover {
   color: var(--color-ink);
   background: var(--color-hover-neutral);
+}
+
+/* Keyboard focus must surface the funnel even without a hover (it's otherwise quiet at
+   0.4 opacity), so tabbing across headers lands on a visible control. */
+.th-filter-btn:focus-visible {
+  opacity: 1;
 }
 
 .th-filter-btn.is-active {

@@ -95,6 +95,9 @@ export function HeaderFilterControl({
                 setOpen(false);
               }}
               onClose={() => setOpen(false)}
+              // The funnel button is its own toggle; don't let its mousedown count as an
+              // outside click, or the popover would close then immediately re-open.
+              ignoreRef={buttonRef}
               bare
             />
           </div>,

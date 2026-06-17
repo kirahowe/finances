@@ -8,7 +8,7 @@ import { SplitTransactionModal } from "../components/SplitTransactionModal";
 import { TransferReviewModal } from "../components/TransferReviewModal";
 import { MatchTransferModal } from "../components/MatchTransferModal";
 import { Pagination } from "../components/Pagination";
-import { FilterBar } from "../components/FilterBar";
+import { Toolbar } from "../components/Toolbar";
 import { ColumnPicker } from "../components/ColumnPicker";
 import { MonthNavigator } from "../components/MonthNavigator";
 import { CategoryRollupPane } from "../components/CategoryRollupPane";
@@ -41,7 +41,6 @@ import {
   categoryFilterValues,
   buildCategoryOptions,
   uncategorizedTokenForType,
-  uncategorizedTokenForAmount,
   isUncategorizedToken,
 } from "../lib/categoryFilter";
 import {
@@ -246,15 +245,17 @@ function TransactionsSection({
     return { presentCategoryIds: present, categoryNameById: names };
   }, [categories]);
 
-  // Accessor map for the transaction filters. `applyFilters` only consults accessors
-  // for fields present in the filter state, so the same map serves both the table
-  // (with the category filter) and the rollup (with the category field stripped). The
-  // category accessor is split-aware and returns several values: a transaction
-  // matches each of its parts' categories, or a by-sign Uncategorized sentinel for
-  // parts with none.
+  // Accessor map for the transaction filters, one per filterable field. `applyFilters`
+  // only consults the accessor for a field when that field is present in the filter
+  // state, so carrying every field is free for the unfiltered case. Institution is
+  // reached through the account ref. The category accessor is split-aware and returns
+  // several values: a transaction matches each of its parts' categories, or a by-sign
+  // Uncategorized sentinel for parts with none.
   const txFilterAccessors = useMemo(
     () => ({
       account: (tx: Transaction) => tx["transaction/account"]?.["db/id"],
+      institution: (tx: Transaction) =>
+        tx["transaction/account"]?.["account/institution"]?.["db/id"],
       category: (tx: Transaction) => categoryFilterValues(tx, presentCategoryIds),
       reviewed: (tx: Transaction) =>
         tx["transaction/reviewed"] ? "reviewed" : "unreviewed",
@@ -313,12 +314,16 @@ function TransactionsSection({
     // user. If the edit makes it match again, drop it from the linger set.
     const active = filters.category ?? [];
     if (active.length > 0) {
+      // Test the edit against the same predicate the filter uses: project the new
+      // category onto the row and ask categoryFilterValues what it now matches, rather
+      // than re-deriving the token here. (`ref` is the overlay value computed above; the
+      // override isn't in mergedTransactions yet, so we project it onto a copy.)
       const tx = mergedTransactions.find((t) => t["db/id"] === transactionId);
-      const newTokens: FilterValue[] =
-        categoryId != null && presentCategoryIds.has(categoryId)
-          ? [categoryId]
-          : [uncategorizedTokenForAmount(tx?.["transaction/amount"] ?? 0)];
-      const stillMatches = newTokens.some((t) => active.includes(t));
+      const stillMatches =
+        tx != null &&
+        categoryFilterValues({ ...tx, "transaction/category": ref }, presentCategoryIds).some(
+          (t) => active.includes(t)
+        );
       setLingeringIds((prev) => {
         const next = new Set(prev);
         if (stillMatches) next.delete(transactionId);
@@ -350,7 +355,12 @@ function TransactionsSection({
     [mergedTransactions]
   );
   const categoryOptions = useMemo(
-    () => buildCategoryOptions(mergedTransactions, presentCategoryIds, categoryNameById),
+    () =>
+      // The two by-sign Uncategorized sentinels are owned by the dedicated Uncategorized
+      // toolbar chip, so keep them out of the column funnel — one control, no overlap.
+      buildCategoryOptions(mergedTransactions, presentCategoryIds, categoryNameById).filter(
+        (o) => !isUncategorizedToken(o.value)
+      ),
     [mergedTransactions, presentCategoryIds, categoryNameById]
   );
   const filterOptionsByField = useMemo<Record<string, FilterOption[]>>(
@@ -362,24 +372,12 @@ function TransactionsSection({
     [accountOptions, institutionOptions, categoryOptions]
   );
 
-  // Account/institution accessors join the category/reviewed accessors above. Institution
-  // is reached through the account ref. `applyFilters` only consults accessors for fields
-  // actually present in the filter state, so adding this is free for the unfiltered case.
-  const allFilterAccessors = useMemo(
-    () => ({
-      ...txFilterAccessors,
-      institution: (tx: Transaction) =>
-        tx["transaction/account"]?.["account/institution"]?.["db/id"],
-    }),
-    [txFilterAccessors]
-  );
-
   // Apply filters, keep edited-away rows lingering (stale), then search, then hide
   // transfers. `staleIds` flags the lingering rows so the table can de-emphasize them.
   const { rows: visibleRows, staleIds } = useMemo(() => {
-    const matched = applyFilters(mergedTransactions, filters, allFilterAccessors);
+    const matched = applyFilters(mergedTransactions, filters, txFilterAccessors);
     return withLingeringRows(mergedTransactions, matched, lingeringIds);
-  }, [mergedTransactions, filters, allFilterAccessors, lingeringIds]);
+  }, [mergedTransactions, filters, txFilterAccessors, lingeringIds]);
 
   const filteredTransactions = useMemo(() => {
     const searched = searchTransactions(visibleRows, search);
@@ -484,8 +482,9 @@ function TransactionsSection({
       currentUrl.searchParams.delete("hideTransfers");
     }
 
-    if (search.trim()) {
-      currentUrl.searchParams.set("q", search);
+    const trimmedSearch = search.trim();
+    if (trimmedSearch) {
+      currentUrl.searchParams.set("q", trimmedSearch);
     } else {
       currentUrl.searchParams.delete("q");
     }
@@ -527,10 +526,12 @@ function TransactionsSection({
 
   const handleToggleFilterValue = (field: string, value: FilterValue) => {
     setFilters((prev) => toggleFilterValue(prev, field, value));
+    setPage(0);
   };
 
   const handleClearFilterField = (field: string) => {
     setFilters((prev) => clearFilterField(prev, field));
+    setPage(0);
   };
 
   const handleMonthChange = (newMonth: MonthState) => {
@@ -561,15 +562,7 @@ function TransactionsSection({
             onMonthChange={handleMonthChange}
           />
 
-          <FilterBar
-            // Attribute filters (account / institution / category) now live in the column
-            // headers, so the bar carries no dropdown buttons; the empty filterState keeps
-            // the bar's built-in "Clear all" off — the chips row below owns that now.
-            filters={[]}
-            filterState={{}}
-            onToggleValue={handleToggleFilterValue}
-            onClearField={handleClearFilterField}
-            onClearAll={handleClearAllChips}
+          <Toolbar
             leadingControls={
               <>
                 <TableSearch
