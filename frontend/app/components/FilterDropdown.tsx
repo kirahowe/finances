@@ -9,6 +9,10 @@ interface FilterDropdownProps {
   onToggle: (value: FilterValue) => void;
   onClear: () => void;
   onClose: () => void;
+  // When rendered inside an already-positioned container (e.g. the portaled header
+  // filter popover), drop the dropdown's own absolute positioning so the wrapper owns
+  // placement.
+  bare?: boolean;
 }
 
 export function FilterDropdown({
@@ -18,6 +22,7 @@ export function FilterDropdown({
   onToggle,
   onClear,
   onClose,
+  bare = false,
 }: FilterDropdownProps) {
   const [searchQuery, setSearchQuery] = useState('');
   const [highlightedIndex, setHighlightedIndex] = useState(-1);
@@ -97,7 +102,11 @@ export function FilterDropdown({
   };
 
   return (
-    <div className="filter-dropdown" ref={dropdownRef} onKeyDown={handleKeyDown}>
+    <div
+      className={`filter-dropdown ${bare ? 'filter-dropdown--bare' : ''}`}
+      ref={dropdownRef}
+      onKeyDown={handleKeyDown}
+    >
       <div className="filter-dropdown-header">
         <input
           ref={inputRef}

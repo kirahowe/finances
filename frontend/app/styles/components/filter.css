@@ -260,3 +260,173 @@
   font-size: var(--text-sm);
   padding: var(--control-pad-y-sm) var(--control-pad-x-sm);
 }
+
+/* When the dropdown is rendered inside the portaled header-filter popover, the wrapper
+   owns placement, so drop the dropdown's own absolute positioning. */
+.filter-dropdown--bare {
+  position: static;
+  top: auto;
+  left: auto;
+}
+
+/* The portaled container for an in-header column filter. Only top/left are set inline
+   (runtime rect coordinates); the dropdown inside keeps its own border/shadow/box. */
+.header-filter-popover {
+  position: fixed;
+  z-index: 1000;
+}
+
+/* ============================================================
+   In-header (Excel-style) column filter funnel
+   ============================================================ */
+.th-filter-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.15rem;
+  margin-left: var(--spacing-xs);
+  padding: 0.1rem 0.2rem;
+  border: none;
+  background: none;
+  color: var(--color-text-muted);
+  cursor: pointer;
+  border-radius: var(--radius-sm);
+  vertical-align: middle;
+  /* Quiet until the column is hovered or the filter is active, so the header stays clean. */
+  opacity: 0.4;
+  transition: opacity 0.12s var(--ease-out), color 0.12s var(--ease-out),
+    background-color 0.12s var(--ease-out);
+}
+
+.table.table-resizable th:hover .th-filter-btn {
+  opacity: 1;
+}
+
+.th-filter-btn:hover {
+  color: var(--color-ink);
+  background: var(--color-hover-neutral);
+}
+
+.th-filter-btn.is-active {
+  opacity: 1;
+  color: var(--color-primary);
+}
+
+.th-filter-icon {
+  display: block;
+}
+
+.th-filter-count {
+  font-family: var(--font-mono);
+  font-variant-numeric: tabular-nums;
+  font-size: var(--text-2xs);
+}
+
+/* ============================================================
+   Free-text search box
+   ============================================================ */
+.table-search {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--spacing-xs);
+  padding: 0 0.5rem;
+  border: 1px solid var(--color-border-strong);
+  border-radius: var(--border-radius);
+  background: var(--color-surface);
+  color: var(--color-text-muted);
+}
+
+.table-search:focus-within {
+  border-color: var(--color-primary);
+  box-shadow: var(--focus-ring);
+}
+
+.table-search-icon {
+  flex-shrink: 0;
+}
+
+.table-search-input {
+  border: none;
+  background: none;
+  padding: var(--control-pad-y-sm) 0;
+  font-size: var(--text-sm);
+  color: var(--color-ink);
+  min-width: 13rem;
+}
+
+.table-search-input:focus {
+  outline: none;
+}
+
+/* ============================================================
+   Applied-filter chips (the single active-filter summary)
+   ============================================================ */
+.active-chips {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: var(--spacing-xs);
+  /* Pull up under the filter bar (which carries a large bottom margin) and sit close to
+     the table it narrows. */
+  margin-top: calc(-1 * var(--spacing-sm));
+  margin-bottom: var(--spacing-md);
+}
+
+.active-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--spacing-xs);
+  padding: 0.15rem 0.2rem 0.15rem 0.5rem;
+  border: 1px solid var(--color-border-strong);
+  border-radius: var(--border-radius);
+  background: var(--color-surface);
+  font-size: var(--text-sm);
+  color: var(--color-ink);
+  white-space: nowrap;
+}
+
+.active-chip-field {
+  color: var(--color-text-muted);
+  font-size: var(--text-2xs);
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+}
+
+.active-chip-value {
+  font-weight: 500;
+}
+
+.active-chip-remove {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 1.15rem;
+  height: 1.15rem;
+  border: none;
+  background: none;
+  color: var(--color-text-muted);
+  cursor: pointer;
+  border-radius: var(--radius-sm);
+  font-size: var(--glyph);
+  line-height: 1;
+}
+
+.active-chip-remove:hover {
+  background: var(--color-hover-neutral);
+  color: var(--color-ink);
+}
+
+.active-chips-clear {
+  border: none;
+  background: none;
+  color: var(--color-text-muted);
+  font-size: var(--text-sm);
+  cursor: pointer;
+  padding: var(--control-pad-y-sm) var(--control-pad-x-sm);
+  border-radius: var(--radius-sm);
+}
+
+.active-chips-clear:hover {
+  color: var(--color-ink);
+  text-decoration: underline;
+}
