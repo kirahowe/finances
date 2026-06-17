@@ -25,7 +25,7 @@ export function ReviewScopeToggle({
         onClick={onSelectNeedsReview}
       >
         Needs review
-        <span className="scope-toggle-count">{unreviewedCount}</span>
+        <span className="filter-count">{unreviewedCount}</span>
       </button>
       <button
         type="button"
@@ -34,7 +34,7 @@ export function ReviewScopeToggle({
         onClick={onSelectAll}
       >
         All
-        <span className="scope-toggle-count">{totalCount}</span>
+        <span className="filter-count">{totalCount}</span>
       </button>
     </div>
   );

@@ -22,11 +22,6 @@ export function FilterButton({
   const buttonRef = useRef<HTMLButtonElement>(null);
 
   const selectedCount = selectedValues.length;
-  const buttonText = selectedCount === 0
-    ? label
-    : selectedCount === 1
-    ? `${label}: 1 selected`
-    : `${label}: ${selectedCount} selected`;
 
   const handleClose = () => {
     setIsOpen(false);
@@ -40,6 +35,7 @@ export function FilterButton({
         ref={buttonRef}
         type="button"
         className={`button button-secondary filter-button ${selectedCount > 0 ? 'filter-button-active' : ''}`}
+        aria-label={selectedCount > 0 ? `${label}, ${selectedCount} selected` : label}
         onClick={() => setIsOpen(!isOpen)}
         onKeyDown={(e) => {
           if (e.key === 'Enter') {
@@ -48,7 +44,8 @@ export function FilterButton({
           }
         }}
       >
-        {buttonText}
+        {label}
+        {selectedCount > 0 && <span className="filter-count">{selectedCount}</span>}
         <span className="filter-button-arrow">{isOpen ? '▲' : '▼'}</span>
       </button>
 

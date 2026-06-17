@@ -17,7 +17,7 @@ export function CountToggleChip({ label, count, active, onToggle }: CountToggleC
       onClick={onToggle}
     >
       {label}
-      {count !== undefined && <span className="count-chip-num">{count}</span>}
+      {count !== undefined && <span className="filter-count">{count}</span>}
     </button>
   );
 }

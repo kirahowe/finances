@@ -61,26 +61,15 @@
   color: var(--color-on-accent);
 }
 
-.scope-toggle-count {
-  font-family: var(--font-mono);
-  font-variant-numeric: tabular-nums;
-  font-size: var(--text-xs);
-  color: var(--color-text-muted);
-}
-
-.scope-toggle-btn.is-active .scope-toggle-count {
-  color: var(--color-on-accent);
-  opacity: 0.85;
-}
-
-/* Binary filter chips (uncategorized, hide transfers) with a count pill */
+/* Binary filter chips (uncategorized, hide transfers) — rectilinear to match the
+   rest of the bar; the design system uses tight corners (no pills). */
 .count-chip {
   display: inline-flex;
   align-items: center;
   gap: var(--spacing-xs);
   padding: var(--control-pad-y-sm) var(--control-pad-x-sm);
   border: 1px solid var(--color-border-strong);
-  border-radius: 999px;
+  border-radius: var(--border-radius);
   background: var(--color-surface);
   color: var(--color-ink-soft);
   font-size: var(--text-sm);
@@ -102,17 +91,23 @@
   border-color: transparent;
 }
 
-.count-chip-num {
+/* One shared count badge for every filter control — the scope toggle, the binary
+   chips, and the selected-count on the dropdown buttons — so a number always reads
+   the same. */
+.filter-count {
   font-family: var(--font-mono);
   font-variant-numeric: tabular-nums;
   font-size: var(--text-xs);
-  padding: 0 0.35rem;
-  border-radius: 999px;
+  padding: 0 0.3rem;
+  border-radius: var(--radius-sm);
   background: var(--color-paper-deep);
   color: var(--color-text-muted);
 }
 
-.count-chip.is-active .count-chip-num {
+/* Inverted when its control is active (solid pine fill). */
+.scope-toggle-btn.is-active .filter-count,
+.count-chip.is-active .filter-count,
+.filter-button-active .filter-count {
   background: rgba(255, 255, 255, 0.22);
   color: var(--color-on-accent);
 }
