@@ -2,6 +2,10 @@ import { useEffect, useRef, useState } from 'react';
 
 interface EditableDescriptionCellProps {
   initialValue: string;
+  // When the editor was opened by type-to-edit, the character typed to open it.
+  // It overwrites the cell's value (Excel-style) and the cursor sits after it,
+  // rather than the whole value being selected for replacement.
+  seedChar?: string | null;
   // Commit and advance the editor to the next row (Enter).
   onSaveAndNext: (text: string) => void;
   // Commit and close (blur / click away).
@@ -16,19 +20,28 @@ interface EditableDescriptionCellProps {
 // override upstream, reverting to the imported description.
 export function EditableDescriptionCell({
   initialValue,
+  seedChar,
   onSaveAndNext,
   onSave,
   onCancel,
 }: EditableDescriptionCellProps) {
-  const [value, setValue] = useState(initialValue);
+  const [value, setValue] = useState(seedChar || initialValue);
   const inputRef = useRef<HTMLInputElement>(null);
   // Enter and Escape both unmount this input, which fires a trailing blur; latch so the
   // blur handler doesn't double-fire a second (stale) commit after we've already acted.
   const committedRef = useRef(false);
 
   useEffect(() => {
-    inputRef.current?.focus();
-    inputRef.current?.select();
+    const input = inputRef.current;
+    if (!input) return;
+    input.focus();
+    if (seedChar) {
+      // Type-to-edit: keep the typed character and place the cursor after it.
+      const end = input.value.length;
+      input.setSelectionRange(end, end);
+    } else {
+      input.select();
+    }
   }, []);
 
   const commit = (action: () => void) => {

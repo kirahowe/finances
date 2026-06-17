@@ -13,6 +13,9 @@ interface CategoryDropdownProps {
   // When the table lives in a horizontal-scroll container the absolutely-positioned
   // list would be clipped, so render it in a body portal with fixed coordinates.
   portalMenu?: boolean;
+  // When opened by type-to-edit, the character typed to open it — seeds the filter
+  // so the list opens already narrowed (and the first match is highlighted).
+  initialFilter?: string;
 }
 
 export function CategoryDropdown({
@@ -22,8 +25,9 @@ export function CategoryDropdown({
   onSelectAndNext,
   onClose,
   portalMenu = false,
+  initialFilter,
 }: CategoryDropdownProps) {
-  const [filter, setFilter] = useState('');
+  const [filter, setFilter] = useState(initialFilter ?? '');
   const anchorRef = useRef<HTMLDivElement>(null);
   const [menuPos, setMenuPos] = useState<{ top: number; left: number; width: number } | null>(null);
 
@@ -58,13 +62,19 @@ export function CategoryDropdown({
   // on "Uncategorized" rather than skipping past it).
   const selectedCategoryName =
     categories.find((c) => c['db/id'] === selectedCategoryId)?.['category/name'] ?? 'Uncategorized';
-  const initialHighlightedIndex =
-    selectedCategoryId === null ? -1 : items.findIndex((o) => o.id === selectedCategoryId);
+  // With a seeded filter, highlight its first direct match (so Enter picks it);
+  // otherwise highlight the currently-assigned category's row.
+  const initialHighlightedIndex = initialFilter
+    ? buildCategoryDropdownModel(categories, initialFilter).firstMatchIndex
+    : selectedCategoryId === null
+      ? -1
+      : items.findIndex((o) => o.id === selectedCategoryId);
 
   const { getMenuProps, getInputProps, getItemProps, getLabelProps, highlightedIndex } =
     useCombobox<DropdownOption>({
       items,
       initialIsOpen: true,
+      initialInputValue: initialFilter ?? '',
       defaultHighlightedIndex: 0,
       initialHighlightedIndex,
       itemToString: () => '',

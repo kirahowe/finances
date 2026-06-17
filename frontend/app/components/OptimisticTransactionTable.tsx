@@ -1,4 +1,12 @@
-import { useState, useMemo, useRef, useEffect, useLayoutEffect, Fragment } from 'react';
+import {
+  useState,
+  useMemo,
+  useRef,
+  useEffect,
+  useLayoutEffect,
+  Fragment,
+  type KeyboardEvent,
+} from 'react';
 import {
   useReactTable,
   getCoreRowModel,
@@ -15,6 +23,16 @@ import { formatAmount, formatDate } from '../lib/format';
 import { sortSplits } from '../lib/splitMath';
 import { columnDefSizing } from '../lib/transactionColumns';
 import { useAutoColumnSizing } from '../lib/useAutoColumnSizing';
+import { useGridNavigation } from '../lib/useGridNavigation';
+import {
+  buildGridModel,
+  navigableColumns,
+  cellKey,
+  resolveIntent,
+  EDITABLE_COLUMN_IDS,
+  type RowKey,
+  type ColId,
+} from '../lib/gridNavigation';
 import { CategoryDropdown } from './CategoryDropdown';
 import { EditableDescriptionCell } from './EditableDescriptionCell';
 import { RowActionsMenu, type RowAction } from './RowActionsMenu';
@@ -24,6 +42,7 @@ import type { FilterOption } from '../lib/filterOptions';
 import '../styles/components/split-rows.css';
 import '../styles/components/transfer-modal.css';
 import '../styles/components/transactions-table.css';
+import '../styles/components/grid-navigation.css';
 
 // Branch/split marker shown on each line of a split transaction.
 function SplitIcon({ drift }: { drift?: boolean }) {
@@ -125,8 +144,11 @@ export function OptimisticTransactionTable({
   onClearFilterField,
   staleTransactionIds,
 }: OptimisticTransactionTableProps) {
-  const [editingTransactionId, setEditingTransactionId] = useState<number | null>(null);
-  const [editingDescriptionId, setEditingDescriptionId] = useState<number | null>(null);
+  // Spreadsheet keyboard navigation: a single state machine (active cell + nav/
+  // edit mode) decides which cell is focused and which editor is open, replacing
+  // the old independent editing cursors. The pure core lives in gridNavigation.ts;
+  // the model is published below once the displayed rows + visible columns are known.
+  const gridNav = useGridNavigation();
 
   // Measured content-fit widths (stretched to fill), used as each column's default
   // size. A user resize (columnSizing) overrides per-column. Not persisted — it's
@@ -146,13 +168,22 @@ export function OptimisticTransactionTable({
 
   const columnHelper = createColumnHelper<Transaction>();
 
-  // Helper to find next transaction ID in the displayed rows
-  const findNextTransactionId = (currentTxId: number, displayedTransactions: Transaction[]): number | null => {
-    const currentIndex = displayedTransactions.findIndex(tx => tx['db/id'] === currentTxId);
-    if (currentIndex === -1 || currentIndex === displayedTransactions.length - 1) {
-      return null; // Not found or last transaction
+  // Keyboard-driven side effects the nav layer routes for non-inline cells:
+  // toggling a reviewed checkbox (Space / Enter) and opening the split modal from
+  // a split part's category cell (Enter). Both read the current value from the
+  // (already overlaid) data and report up the usual way.
+  const toggleReviewedAt = (key: RowKey) => {
+    if (key.splitId == null) {
+      const tx = transactions.find((t) => t['db/id'] === key.txId);
+      onToggleReviewed?.(key.txId, !(tx?.['transaction/reviewed'] === true));
+    } else {
+      const part = sortedPartsByTx.get(key.txId)?.find((s) => s['db/id'] === key.splitId);
+      onToggleSplitReviewed?.(key.txId, key.splitId, !(part?.['split/reviewed'] === true));
     }
-    return displayedTransactions[currentIndex + 1]['db/id'];
+  };
+  const openSplitFor = (txId: number) => {
+    const tx = transactions.find((t) => t['db/id'] === txId);
+    if (tx) onSplit?.(tx);
   };
 
   // The category to display: read straight from the (already overlaid) transaction. The
@@ -219,19 +250,20 @@ export function OptimisticTransactionTable({
   const handleCategoryChange = (transactionId: number, categoryId: number | null) => {
     // Report the change up; the owner overlays it optimistically and debounces the write
     // (categoryOverlay / useWriteBehind), so the cell updates instantly without a reload.
+    // The nav layer (commit/cancel at the call site) handles leaving edit mode.
     onEditCategory?.(transactionId, categoryId);
-    setEditingTransactionId(null);
   };
 
   // One cell of a split part's (child) row. The description carries the branch marker
   // plus the part's own (editable) description; amount and category are filled too. The
   // rest is blank because the parent row already carries the date/account/payee context.
   const renderSplitChildCell = (columnId: string, split: Split, tx: Transaction, drift: boolean) => {
+    const childKey: RowKey = { txId: tx['db/id'], splitId: split['db/id'] };
     switch (columnId) {
       case 'description': {
         if (!onEditSplitDescription) return <SplitIcon drift={drift} />;
         const memo = split['split/memo'] ?? '';
-        if (editingDescriptionId === split['db/id']) {
+        if (gridNav.cellStatus(childKey, 'description').editing) {
           // Persist only a real change, storing the trimmed value so a spaces-only entry
           // clears the memo rather than sticking as a blank-looking description.
           const commit = (t: string) => {
@@ -243,15 +275,16 @@ export function OptimisticTransactionTable({
               <SplitIcon drift={drift} />
               <EditableDescriptionCell
                 initialValue={memo}
+                seedChar={gridNav.editSeed}
                 onSaveAndNext={(t) => {
                   commit(t);
-                  setEditingDescriptionId(null);
+                  gridNav.commitAndMoveDown();
                 }}
                 onSave={(t) => {
                   commit(t);
-                  setEditingDescriptionId(null);
+                  gridNav.commitClose();
                 }}
-                onCancel={() => setEditingDescriptionId(null)}
+                onCancel={gridNav.cancelEdit}
               />
             </span>
           );
@@ -265,7 +298,7 @@ export function OptimisticTransactionTable({
               // With a memo, it's the button's accessible name; when empty (the '—'
               // placeholder), label the add action instead of "dash".
               aria-label={memo ? undefined : 'Add description'}
-              onClick={() => setEditingDescriptionId(split['db/id'])}
+              onClick={() => gridNav.activate(childKey, 'description', { edit: true })}
             >
               {memo || '—'}
             </button>
@@ -286,7 +319,10 @@ export function OptimisticTransactionTable({
             <button
               type="button"
               className="category-button"
-              onClick={() => onSplit?.(tx)}
+              onClick={() => {
+                gridNav.activate(childKey, 'category');
+                onSplit?.(tx);
+              }}
               title="Edit split"
             >
               {split['split/category']?.['category/name'] ?? 'Uncategorized'}
@@ -299,6 +335,9 @@ export function OptimisticTransactionTable({
           <input
             type="checkbox"
             className="reviewed-checkbox"
+            // Roving focus lives on the <td>; the checkbox stays out of the tab
+            // order so Space (handled by the grid) doesn't also toggle it natively.
+            tabIndex={-1}
             checked={checked}
             onChange={(e) => onToggleSplitReviewed?.(tx['db/id'], split['db/id'], e.target.checked)}
             aria-label={checked ? 'Mark split as not reviewed' : 'Mark split as reviewed'}
@@ -347,7 +386,8 @@ export function OptimisticTransactionTable({
           // single source for what the override-or-import resolves to.
           const text = info.getValue() as string;
           if (!onEditDescription) return text || '—';
-          if (editingDescriptionId === transaction['db/id']) {
+          const txKey: RowKey = { txId: transaction['db/id'], splitId: null };
+          if (gridNav.cellStatus(txKey, 'description').editing) {
             // Persist only a real change. Comparing against `text` (the displayed,
             // effective value) makes opening/closing a cell — or retyping the same value,
             // possibly with surrounding whitespace — a no-op. Comparing against the
@@ -363,17 +403,16 @@ export function OptimisticTransactionTable({
             return (
               <EditableDescriptionCell
                 initialValue={text}
+                seedChar={gridNav.editSeed}
                 onSaveAndNext={(t) => {
                   commit(t);
-                  setEditingDescriptionId(
-                    findNextTransactionId(transaction['db/id'], displayedTransactions)
-                  );
+                  gridNav.commitAndMoveDown();
                 }}
                 onSave={(t) => {
                   commit(t);
-                  setEditingDescriptionId(null);
+                  gridNav.commitClose();
                 }}
-                onCancel={() => setEditingDescriptionId(null)}
+                onCancel={gridNav.cancelEdit}
               />
             );
           }
@@ -384,7 +423,7 @@ export function OptimisticTransactionTable({
               // With text, the description itself is the button's accessible name; when
               // empty (the '—' placeholder), label the add action instead of "dash".
               aria-label={text ? undefined : 'Add description'}
-              onClick={() => setEditingDescriptionId(transaction['db/id'])}
+              onClick={() => gridNav.activate(txKey, 'description', { edit: true })}
             >
               {text || '—'}
             </button>
@@ -411,7 +450,8 @@ export function OptimisticTransactionTable({
       ...columnDefSizing('category', autoSizing['category']),
       cell: (info) => {
         const transaction = info.row.original;
-        const isEditing = editingTransactionId === transaction['db/id'];
+        const txKey: RowKey = { txId: transaction['db/id'], splitId: null };
+        const isEditing = gridNav.cellStatus(txKey, 'category').editing;
 
         const category = categoryOf(transaction);
 
@@ -421,15 +461,16 @@ export function OptimisticTransactionTable({
               categories={categories}
               selectedCategoryId={category.id}
               portalMenu
+              initialFilter={gridNav.editSeed ?? undefined}
               onSelect={(categoryId) => {
                 handleCategoryChange(transaction['db/id'], categoryId);
+                gridNav.commitClose();
               }}
               onSelectAndNext={(categoryId) => {
                 handleCategoryChange(transaction['db/id'], categoryId);
-                const nextTxId = findNextTransactionId(transaction['db/id'], displayedTransactions);
-                setEditingTransactionId(nextTxId);
+                gridNav.commitAndMoveDown();
               }}
-              onClose={() => setEditingTransactionId(null)}
+              onClose={gridNav.cancelEdit}
             />
           );
         }
@@ -441,8 +482,10 @@ export function OptimisticTransactionTable({
           <div className="category-cell-row">
             <button
               className="category-button"
-              onClick={() => setEditingTransactionId(transaction['db/id'])}
-              onFocus={() => setEditingTransactionId(transaction['db/id'])}
+              // Open on click only — opening on focus (the old behavior) meant tabbing
+              // or programmatically focusing the cell instantly swapped in the dropdown,
+              // so Enter could never open it and could clobber an existing category.
+              onClick={() => gridNav.activate(txKey, 'category', { edit: true })}
               title={
                 stale
                   ? `Moved to ${category.name} — no longer matches the filter; clears on refresh`
@@ -472,6 +515,9 @@ export function OptimisticTransactionTable({
           <input
             type="checkbox"
             className="reviewed-checkbox"
+            // Roving focus lives on the <td>; the checkbox stays out of the tab order
+            // so Space (handled by the grid) doesn't also toggle it natively.
+            tabIndex={-1}
             checked={checked}
             onChange={(e) => onToggleReviewed?.(transaction['db/id'], e.target.checked)}
             aria-label={checked ? 'Mark as not reviewed' : 'Mark as reviewed'}
@@ -551,11 +597,102 @@ export function OptimisticTransactionTable({
     ? sortedRows.slice(page * pageSize, (page + 1) * pageSize)
     : sortedRows;
 
-  // Get the actual Transaction objects from displayRows for navigation
-  const displayedTransactions = displayRows.map(row => row.original);
+  // Publish the navigable grid for this render: the displayed rows expanded into
+  // navigable rows (split parents/children included) and the visible editable
+  // columns. The hook reads this through a ref, so the keydown handler and focus
+  // effect always reason over exactly what's on screen.
+  const navigableCols = navigableColumns(table.getVisibleLeafColumns().map((c) => c.id));
+  const gridModel = buildGridModel(
+    navigableCols,
+    displayRows.map((row) => ({
+      txId: row.original['db/id'],
+      splitIds: sortedPartsByTx.get(row.original['db/id'])?.map((s) => s['db/id']) ?? null,
+    }))
+  );
+  gridNav.setModel(gridModel);
+  const { navState } = gridNav;
+
+  // The table's single keydown handler. It resolves the keystroke to an intent
+  // (pure), routes non-inline cells to their side effects (toggle a reviewed
+  // checkbox, open the split modal), and otherwise dispatches movement / edit
+  // transitions to the state machine. In edit mode it claims only Tab — every
+  // other key is left to the open editor.
+  const handleTableKeyDown = (e: KeyboardEvent<HTMLDivElement>) => {
+    // Escape with an active cell drops the selection so a following Tab can leave
+    // the grid; in edit mode the editor handles Escape itself.
+    if (navState.mode === 'navigation' && e.key === 'Escape') {
+      if (navState.active) {
+        e.preventDefault();
+        gridNav.clearActive();
+      }
+      return;
+    }
+    const intent = resolveIntent(e, navState.mode);
+    if (!intent) return; // not ours — leave it to the editor / browser
+    e.preventDefault();
+
+    if (!navState.active) {
+      // First keystroke after focusing the table: land on the first cell.
+      gridNav.dispatchIntent('grid-start');
+      return;
+    }
+
+    const row = gridModel.rows[navState.active.row];
+    const col = navState.active.col;
+
+    if (intent === 'toggle-reviewed') {
+      // Space toggles a reviewed cell; elsewhere it's swallowed (no page scroll).
+      if (col === 'reviewed') toggleReviewedAt(row.key);
+      return;
+    }
+    if (intent === 'edit' || intent === 'type-to-edit') {
+      if (col === 'reviewed') {
+        toggleReviewedAt(row.key);
+        return;
+      }
+      if (col === 'category' && row.kind === 'split-child') {
+        openSplitFor(row.key.txId);
+        return;
+      }
+      gridNav.setEditSeed(intent === 'type-to-edit' ? e.key : null);
+      gridNav.dispatchIntent(intent);
+      return;
+    }
+    // Movement. In edit mode this is Tab: blur the open editor first so it commits
+    // its value through its own onBlur (React doesn't reliably fire onBlur when the
+    // editor unmounts), then move on.
+    if (navState.mode === 'edit') {
+      (document.activeElement as HTMLElement | null)?.blur();
+    }
+    gridNav.setEditSeed(null);
+    gridNav.dispatchIntent(intent);
+  };
+
+  // Per-cell roving-tabindex/focus wiring, merged with the cell's own class. A cell
+  // is navigable when its column is editable and the row offers it (a split parent
+  // offers only its description); other cells keep just their base class.
+  const tdNavProps = (colId: string, key: RowKey, navigable: boolean) => {
+    const base = cellClassName(colId);
+    if (!navigable || !(EDITABLE_COLUMN_IDS as readonly string[]).includes(colId)) {
+      return { className: base };
+    }
+    const col = colId as ColId;
+    const status = gridNav.cellStatus(key, col);
+    return {
+      ref: (el: HTMLTableCellElement | null) => gridNav.registerCell(cellKey(key, col), el),
+      tabIndex: status.active ? 0 : -1,
+      className: [base, status.active ? 'grid-cell-active' : ''].filter(Boolean).join(' ') || undefined,
+    };
+  };
 
   return (
-    <div className="transactions-table-scroll">
+    <div
+      className="transactions-table-scroll"
+      // A single tab stop: the scroll container catches the initial Tab-in (no
+      // active cell yet); once a cell is active, the roving tabindex on that <td>
+      // becomes the stop and the container steps out of the tab order.
+      tabIndex={navState.active ? -1 : 0}
+      onKeyDown={handleTableKeyDown}>
       {/* width:100% (from .table) lets the trailing auto-width spacer column absorb
           any slack so the table fills the card; min-width keeps the real columns at
           their exact pixel widths (no proportional reflow), scrolling when they
@@ -635,7 +772,10 @@ export function OptimisticTransactionTable({
               return (
                 <tr key={row.id} className={stale ? 'is-stale' : undefined}>
                   {row.getVisibleCells().map((cell) => (
-                    <td key={cell.id} className={cellClassName(cell.column.id)}>
+                    <td
+                      key={cell.id}
+                      {...tdNavProps(cell.column.id, { txId: tx['db/id'], splitId: null }, true)}
+                    >
                       {flexRender(cell.column.columnDef.cell, cell.getContext())}
                     </td>
                   ))}
@@ -661,7 +801,10 @@ export function OptimisticTransactionTable({
                     // part is reviewed on its own row). The row menu stays available.
                     const blank = id === 'amount' || id === 'category' || id === 'reviewed';
                     return (
-                      <td key={cell.id} className={cellClassName(id)}>
+                      <td
+                        key={cell.id}
+                        {...tdNavProps(id, { txId: tx['db/id'], splitId: null }, id === 'description')}
+                      >
                         {blank ? null : flexRender(cell.column.columnDef.cell, cell.getContext())}
                       </td>
                     );
@@ -674,7 +817,10 @@ export function OptimisticTransactionTable({
                     className={`split-child-row ${i === lastIdx ? 'is-last' : ''}`}
                   >
                     {row.getVisibleCells().map((cell) => (
-                      <td key={cell.id} className={cellClassName(cell.column.id)}>
+                      <td
+                        key={cell.id}
+                        {...tdNavProps(cell.column.id, { txId: tx['db/id'], splitId: split['db/id'] }, true)}
+                      >
                         {renderSplitChildCell(cell.column.id, split, tx, drift)}
                       </td>
                     ))}

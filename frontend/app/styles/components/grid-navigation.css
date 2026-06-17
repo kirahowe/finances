@@ -1,0 +1,20 @@
+/* Spreadsheet-style keyboard navigation.
+
+   The active cell is the focusable unit (roving tabindex lives on the <td>, not
+   the inner button/checkbox), so Enter/Space never trigger a native control's own
+   keyboard activation — the table's single keydown handler owns every key. The
+   active <td> draws an inset ring in the primary accent; its own focus outline is
+   suppressed in favour of that ring. */
+
+.transactions-table-scroll:focus {
+  outline: none;
+}
+
+.table.table-resizable td.grid-cell-active {
+  box-shadow: inset 0 0 0 2px var(--color-primary);
+  border-radius: var(--radius-sm);
+}
+
+.table.table-resizable td.grid-cell-active:focus {
+  outline: none;
+}
