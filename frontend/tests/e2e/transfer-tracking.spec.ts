@@ -26,7 +26,7 @@ test('Hide transfers removes matched pure transfers but keeps a categorized (mor
   await expect(row(page, 'Payment Received')).toBeVisible();
   await expect(row(page, 'Mortgage Payment')).toBeVisible();
 
-  await page.locator('label.transfer-toggle input[type="checkbox"]').check();
+  await page.getByRole('button', { name: 'Hide transfers' }).click();
 
   // Pure transfer pair is hidden; the Housing-categorized mortgage pair stays.
   await expect(row(page, 'Visa Payment')).toHaveCount(0);
@@ -55,7 +55,7 @@ test('Find transfers proposes the seeded pair; confirming then hiding removes it
 
   // The pair is now matched; both legs are still visible until we hide transfers.
   await expect(row(page, 'Transfer to Savings')).toBeVisible();
-  await page.locator('label.transfer-toggle input[type="checkbox"]').check();
+  await page.getByRole('button', { name: 'Hide transfers' }).click();
   await expect(row(page, 'Transfer to Savings')).toHaveCount(0);
   await expect(row(page, 'Transfer from Chequing')).toHaveCount(0);
 });

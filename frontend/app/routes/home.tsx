@@ -12,6 +12,9 @@ import { FilterBar, type FilterConfig } from "../components/FilterBar";
 import { ColumnPicker } from "../components/ColumnPicker";
 import { MonthNavigator } from "../components/MonthNavigator";
 import { CategoryRollupPane } from "../components/CategoryRollupPane";
+import { ReviewScopeToggle } from "../components/ReviewScopeToggle";
+import { CountToggleChip } from "../components/CountToggleChip";
+import { computeMonthCounts } from "../lib/monthMetrics";
 import { parseSortingState, serializeSortingState } from "../lib/sortingState";
 import {
   parseColumnVisibility,
@@ -33,7 +36,7 @@ import {
   type FilterValue,
 } from "../lib/filterState";
 import { extractFilterOptions, applyFilters, type FilterOption } from "../lib/filterOptions";
-import { categoryFilterValues, buildCategoryOptions } from "../lib/categoryFilter";
+import { categoryFilterValues, buildCategoryOptions, uncategorizedTokenForType } from "../lib/categoryFilter";
 import {
   applyReviewedOverlay,
   setTxOverride,
@@ -184,6 +187,43 @@ function TransactionsSection({
       ),
     [transactions, reviewedOverrides, descriptionOverrides]
   );
+
+  // Counts for the review-scope toggle and the binary filter chips, from the overlaid
+  // (in-view) transactions so they track optimistic edits.
+  const counts = useMemo(() => computeMonthCounts(mergedTransactions), [mergedTransactions]);
+
+  // Review scope reads/writes the same `reviewed` filter the rest of the app uses, so
+  // the dropdown filter, the URL, and this toggle stay one source of truth.
+  const reviewMode: "needs-review" | "all" = (filters.reviewed ?? []).includes(
+    "unreviewed"
+  )
+    ? "needs-review"
+    : "all";
+  const handleNeedsReview = () => {
+    setFilters((prev) => ({ ...prev, reviewed: ["unreviewed"] }));
+    setPage(0);
+  };
+  const handleAllReviewed = () => {
+    setFilters((prev) => clearFilterField(prev, "reviewed"));
+    setPage(0);
+  };
+
+  // Uncategorized is a binary chip toggling both by-sign Uncategorized category buckets.
+  const uncatTokens = [
+    uncategorizedTokenForType("income"),
+    uncategorizedTokenForType("expense"),
+  ];
+  const uncategorizedActive = (filters.category ?? []).some((v) =>
+    uncatTokens.includes(v)
+  );
+  const handleToggleUncategorized = () => {
+    setFilters((prev) =>
+      uncategorizedActive
+        ? clearFilterField(prev, "category")
+        : { ...prev, category: uncatTokens }
+    );
+    setPage(0);
+  };
 
   // Category metadata derived once from the full list: which ids exist (so a
   // deleted/unknown ref routes to Uncategorized, mirroring the rollup) and names
@@ -436,23 +476,36 @@ function TransactionsSection({
           {syncError && <div className="error-banner">{syncError}</div>}
 
           <FilterBar
-            filters={filterConfigs}
+            filters={filterConfigs.filter((f) => f.field !== "reviewed")}
             filterState={filters}
             onToggleValue={handleToggleFilterValue}
             onClearField={handleClearFilterField}
             onClearAll={handleClearAllFilters}
-            inlineControls={
-              <label className="transfer-toggle">
-                <input
-                  type="checkbox"
-                  checked={hideTransfers}
-                  onChange={(e) => {
-                    setHideTransfers(e.target.checked);
+            leadingControls={
+              <>
+                <ReviewScopeToggle
+                  mode={reviewMode}
+                  unreviewedCount={counts.unreviewed}
+                  totalCount={counts.total}
+                  onSelectNeedsReview={handleNeedsReview}
+                  onSelectAll={handleAllReviewed}
+                />
+                <CountToggleChip
+                  label="Uncategorized"
+                  count={counts.uncategorized}
+                  active={uncategorizedActive}
+                  onToggle={handleToggleUncategorized}
+                />
+                <CountToggleChip
+                  label="Hide transfers"
+                  count={counts.transfersHidden}
+                  active={hideTransfers}
+                  onToggle={() => {
+                    setHideTransfers((v) => !v);
                     setPage(0);
                   }}
                 />
-                <span>Hide transfers</span>
-              </label>
+              </>
             }
             trailingControls={
               <>

@@ -23,6 +23,100 @@
   flex-wrap: wrap;
 }
 
+/* Review-scope segmented toggle (Needs review / All) */
+.scope-toggle {
+  display: inline-flex;
+  border: 1px solid var(--color-border-strong);
+  border-radius: var(--border-radius);
+  overflow: hidden;
+  background: var(--color-surface);
+}
+
+.scope-toggle-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--spacing-xs);
+  padding: var(--control-pad-y-sm) var(--control-pad-x-sm);
+  background: none;
+  border: none;
+  cursor: pointer;
+  font-size: var(--text-sm);
+  font-weight: 500;
+  color: var(--color-ink-soft);
+  white-space: nowrap;
+  transition: background-color 0.15s var(--ease-out), color 0.15s var(--ease-out);
+}
+
+.scope-toggle-btn + .scope-toggle-btn {
+  border-left: 1px solid var(--color-border);
+}
+
+.scope-toggle-btn:hover:not(.is-active) {
+  background: var(--color-hover-neutral);
+  color: var(--color-ink);
+}
+
+.scope-toggle-btn.is-active {
+  background: var(--color-primary);
+  color: var(--color-on-accent);
+}
+
+.scope-toggle-count {
+  font-family: var(--font-mono);
+  font-variant-numeric: tabular-nums;
+  font-size: var(--text-xs);
+  color: var(--color-text-muted);
+}
+
+.scope-toggle-btn.is-active .scope-toggle-count {
+  color: var(--color-on-accent);
+  opacity: 0.85;
+}
+
+/* Binary filter chips (uncategorized, hide transfers) with a count pill */
+.count-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--spacing-xs);
+  padding: var(--control-pad-y-sm) var(--control-pad-x-sm);
+  border: 1px solid var(--color-border-strong);
+  border-radius: 999px;
+  background: var(--color-surface);
+  color: var(--color-ink-soft);
+  font-size: var(--text-sm);
+  font-weight: 500;
+  cursor: pointer;
+  white-space: nowrap;
+  transition: background-color 0.15s var(--ease-out), color 0.15s var(--ease-out),
+    border-color 0.15s var(--ease-out);
+}
+
+.count-chip:hover {
+  background: var(--color-paper-deep);
+  color: var(--color-ink);
+}
+
+.count-chip.is-active {
+  background: var(--color-primary);
+  color: var(--color-on-accent);
+  border-color: transparent;
+}
+
+.count-chip-num {
+  font-family: var(--font-mono);
+  font-variant-numeric: tabular-nums;
+  font-size: var(--text-xs);
+  padding: 0 0.35rem;
+  border-radius: 999px;
+  background: var(--color-paper-deep);
+  color: var(--color-text-muted);
+}
+
+.count-chip.is-active .count-chip-num {
+  background: rgba(255, 255, 255, 0.22);
+  color: var(--color-on-accent);
+}
+
 /* Filter Button Container */
 .filter-button-container {
   position: relative;

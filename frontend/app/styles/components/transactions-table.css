@@ -9,10 +9,34 @@
    portalMenu); the row-actions menu already portals. */
 .transactions-table-scroll {
   overflow-x: auto;
+  /* Cap the height so a long month scrolls inside the table region with the column
+     header pinned (below), instead of forcing a long whole-page scroll. */
+  overflow-y: auto;
+  max-height: calc(100vh - 18rem);
 }
 
 .table.table-resizable {
   table-layout: fixed;
+}
+
+/* Pin the column header while the rows scroll, so the labels never leave view.
+   A sticky cell's own border detaches on scroll, so the head rule is drawn with an
+   inset shadow and an opaque background keeps rows from showing through. */
+.table.table-resizable thead th {
+  position: sticky;
+  top: 0;
+  z-index: 2;
+  background: var(--color-surface);
+  border-bottom: none;
+  box-shadow: inset 0 -1px 0 var(--color-border-strong);
+}
+
+/* Denser rows: trim the vertical padding so more of the month fits at a glance
+   (horizontal padding from the shared .table rules is preserved). */
+.table.table-resizable th,
+.table.table-resizable td {
+  padding-top: 0.32rem;
+  padding-bottom: 0.32rem;
 }
 
 /* Cells center vertically so a row's text sits midline against its taller controls

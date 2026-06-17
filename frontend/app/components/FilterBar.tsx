@@ -16,6 +16,9 @@ interface FilterBarProps {
   onToggleValue: (field: string, value: FilterValue) => void;
   onClearField: (field: string) => void;
   onClearAll: () => void;
+  // Controls rendered before the filter buttons (e.g. the review-scope toggle and
+  // binary count chips), so the primary scope leads the row.
+  leadingControls?: ReactNode;
   // Controls rendered inline with the filter buttons (e.g. a Hide-transfers toggle).
   inlineControls?: ReactNode;
   // Controls aligned to the right, alongside Clear-all (e.g. Columns / Find transfers).
@@ -28,6 +31,7 @@ export function FilterBar({
   onToggleValue,
   onClearField,
   onClearAll,
+  leadingControls,
   inlineControls,
   trailingControls,
 }: FilterBarProps) {
@@ -36,6 +40,7 @@ export function FilterBar({
   return (
     <div className="filter-bar">
       <div className="filter-bar-filters">
+        {leadingControls}
         {filters.map((filter) => (
           <FilterButton
             key={filter.field}
