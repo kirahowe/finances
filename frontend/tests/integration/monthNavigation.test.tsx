@@ -93,8 +93,6 @@ describe('Month Navigation Integration', () => {
         <MonthNavigator
           currentMonth={currentMonth}
           onMonthChange={handleMonthChange}
-          onSync={() => {}}
-          isSyncing={false}
         />
         <table>
           <tbody>

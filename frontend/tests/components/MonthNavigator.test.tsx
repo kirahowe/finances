@@ -14,8 +14,6 @@ describe('MonthNavigator', () => {
         <MonthNavigator
           currentMonth={january2025}
           onMonthChange={() => {}}
-          onSync={() => {}}
-          isSyncing={false}
         />
       );
 
@@ -27,8 +25,6 @@ describe('MonthNavigator', () => {
         <MonthNavigator
           currentMonth={december2024}
           onMonthChange={() => {}}
-          onSync={() => {}}
-          isSyncing={false}
         />
       );
 
@@ -43,8 +39,6 @@ describe('MonthNavigator', () => {
         <MonthNavigator
           currentMonth={june2025}
           onMonthChange={onMonthChange}
-          onSync={() => {}}
-          isSyncing={false}
         />
       );
 
@@ -60,8 +54,6 @@ describe('MonthNavigator', () => {
         <MonthNavigator
           currentMonth={june2025}
           onMonthChange={onMonthChange}
-          onSync={() => {}}
-          isSyncing={false}
         />
       );
 
@@ -77,8 +69,6 @@ describe('MonthNavigator', () => {
         <MonthNavigator
           currentMonth={january2025}
           onMonthChange={onMonthChange}
-          onSync={() => {}}
-          isSyncing={false}
         />
       );
 
@@ -94,8 +84,6 @@ describe('MonthNavigator', () => {
         <MonthNavigator
           currentMonth={december2024}
           onMonthChange={onMonthChange}
-          onSync={() => {}}
-          isSyncing={false}
         />
       );
 
@@ -103,43 +91,6 @@ describe('MonthNavigator', () => {
       fireEvent.click(nextButton);
 
       expect(onMonthChange).toHaveBeenCalledWith({ year: 2025, month: 1 });
-    });
-  });
-
-  describe('sync button', () => {
-    it('calls onSync when sync button clicked', () => {
-      const onSync = vi.fn();
-      render(
-        <MonthNavigator
-          currentMonth={january2025}
-          onMonthChange={() => {}}
-          onSync={onSync}
-          isSyncing={false}
-        />
-      );
-
-      const syncButton = screen.getByTitle('Sync transactions for this month');
-      fireEvent.click(syncButton);
-
-      expect(onSync).toHaveBeenCalledTimes(1);
-    });
-
-    it('disables sync button when isSyncing is true', () => {
-      const onSync = vi.fn();
-      render(
-        <MonthNavigator
-          currentMonth={january2025}
-          onMonthChange={() => {}}
-          onSync={onSync}
-          isSyncing={true}
-        />
-      );
-
-      const syncButton = screen.getByTitle('Syncing...');
-      expect(syncButton).toBeDisabled();
-
-      fireEvent.click(syncButton);
-      expect(onSync).not.toHaveBeenCalled();
     });
   });
 });

@@ -59,7 +59,7 @@ export function FilterBar({
           {hasFilters && (
             <button
               type="button"
-              className="button button-secondary filter-bar-clear-all"
+              className="button button-secondary button-small filter-bar-clear-all"
               onClick={onClearAll}
             >
               Clear all filters

@@ -29,7 +29,3 @@
   font-size: var(--glyph);
   line-height: 1;
 }
-
-.month-sync-button {
-  padding: var(--control-pad-y-sm) var(--control-pad-x);
-}

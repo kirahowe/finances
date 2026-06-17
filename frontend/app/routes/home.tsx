@@ -142,10 +142,6 @@ function TransactionsSection({
   const [hideTransfers, setHideTransfers] = useState(
     () => searchParams.get("hideTransfers") === "1"
   );
-  const [isSyncing, setIsSyncing] = useState(false);
-  const [syncStatus, setSyncStatus] = useState<string>("");
-  const [syncError, setSyncError] = useState<string | null>(null);
-
   // Month comes from loader data (server is source of truth)
   const currentMonth = parseMonthParam(month);
 
@@ -434,28 +430,6 @@ function TransactionsSection({
     setPage(0);
   };
 
-  const handleSyncMonth = async () => {
-    setIsSyncing(true);
-    setSyncStatus("Syncing transactions from Plaid...");
-    setSyncError(null);
-
-    try {
-      const result = await api.syncPlaidMonthTransactions(month);
-      setSyncStatus(`Successfully synced ${result.success.transactions} transaction(s)!`);
-
-      setTimeout(() => {
-        revalidator.revalidate();
-        setSyncStatus("");
-      }, 1500);
-    } catch (err) {
-      const errorMsg = err instanceof Error ? err.message : "Failed to sync transactions";
-      setSyncError(errorMsg);
-      setSyncStatus("");
-    } finally {
-      setIsSyncing(false);
-    }
-  };
-
   return (
     <>
       <div className="page-head">
@@ -468,12 +442,7 @@ function TransactionsSection({
           <MonthNavigator
             currentMonth={currentMonth}
             onMonthChange={handleMonthChange}
-            onSync={handleSyncMonth}
-            isSyncing={isSyncing}
           />
-
-          {syncStatus && <div className="status-banner">{syncStatus}</div>}
-          {syncError && <div className="error-banner">{syncError}</div>}
 
           <FilterBar
             filters={filterConfigs.filter((f) => f.field !== "reviewed")}
@@ -517,7 +486,7 @@ function TransactionsSection({
                 />
                 <button
                   type="button"
-                  className="button button-secondary"
+                  className="button button-secondary button-small"
                   onClick={() => setReviewing(true)}
                 >
                   Find transfers
@@ -530,8 +499,8 @@ function TransactionsSection({
             <div className="empty-state">
               <div className="empty-state-title">No transactions this month</div>
               <p>
-                Use the month controls to browse another period, or sync this month
-                to pull the latest activity from your connected accounts.
+                Use the month controls to browse another period, or import
+                transactions from the Setup page.
               </p>
             </div>
           ) : (

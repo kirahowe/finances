@@ -8,15 +8,11 @@ import {
 interface MonthNavigatorProps {
   currentMonth: MonthState;
   onMonthChange: (month: MonthState) => void;
-  onSync: () => void;
-  isSyncing: boolean;
 }
 
 export function MonthNavigator({
   currentMonth,
   onMonthChange,
-  onSync,
-  isSyncing,
 }: MonthNavigatorProps) {
   const handlePrev = () => {
     onMonthChange(prevMonth(currentMonth));
@@ -47,14 +43,6 @@ export function MonthNavigator({
           &rsaquo;
         </button>
       </div>
-      <button
-        className="button button-secondary month-sync-button"
-        onClick={onSync}
-        disabled={isSyncing}
-        title={isSyncing ? 'Syncing...' : 'Sync transactions for this month'}
-      >
-        {isSyncing ? 'Syncing...' : 'Sync Month'}
-      </button>
     </div>
   );
 }
