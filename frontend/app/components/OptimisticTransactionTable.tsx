@@ -10,7 +10,6 @@ import {
   type ColumnSizingState,
   type OnChangeFn,
 } from '@tanstack/react-table';
-import { useFetcher } from 'react-router';
 import { type Transaction, type Category, type Split } from '../lib/api';
 import { formatAmount, formatDate } from '../lib/format';
 import { sortSplits } from '../lib/splitMath';
@@ -19,6 +18,9 @@ import { useAutoColumnSizing } from '../lib/useAutoColumnSizing';
 import { CategoryDropdown } from './CategoryDropdown';
 import { EditableDescriptionCell } from './EditableDescriptionCell';
 import { RowActionsMenu, type RowAction } from './RowActionsMenu';
+import { HeaderFilterControl } from './HeaderFilterControl';
+import type { FilterState, FilterValue } from '../lib/filterState';
+import type { FilterOption } from '../lib/filterOptions';
 import '../styles/components/split-rows.css';
 import '../styles/components/transfer-modal.css';
 import '../styles/components/transactions-table.css';
@@ -74,7 +76,28 @@ interface OptimisticTransactionTableProps {
   // Edit one split part's description (its memo) in place, on the part's own row. When
   // omitted, a split part's description cell shows only the branch marker.
   onEditSplitDescription?: (transactionId: number, splitId: number, description: string) => void;
+  // Edit an unsplit transaction's category in place. The table renders the (already
+  // overlaid) category and reports the chosen id up; the owner holds the optimistic
+  // projection and debounces persistence (see categoryOverlay / useWriteBehind).
+  onEditCategory?: (transactionId: number, categoryId: number | null) => void;
+  // In-header (Excel-style) column filters. When provided, filterable columns
+  // (account / institution / category) grow a funnel that opens the shared filter
+  // dropdown, bound to the same filter state the rest of the app uses.
+  filterState?: FilterState;
+  filterOptionsByField?: Record<string, FilterOption[]>;
+  onToggleFilterValue?: (field: string, value: FilterValue) => void;
+  onClearFilterField?: (field: string) => void;
+  // Rows kept visible after an edit moved them out of the active filter (the "linger"
+  // set). They render de-emphasized with a moved marker until the next filter reset.
+  staleTransactionIds?: Set<number>;
 }
+
+// Columns whose header carries a filter funnel, with the label shown in the popover.
+const HEADER_FILTER_LABELS: Record<string, string> = {
+  account: 'Account',
+  institution: 'Institution',
+  category: 'Category',
+};
 
 export function OptimisticTransactionTable({
   transactions,
@@ -95,10 +118,15 @@ export function OptimisticTransactionTable({
   onToggleSplitReviewed,
   onEditDescription,
   onEditSplitDescription,
+  onEditCategory,
+  filterState,
+  filterOptionsByField,
+  onToggleFilterValue,
+  onClearFilterField,
+  staleTransactionIds,
 }: OptimisticTransactionTableProps) {
   const [editingTransactionId, setEditingTransactionId] = useState<number | null>(null);
   const [editingDescriptionId, setEditingDescriptionId] = useState<number | null>(null);
-  const fetcher = useFetcher();
 
   // Measured content-fit widths (stretched to fill), used as each column's default
   // size. A user resize (columnSizing) overrides per-column. Not persisted — it's
@@ -127,28 +155,14 @@ export function OptimisticTransactionTable({
     return displayedTransactions[currentIndex + 1]['db/id'];
   };
 
-  // Helper function to get optimistic category for a transaction
-  const getOptimisticCategory = (transaction: Transaction): { id: number | null; name: string } => {
-    // Check if this transaction is being updated via fetcher
-    const isUpdating =
-      fetcher.state !== 'idle' &&
-      fetcher.formData?.get('transactionId') === transaction['db/id'].toString();
-
-    if (isUpdating) {
-      // Show optimistic value from formData
-      const categoryId = fetcher.formData?.get('categoryId');
-      if (categoryId) {
-        const cat = categories.find(c => c['db/id'] === parseInt(categoryId as string));
-        return { id: parseInt(categoryId as string), name: cat?.['category/name'] || 'Uncategorized' };
-      }
-      return { id: null, name: 'Uncategorized' };
-    }
-
-    // Use values directly from transaction
+  // The category to display: read straight from the (already overlaid) transaction. The
+  // optimistic value is applied above the filter in the owner via categoryOverlay, so the
+  // cell, the filter predicate, and the counts all agree — no per-cell fetcher state.
+  const categoryOf = (transaction: Transaction): { id: number | null; name: string } => {
     const categoryRef = transaction['transaction/category'];
     return {
-      id: categoryRef?.['db/id'] || null,
-      name: categoryRef?.['category/name'] || 'Uncategorized'
+      id: categoryRef?.['db/id'] ?? null,
+      name: categoryRef?.['category/name'] ?? 'Uncategorized',
     };
   };
 
@@ -199,15 +213,9 @@ export function OptimisticTransactionTable({
   };
 
   const handleCategoryChange = (transactionId: number, categoryId: number | null) => {
-    // Use fetcher to submit the change (Remix-native optimistic UI)
-    const formData = new FormData();
-    formData.set('intent', 'update-transaction-category');
-    formData.set('transactionId', transactionId.toString());
-    if (categoryId !== null) {
-      formData.set('categoryId', categoryId.toString());
-    }
-
-    fetcher.submit(formData, { method: 'post' });
+    // Report the change up; the owner overlays it optimistically and debounces the write
+    // (categoryOverlay / useWriteBehind), so the cell updates instantly without a reload.
+    onEditCategory?.(transactionId, categoryId);
     setEditingTransactionId(null);
   };
 
@@ -401,13 +409,13 @@ export function OptimisticTransactionTable({
         const transaction = info.row.original;
         const isEditing = editingTransactionId === transaction['db/id'];
 
-        const optimisticCategory = getOptimisticCategory(transaction);
+        const category = categoryOf(transaction);
 
         if (isEditing) {
           return (
             <CategoryDropdown
               categories={categories}
-              selectedCategoryId={optimisticCategory.id}
+              selectedCategoryId={category.id}
               portalMenu
               onSelect={(categoryId) => {
                 handleCategoryChange(transaction['db/id'], categoryId);
@@ -422,14 +430,27 @@ export function OptimisticTransactionTable({
           );
         }
 
+        // A stale (lingering) row was just moved out of the active filter; mark where it
+        // went and keep it editable so the user can keep working before it clears.
+        const stale = staleTransactionIds?.has(transaction['db/id']) ?? false;
         return (
           <div className="category-cell-stack">
             <button
               className="category-button"
               onClick={() => setEditingTransactionId(transaction['db/id'])}
               onFocus={() => setEditingTransactionId(transaction['db/id'])}
+              title={
+                stale
+                  ? `Moved to ${category.name} — no longer matches the filter; clears on refresh`
+                  : undefined
+              }
             >
-              {optimisticCategory.name}
+              {stale && (
+                <span className="category-moved-mark" aria-hidden="true">
+                  →{' '}
+                </span>
+              )}
+              {category.name}
             </button>
             {renderTransferStatus(transaction)}
           </div>
@@ -547,6 +568,10 @@ export function OptimisticTransactionTable({
             <tr key={headerGroup.id}>
               {headerGroup.headers.map((header) => {
                 const canSort = header.column.getCanSort();
+                const filterField =
+                  onToggleFilterValue && HEADER_FILTER_LABELS[header.column.id]
+                    ? header.column.id
+                    : null;
                 const thClass = [cellClassName(header.column.id), canSort ? 'th-sortable' : 'th-static']
                   .filter(Boolean)
                   .join(' ');
@@ -568,6 +593,15 @@ export function OptimisticTransactionTable({
                         )}
                     {header.column.getIsSorted() === 'asc' && ' ↑'}
                     {header.column.getIsSorted() === 'desc' && ' ↓'}
+                    {filterField && (
+                      <HeaderFilterControl
+                        label={HEADER_FILTER_LABELS[filterField]}
+                        options={filterOptionsByField?.[filterField] ?? []}
+                        selectedValues={filterState?.[filterField] ?? []}
+                        onToggle={(value) => onToggleFilterValue?.(filterField, value)}
+                        onClear={() => onClearFilterField?.(filterField)}
+                      />
+                    )}
                     {header.column.getCanResize() && (
                       <div
                         className={`col-resize-handle ${header.column.getIsResizing() ? 'is-resizing' : ''}`}
@@ -590,10 +624,12 @@ export function OptimisticTransactionTable({
             const tx = row.original;
             const parts = sortedPartsByTx.get(tx['db/id']) ?? null;
 
-            // Unsplit transaction: one normal row.
+            // Unsplit transaction: one normal row. A stale row (edited out of the active
+            // filter but kept in view) renders de-emphasized until the filter resets.
             if (!parts) {
+              const stale = staleTransactionIds?.has(tx['db/id']) ?? false;
               return (
-                <tr key={row.id}>
+                <tr key={row.id} className={stale ? 'is-stale' : undefined}>
                   {row.getVisibleCells().map((cell) => (
                     <td key={cell.id} className={cellClassName(cell.column.id)}>
                       {flexRender(cell.column.columnDef.cell, cell.getContext())}

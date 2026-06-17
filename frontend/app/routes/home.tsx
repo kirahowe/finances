@@ -8,7 +8,7 @@ import { SplitTransactionModal } from "../components/SplitTransactionModal";
 import { TransferReviewModal } from "../components/TransferReviewModal";
 import { MatchTransferModal } from "../components/MatchTransferModal";
 import { Pagination } from "../components/Pagination";
-import { FilterBar, type FilterConfig } from "../components/FilterBar";
+import { FilterBar } from "../components/FilterBar";
 import { ColumnPicker } from "../components/ColumnPicker";
 import { MonthNavigator } from "../components/MonthNavigator";
 import { CategoryRollupPane } from "../components/CategoryRollupPane";
@@ -32,11 +32,18 @@ import {
   toggleFilterValue,
   clearFilterField,
   clearAllFilters,
+  removeFilterValue,
   type FilterState,
   type FilterValue,
 } from "../lib/filterState";
 import { extractFilterOptions, applyFilters, type FilterOption } from "../lib/filterOptions";
-import { categoryFilterValues, buildCategoryOptions, uncategorizedTokenForType } from "../lib/categoryFilter";
+import {
+  categoryFilterValues,
+  buildCategoryOptions,
+  uncategorizedTokenForType,
+  uncategorizedTokenForAmount,
+  isUncategorizedToken,
+} from "../lib/categoryFilter";
 import {
   applyReviewedOverlay,
   setTxOverride,
@@ -51,6 +58,17 @@ import {
   EMPTY_DESCRIPTION_OVERRIDES,
   type DescriptionOverrides,
 } from "../lib/descriptionOverlay";
+import {
+  applyCategoryOverlay,
+  setTxCategoryOverride,
+  EMPTY_CATEGORY_OVERRIDES,
+  type CategoryOverrides,
+  type CategoryOverrideValue,
+} from "../lib/categoryOverlay";
+import { withLingeringRows } from "../lib/lingeringRows";
+import { searchTransactions } from "../lib/searchTransactions";
+import { ActiveFilterChips, type ActiveChip } from "../components/ActiveFilterChips";
+import { TableSearch } from "../components/TableSearch";
 import { useWriteBehind } from "../lib/useWriteBehind";
 import "../styles/pages/dashboard.css";
 import "../styles/components/pagination.css";
@@ -81,22 +99,6 @@ export async function loader({ request }: Route.LoaderArgs) {
   ]);
 
   return { stats, transactions, categories, month: monthParam };
-}
-
-export async function action({ request }: Route.ActionArgs) {
-  const formData = await request.formData();
-  const intent = formData.get("intent");
-
-  if (intent === "update-transaction-category") {
-    const transactionId = parseInt(formData.get("transactionId") as string);
-    const categoryId = formData.get("categoryId");
-    await api.updateTransactionCategory(
-      transactionId,
-      categoryId ? parseInt(categoryId as string) : null
-    );
-  }
-
-  return { success: true };
 }
 
 export default function Home({ loaderData }: Route.ComponentProps) {
@@ -174,15 +176,29 @@ function TransactionsSection({
     useState<ReviewedOverrides>(EMPTY_REVIEWED_OVERRIDES);
   const [descriptionOverrides, setDescriptionOverrides] =
     useState<DescriptionOverrides>(EMPTY_DESCRIPTION_OVERRIDES);
+  const [categoryOverrides, setCategoryOverrides] =
+    useState<CategoryOverrides>(EMPTY_CATEGORY_OVERRIDES);
   const { enqueue } = useWriteBehind();
   const mergedTransactions = useMemo(
     () =>
-      applyDescriptionOverlay(
-        applyReviewedOverlay(transactions, reviewedOverrides),
-        descriptionOverrides
+      applyCategoryOverlay(
+        applyDescriptionOverlay(
+          applyReviewedOverlay(transactions, reviewedOverrides),
+          descriptionOverrides
+        ),
+        categoryOverrides
       ),
-    [transactions, reviewedOverrides, descriptionOverrides]
+    [transactions, reviewedOverrides, descriptionOverrides, categoryOverrides]
   );
+
+  // Free-text search (payee/description/category), URL-backed like the other view state.
+  const [search, setSearch] = useState(() => searchParams.get("q") ?? "");
+
+  // Rows the user has categorized out of the active category filter but that we keep in
+  // view (stale) rather than yanking away mid-task — see lingeringRows / handleEditCategory.
+  // Annotating a category is keep-context work, not triage; reviewed stays triage (the
+  // row vanishes the moment you check it off). Cleared on any filter/sort/page reset below.
+  const [lingeringIds, setLingeringIds] = useState<Set<number>>(() => new Set());
 
   // Counts for the review-scope toggle and the binary filter chips, from the overlaid
   // (in-view) transactions so they track optimistic edits.
@@ -278,42 +294,141 @@ function TransactionsSection({
     );
   };
 
-  // Extract filter options from all transactions (overlaid, so counts track toggles).
-  const filterConfigs = useMemo<FilterConfig[]>(() => {
-    const accountOptions = extractFilterOptions(
-      mergedTransactions,
-      (tx) => tx["transaction/account"]?.["db/id"],
-      (tx) => tx["transaction/account"]?.["account/external-name"] || "Unknown"
+  const handleEditCategory = (transactionId: number, categoryId: number | null) => {
+    const cat = categoryId == null ? null : categories.find((c) => c["db/id"] === categoryId);
+    const ref: CategoryOverrideValue = cat
+      ? {
+          "db/id": cat["db/id"],
+          "category/name": cat["category/name"],
+          "category/type": cat["category/type"],
+        }
+      : null;
+    setCategoryOverrides((prev) => setTxCategoryOverride(prev, transactionId, ref));
+    enqueue(`category:${transactionId}`, () =>
+      api.updateTransactionCategory(transactionId, categoryId)
     );
 
-    const categoryOptions = buildCategoryOptions(
-      mergedTransactions,
-      presentCategoryIds,
-      categoryNameById
-    );
+    // Defer removal: when a category filter is active and the new category no longer
+    // matches it, keep the row visible (stale) instead of yanking it out from under the
+    // user. If the edit makes it match again, drop it from the linger set.
+    const active = filters.category ?? [];
+    if (active.length > 0) {
+      const tx = mergedTransactions.find((t) => t["db/id"] === transactionId);
+      const newTokens: FilterValue[] =
+        categoryId != null && presentCategoryIds.has(categoryId)
+          ? [categoryId]
+          : [uncategorizedTokenForAmount(tx?.["transaction/amount"] ?? 0)];
+      const stillMatches = newTokens.some((t) => active.includes(t));
+      setLingeringIds((prev) => {
+        const next = new Set(prev);
+        if (stillMatches) next.delete(transactionId);
+        else next.add(transactionId);
+        return next;
+      });
+    }
+  };
 
-    // Reviewed is a fixed two-value filter: both options always show (even when the
-    // month has none of one kind) so it never collapses to a single choice the way a
-    // data-derived option set would. Counts mirror the account/category filters;
-    // selecting neither value (the default) shows all.
-    const reviewedCount = mergedTransactions.filter((tx) => tx["transaction/reviewed"]).length;
-    const reviewedOptions: FilterOption[] = [
-      { value: "reviewed", label: "Reviewed", count: reviewedCount },
-      { value: "unreviewed", label: "Unreviewed", count: mergedTransactions.length - reviewedCount },
-    ];
+  // Per-field options for the in-header column filters, derived from the overlaid
+  // (in-view) transactions so counts track optimistic edits. Account/institution are
+  // immutable attributes; category is editable (and so subject to the linger behavior).
+  const accountOptions = useMemo(
+    () =>
+      extractFilterOptions(
+        mergedTransactions,
+        (tx) => tx["transaction/account"]?.["db/id"],
+        (tx) => tx["transaction/account"]?.["account/external-name"] || "Unknown"
+      ),
+    [mergedTransactions]
+  );
+  const institutionOptions = useMemo(
+    () =>
+      extractFilterOptions(
+        mergedTransactions,
+        (tx) => tx["transaction/account"]?.["account/institution"]?.["db/id"],
+        (tx) => tx["transaction/account"]?.["account/institution"]?.["institution/name"] || "Unknown"
+      ),
+    [mergedTransactions]
+  );
+  const categoryOptions = useMemo(
+    () => buildCategoryOptions(mergedTransactions, presentCategoryIds, categoryNameById),
+    [mergedTransactions, presentCategoryIds, categoryNameById]
+  );
+  const filterOptionsByField = useMemo<Record<string, FilterOption[]>>(
+    () => ({
+      account: accountOptions,
+      institution: institutionOptions,
+      category: categoryOptions,
+    }),
+    [accountOptions, institutionOptions, categoryOptions]
+  );
 
-    return [
-      { field: "account", label: "Account", options: accountOptions },
-      { field: "category", label: "Category", options: categoryOptions },
-      { field: "reviewed", label: "Reviewed", options: reviewedOptions },
-    ];
-  }, [mergedTransactions, presentCategoryIds, categoryNameById]);
+  // Account/institution accessors join the category/reviewed accessors above. Institution
+  // is reached through the account ref. `applyFilters` only consults accessors for fields
+  // actually present in the filter state, so adding this is free for the unfiltered case.
+  const allFilterAccessors = useMemo(
+    () => ({
+      ...txFilterAccessors,
+      institution: (tx: Transaction) =>
+        tx["transaction/account"]?.["account/institution"]?.["db/id"],
+    }),
+    [txFilterAccessors]
+  );
 
-  // Apply filters to transactions, then optionally hide matched transfers.
+  // Apply filters, keep edited-away rows lingering (stale), then search, then hide
+  // transfers. `staleIds` flags the lingering rows so the table can de-emphasize them.
+  const { rows: visibleRows, staleIds } = useMemo(() => {
+    const matched = applyFilters(mergedTransactions, filters, allFilterAccessors);
+    return withLingeringRows(mergedTransactions, matched, lingeringIds);
+  }, [mergedTransactions, filters, allFilterAccessors, lingeringIds]);
+
   const filteredTransactions = useMemo(() => {
-    const filtered = applyFilters(mergedTransactions, filters, txFilterAccessors);
-    return hideTransfers ? filtered.filter((tx) => !tx['transaction/transfer-hidden']) : filtered;
-  }, [mergedTransactions, filters, hideTransfers, txFilterAccessors]);
+    const searched = searchTransactions(visibleRows, search);
+    return hideTransfers
+      ? searched.filter((tx) => !tx["transaction/transfer-hidden"])
+      : searched;
+  }, [visibleRows, search, hideTransfers]);
+
+  // Stale rows clear on the next natural reset: any filter/sort/page/search change drops
+  // the linger set (month navigation remounts the section, so it resets there too). A
+  // category edit touches none of these, so a stale row stays put while you keep working.
+  useEffect(() => {
+    setLingeringIds((prev) => (prev.size ? new Set() : prev));
+  }, [filters, sorting, page, pageSize, hideTransfers, search]);
+
+  // The active-filter summary: account/institution values and real category ids (the
+  // by-sign Uncategorized tokens are represented by the Uncategorized toggle, and the
+  // reviewed filter by the scope toggle, so they're omitted here), plus the search term.
+  const activeChips = useMemo<ActiveChip[]>(() => {
+    const accountLabel = new Map(accountOptions.map((o) => [o.value, o.label]));
+    const institutionLabel = new Map(institutionOptions.map((o) => [o.value, o.label]));
+    const chips: ActiveChip[] = [];
+    for (const v of filters.account ?? [])
+      chips.push({ field: "account", value: v, fieldLabel: "Account", valueLabel: accountLabel.get(v) ?? String(v) });
+    for (const v of filters.institution ?? [])
+      chips.push({ field: "institution", value: v, fieldLabel: "Institution", valueLabel: institutionLabel.get(v) ?? String(v) });
+    for (const v of filters.category ?? []) {
+      if (isUncategorizedToken(v)) continue;
+      chips.push({ field: "category", value: v, fieldLabel: "Category", valueLabel: categoryNameById.get(v as number) ?? "Unknown" });
+    }
+    if (search.trim())
+      chips.push({ field: "search", value: search, fieldLabel: "Search", valueLabel: search.trim() });
+    return chips;
+  }, [filters, accountOptions, institutionOptions, categoryNameById, search]);
+
+  const handleRemoveChip = (field: string, value: FilterValue) => {
+    if (field === "search") {
+      setSearch("");
+    } else {
+      setFilters((prev) => removeFilterValue(prev, field, value));
+    }
+    setPage(0);
+  };
+
+  const handleClearAllChips = () => {
+    setFilters(clearAllFilters());
+    setSearch("");
+    setPage(0);
+  };
 
   // The rollup pane is a stable map of the whole month — no table filter (account,
   // category, reviewed, hide-transfers) touches it. You can keep clicking around it
@@ -369,6 +484,12 @@ function TransactionsSection({
       currentUrl.searchParams.delete("hideTransfers");
     }
 
+    if (search.trim()) {
+      currentUrl.searchParams.set("q", search);
+    } else {
+      currentUrl.searchParams.delete("q");
+    }
+
     const serializedCols = serializeColumnVisibility(columnVisibility);
     if (serializedCols) {
       currentUrl.searchParams.set("cols", serializedCols);
@@ -396,7 +517,7 @@ function TransactionsSection({
     }
 
     window.history.replaceState(null, "", currentUrl.toString());
-  }, [sorting, filters, hideTransfers, columnVisibility, columnSizing, page, pageSize]);
+  }, [sorting, filters, hideTransfers, search, columnVisibility, columnSizing, page, pageSize]);
 
   const handleSortingChange = (
     updaterOrValue: SortingState | ((old: SortingState) => SortingState)
@@ -410,10 +531,6 @@ function TransactionsSection({
 
   const handleClearFilterField = (field: string) => {
     setFilters((prev) => clearFilterField(prev, field));
-  };
-
-  const handleClearAllFilters = () => {
-    setFilters(clearAllFilters());
   };
 
   const handleMonthChange = (newMonth: MonthState) => {
@@ -445,13 +562,23 @@ function TransactionsSection({
           />
 
           <FilterBar
-            filters={filterConfigs.filter((f) => f.field !== "reviewed")}
-            filterState={filters}
+            // Attribute filters (account / institution / category) now live in the column
+            // headers, so the bar carries no dropdown buttons; the empty filterState keeps
+            // the bar's built-in "Clear all" off — the chips row below owns that now.
+            filters={[]}
+            filterState={{}}
             onToggleValue={handleToggleFilterValue}
             onClearField={handleClearFilterField}
-            onClearAll={handleClearAllFilters}
+            onClearAll={handleClearAllChips}
             leadingControls={
               <>
+                <TableSearch
+                  value={search}
+                  onChange={(v) => {
+                    setSearch(v);
+                    setPage(0);
+                  }}
+                />
                 <ReviewScopeToggle
                   mode={reviewMode}
                   unreviewedCount={counts.unreviewed}
@@ -495,13 +622,33 @@ function TransactionsSection({
             }
           />
 
+          <ActiveFilterChips
+            chips={activeChips}
+            onRemove={handleRemoveChip}
+            onClearAll={handleClearAllChips}
+          />
+
           {filteredTransactions.length === 0 ? (
             <div className="empty-state">
-              <div className="empty-state-title">No transactions this month</div>
-              <p>
-                Use the month controls to browse another period, or import
-                transactions from the Setup page.
-              </p>
+              {mergedTransactions.length === 0 ? (
+                // The month itself is empty — nothing imported for this period.
+                <>
+                  <div className="empty-state-title">No transactions this month</div>
+                  <p>
+                    Use the month controls to browse another period, or import
+                    transactions from the Setup page.
+                  </p>
+                </>
+              ) : (
+                // The month has transactions, but the current view hides them all.
+                <>
+                  <div className="empty-state-title">No matching transactions</div>
+                  <p>
+                    Nothing this month matches your current filters and search.
+                    Adjust or clear them above to widen the view.
+                  </p>
+                </>
+              )}
             </div>
           ) : (
             <>
@@ -522,6 +669,12 @@ function TransactionsSection({
                 onToggleSplitReviewed={handleToggleSplitReviewed}
                 onEditDescription={handleEditDescription}
                 onEditSplitDescription={handleEditSplitDescription}
+                onEditCategory={handleEditCategory}
+                filterState={filters}
+                filterOptionsByField={filterOptionsByField}
+                onToggleFilterValue={handleToggleFilterValue}
+                onClearFilterField={handleClearFilterField}
+                staleTransactionIds={staleIds}
               />
 
               <Pagination
