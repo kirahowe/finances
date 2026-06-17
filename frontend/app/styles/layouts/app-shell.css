@@ -6,7 +6,7 @@
   top: 0;
   z-index: 50;
   margin: 0 calc(-1 * var(--spacing-xl));
-  padding: var(--spacing-md) var(--spacing-xl) 0;
+  padding: var(--spacing-sm) var(--spacing-xl) 0;
   background-color: var(--color-masthead-bg);
   backdrop-filter: saturate(140%) blur(10px);
   -webkit-backdrop-filter: saturate(140%) blur(10px);
@@ -17,7 +17,7 @@
   align-items: center;
   gap: var(--spacing-xl);
   flex-wrap: wrap;
-  padding-bottom: var(--spacing-md);
+  padding-bottom: var(--spacing-sm);
 }
 
 .wordmark {

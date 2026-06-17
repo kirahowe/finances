@@ -1,4 +1,85 @@
 /* ============================================================
+   Transactions workspace shell — fixed viewport, internal scroll
+   ============================================================
+   On a wide screen the page itself does not scroll. The masthead is a
+   fixed band and the table card + rollup pane each own their vertical
+   scroll, so the screen reads as full of workable table instead of a
+   stack of headers. Below the two-column breakpoint every rule here
+   no-ops: the layout returns to normal page flow, the rollup stacks
+   under the table, and the page scrolls as usual (so short laptops and
+   phones stay usable). */
+@media (min-width: 1100px) {
+  .container--workspace {
+    height: 100vh;
+    height: 100dvh;
+    display: flex;
+    flex-direction: column;
+    overflow: hidden;
+    /* The masthead supplies the top gutter; the workspace row supplies the bottom. */
+    padding-bottom: 0;
+  }
+
+  /* Masthead is a fixed-height band; the workspace below it takes all remaining space. */
+  .container--workspace > .masthead {
+    flex: none;
+  }
+
+  .container--workspace .transactions-layout {
+    flex: 1 1 auto;
+    min-height: 0;
+    /* Both panes fill the row's full height instead of sitting at its top. */
+    align-items: stretch;
+    padding-bottom: var(--spacing-lg);
+  }
+
+  /* The table card becomes a flex column: the command bar and chips stay pinned at
+     the top, the table region flexes to fill, and pagination stays pinned at the
+     bottom — all without the page ever scrolling. */
+  .container--workspace .transactions-layout > .card {
+    display: flex;
+    flex-direction: column;
+    min-height: 0;
+    margin-bottom: 0;
+    padding: var(--spacing-md) var(--spacing-lg);
+  }
+
+  /* The scroll region is the one growing child and owns the vertical scroll, so the
+     base rule's magic-number max-height is no longer needed. */
+  .container--workspace .transactions-table-scroll {
+    flex: 1 1 auto;
+    min-height: 0;
+    max-height: none;
+  }
+
+  /* An empty view still fills the card so it doesn't collapse to a sliver. */
+  .container--workspace .empty-state {
+    flex: 1 1 auto;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+  }
+
+  /* The rollup fills the row height and scrolls internally — it no longer needs to be
+     sticky now that nothing around it scrolls. */
+  .container--workspace .rollup-pane {
+    position: static;
+    top: auto;
+    align-self: stretch;
+    min-height: 0;
+    margin-bottom: 0;
+    display: flex;
+    flex-direction: column;
+  }
+
+  .container--workspace .rollup-scroll {
+    flex: 1 1 auto;
+    min-height: 0;
+    max-height: none;
+  }
+}
+
+/* ============================================================
    Stat cards (Setup overview)
    ============================================================ */
 /* KPI cards stay a tidy, left-aligned strip rather than stretching across the full

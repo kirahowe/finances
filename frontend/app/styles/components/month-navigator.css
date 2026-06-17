@@ -1,24 +1,24 @@
+/* The month navigator now lives inline at the head of the command bar — it's the
+   ledger "dateline" (the period you're looking at), not a row of its own. The display
+   stays in the Fraunces serif so it reads as the one editorial flourish on an
+   otherwise utilitarian control rule, but compact so it earns its vertical space. */
 .month-navigator {
   display: flex;
   align-items: center;
-  justify-content: space-between;
-  gap: var(--spacing-md);
-  flex-wrap: wrap;
-  margin-bottom: var(--spacing-lg);
 }
 
 .month-navigator-controls {
   display: flex;
   align-items: center;
-  gap: var(--spacing-sm);
+  gap: var(--spacing-xs);
 }
 
 .month-navigator-display {
   font-family: var(--font-display);
-  font-size: var(--text-xl);
+  font-size: var(--text-md);
   font-weight: 500;
-  letter-spacing: -0.015em;
-  min-width: 200px;
+  letter-spacing: -0.01em;
+  min-width: 8.5rem;
   text-align: center;
   color: var(--color-ink);
 }

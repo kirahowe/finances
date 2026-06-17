@@ -104,7 +104,7 @@ export default function Home({ loaderData }: Route.ComponentProps) {
   const { stats, transactions, categories, month } = loaderData;
 
   return (
-    <div className="container">
+    <div className="container container--workspace">
       <SiteHeader stats={stats} />
       <TransactionsSection
         key={month}
@@ -550,21 +550,16 @@ function TransactionsSection({
 
   return (
     <>
-      <div className="page-head">
-        <span className="eyebrow">Ledger</span>
-        <h2 className="page-title">Transactions</h2>
-      </div>
-
       <div className="transactions-layout">
         <div className="card">
-          <MonthNavigator
-            currentMonth={currentMonth}
-            onMonthChange={handleMonthChange}
-          />
-
           <Toolbar
             leadingControls={
               <>
+                <MonthNavigator
+                  currentMonth={currentMonth}
+                  onMonthChange={handleMonthChange}
+                />
+                <span className="toolbar-divider" aria-hidden="true" />
                 <TableSearch
                   value={search}
                   onChange={(v) => {
