@@ -41,14 +41,13 @@
 
 /* Cells center vertically so a row's text sits midline against its taller controls
    (the row-actions caret, the reviewed checkbox). The exception is a row carrying
-   real stacked content — a transfer-status tag beneath the category, or a split
-   group — where top-align keeps the date/amount on the category's first line
-   instead of floating to the middle of the taller cell. */
+   real stacked content — a split group — where top-align keeps the date/amount on
+   the category's first line instead of floating to the middle of the taller cell.
+   (Transfer markers now sit inline beside the category, so those rows stay midline.) */
 .table.table-resizable td {
   vertical-align: middle;
 }
 
-.table.table-resizable tr:has(.transfer-status) td,
 .table.table-resizable tr.is-split-parent td,
 .table.table-resizable tr.split-child-row td {
   vertical-align: top;

@@ -166,9 +166,11 @@ export function OptimisticTransactionTable({
     };
   };
 
-  // A transfer status pill for the category cell: "Matched" on a matched transfer,
-  // or "Unmatched" on a transfer-categorized row with no counterpart. Clicking
-  // either opens the transfer modal (to view/unmatch or to match a counterpart).
+  // A transfer marker for the category cell, inline beside the category. A matched
+  // transfer is a quiet pine ⇄ glyph (settled — the partner account and amount live
+  // in the tooltip); an unmatched transfer-typed row is an ochre "Match" to-do button
+  // — the one state that wants a click. Either opens the transfer modal (to view or
+  // unmatch, or to find a counterpart). The shared ⇄ glyph reads both as one idea.
   const renderTransferStatus = (transaction: Transaction) => {
     const pair = transaction['transaction/transfer-pair'];
     if (pair) {
@@ -178,9 +180,10 @@ export function OptimisticTransactionTable({
           type="button"
           className="transfer-status transfer-status-matched"
           title={`Matched transfer with ${partnerName} (${formatAmount(pair['transaction/amount'])})`}
+          aria-label={`Matched transfer with ${partnerName} — view or unmatch`}
           onClick={() => onOpenTransfer?.(transaction)}
         >
-          Matched
+          <span className="transfer-status-glyph" aria-hidden="true">⇄</span>
         </button>
       );
     }
@@ -192,7 +195,8 @@ export function OptimisticTransactionTable({
         title="Transfer with no matched counterpart — click to match"
         onClick={() => onOpenTransfer?.(transaction)}
       >
-        Unmatched
+        <span className="transfer-status-glyph" aria-hidden="true">⇄</span>
+        Match
       </button>
     ) : null;
   };
@@ -434,7 +438,7 @@ export function OptimisticTransactionTable({
         // went and keep it editable so the user can keep working before it clears.
         const stale = staleTransactionIds?.has(transaction['db/id']) ?? false;
         return (
-          <div className="category-cell-stack">
+          <div className="category-cell-row">
             <button
               className="category-button"
               onClick={() => setEditingTransactionId(transaction['db/id'])}
