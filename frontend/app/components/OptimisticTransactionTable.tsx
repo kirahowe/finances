@@ -618,6 +618,9 @@ export function OptimisticTransactionTable({
   // transitions to the state machine. In edit mode it claims only Tab — every
   // other key is left to the open editor.
   const handleTableKeyDown = (e: KeyboardEvent<HTMLDivElement>) => {
+    // Mid-IME-composition keystrokes (CJK input) belong to the editor, not the
+    // grid — a composition keypress must not start type-to-edit or move the cell.
+    if (e.nativeEvent.isComposing) return;
     // Escape with an active cell drops the selection so a following Tab can leave
     // the grid; in edit mode the editor handles Escape itself.
     if (navState.mode === 'navigation' && e.key === 'Escape') {
@@ -654,8 +657,7 @@ export function OptimisticTransactionTable({
         openSplitFor(row.key.txId);
         return;
       }
-      gridNav.setEditSeed(intent === 'type-to-edit' ? e.key : null);
-      gridNav.dispatchIntent(intent);
+      gridNav.dispatchIntent(intent, intent === 'type-to-edit' ? e.key : null);
       return;
     }
     // Movement. In edit mode this is Tab: blur the open editor first so it commits
@@ -664,7 +666,6 @@ export function OptimisticTransactionTable({
     if (navState.mode === 'edit') {
       (document.activeElement as HTMLElement | null)?.blur();
     }
-    gridNav.setEditSeed(null);
     gridNav.dispatchIntent(intent);
   };
 

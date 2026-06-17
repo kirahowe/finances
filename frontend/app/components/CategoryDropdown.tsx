@@ -34,7 +34,7 @@ export function CategoryDropdown({
   // The grouped render model: every entry is selectable (parents and children
   // alike); `entries` is the render order and `items` the parallel option list
   // Downshift navigates by index.
-  const { entries } = useMemo(
+  const { entries, firstMatchIndex } = useMemo(
     () => buildCategoryDropdownModel(categories, filter),
     [categories, filter]
   );
@@ -63,9 +63,11 @@ export function CategoryDropdown({
   const selectedCategoryName =
     categories.find((c) => c['db/id'] === selectedCategoryId)?.['category/name'] ?? 'Uncategorized';
   // With a seeded filter, highlight its first direct match (so Enter picks it);
-  // otherwise highlight the currently-assigned category's row.
+  // otherwise highlight the currently-assigned category's row. On mount (the only
+  // time downshift reads this) `filter` equals `initialFilter`, so the memoized
+  // firstMatchIndex above is exactly the seed's first match.
   const initialHighlightedIndex = initialFilter
-    ? buildCategoryDropdownModel(categories, initialFilter).firstMatchIndex
+    ? firstMatchIndex
     : selectedCategoryId === null
       ? -1
       : items.findIndex((o) => o.id === selectedCategoryId);

@@ -3,7 +3,6 @@ import {
   navigableColumns,
   buildGridModel,
   cellKey,
-  sameCell,
   isInlineEditable,
   resolveIntent,
   navReducer,
@@ -69,12 +68,6 @@ describe('cell identity helpers', () => {
   it('keys cells by row identity and column, not index', () => {
     expect(cellKey({ txId: 7, splitId: null }, 'category')).toBe('7:tx:category');
     expect(cellKey({ txId: 7, splitId: 51 }, 'reviewed')).toBe('7:51:reviewed');
-  });
-
-  it('compares cell addresses structurally', () => {
-    expect(sameCell({ row: 1, col: 'category' }, { row: 1, col: 'category' })).toBe(true);
-    expect(sameCell({ row: 1, col: 'category' }, { row: 1, col: 'reviewed' })).toBe(false);
-    expect(sameCell(null, { row: 1, col: 'category' })).toBe(false);
   });
 
   it('marks reviewed and split-child category as not inline-editable', () => {

@@ -127,10 +127,6 @@ export function cellKey(key: RowKey, col: ColId): string {
   return `${key.txId}:${key.splitId ?? 'tx'}:${col}`;
 }
 
-export function sameCell(a: CellAddress | null, b: CellAddress | null): boolean {
-  return a != null && b != null && a.row === b.row && a.col === b.col;
-}
-
 // Whether a cell opens an INLINE editor (a text input or the category combobox).
 // The reviewed checkbox toggles in place (Space), and a split child's category
 // opens the split modal — neither is "inline editable", so Enter/type-to-edit

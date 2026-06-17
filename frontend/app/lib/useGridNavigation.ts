@@ -40,9 +40,10 @@ export interface GridNavigation {
   activate: (key: RowKey, col: ColId, opts?: { edit?: boolean }) => void;
   // Drop the active cell (Escape in navigation) so Tab can leave the grid.
   clearActive: () => void;
-  // Dispatch a resolved keyboard intent through the pure reducer.
-  dispatchIntent: (intent: Intent) => void;
-  setEditSeed: (seed: string | null) => void;
+  // Dispatch a resolved keyboard intent through the pure reducer, atomically
+  // setting the type-to-edit seed (null for everything but type-to-edit) so the
+  // caller never has to pair the two.
+  dispatchIntent: (intent: Intent, seed?: string | null) => void;
   // Editor commit/cancel callbacks — clear the seed and advance the state machine.
   commitAndMoveDown: () => void;
   commitClose: () => void;
@@ -81,6 +82,11 @@ export function useGridNavigation(): GridNavigation {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [navState.active?.row, navState.active?.col, navState.mode]);
 
+  // Publish the freshly-built grid. This is called during the component's render
+  // (not an effect) on purpose: cellStatus runs during that same render to decide
+  // which editor to show, so the ref must already hold this render's model. The
+  // value is recomputed deterministically every render, so the write is idempotent
+  // and safe under StrictMode's double-render.
   const setModel = (model: GridModel) => {
     modelRef.current = model;
   };
@@ -107,7 +113,10 @@ export function useGridNavigation(): GridNavigation {
   };
 
   const clearActive = () => dispatch('reset');
-  const dispatchIntent = (intent: Intent) => dispatch(intent);
+  const dispatchIntent = (intent: Intent, seed: string | null = null) => {
+    setEditSeed(seed);
+    dispatch(intent);
+  };
 
   const commitAndMoveDown = () => {
     setEditSeed(null);
@@ -130,7 +139,6 @@ export function useGridNavigation(): GridNavigation {
     activate,
     clearActive,
     dispatchIntent,
-    setEditSeed,
     commitAndMoveDown,
     commitClose,
     cancelEdit,
