@@ -26,7 +26,10 @@ export const TRANSACTION_COLUMNS: TransactionColumnMeta[] = [
   { id: 'payee', label: 'Payee', hideable: true, resizable: true, protected: false, size: 240, minSize: 100 },
   { id: 'description', label: 'Description', hideable: true, resizable: true, protected: false, size: 360, minSize: 200 },
   { id: 'amount', label: 'Amount', hideable: true, resizable: true, protected: true, size: 120, minSize: 90 },
-  { id: 'category', label: 'Category', hideable: true, resizable: true, protected: true, size: 190, minSize: 150 },
+  // Floor matches the in-cell dropdown editor's width, so the column is sized for
+  // editing from first paint (the resting "Uncategorized" button is narrower) and
+  // never has to grow when a picker opens.
+  { id: 'category', label: 'Category', hideable: true, resizable: true, protected: true, size: 200, minSize: 200 },
   // A fixed-width checkbox column; protected so the checkbox is never clipped.
   { id: 'reviewed', label: 'Reviewed', hideable: true, resizable: false, protected: true, size: 90, minSize: 80 },
   // The row-actions caret is structural, not data — never hidden or resized.
