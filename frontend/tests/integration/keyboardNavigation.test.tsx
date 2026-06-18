@@ -1,3 +1,4 @@
+import { useState } from 'react';
 import { describe, it, expect, vi } from 'vitest';
 import { render, screen } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
@@ -125,6 +126,67 @@ describe('keyboard navigation', () => {
     await user.keyboard('{ }');
 
     expect(onToggleReviewed).toHaveBeenCalledWith(1, true);
+  });
+
+  it('only Space toggles reviewed — a stray printable key or Enter does not', async () => {
+    const user = userEvent.setup();
+    const onToggleReviewed = vi.fn();
+    const { scroll } = renderTable({ onToggleReviewed });
+    scroll.focus();
+
+    await user.keyboard('{ArrowDown}{ArrowRight}{ArrowRight}'); // row 0, reviewed
+    await user.keyboard('x'); // a mis-key must not flip the checkbox...
+    await user.keyboard('{Enter}'); // ...nor Enter (only Space acts on a checkbox cell)
+    expect(onToggleReviewed).not.toHaveBeenCalled();
+
+    await user.keyboard('{ }');
+    expect(onToggleReviewed).toHaveBeenCalledWith(1, true);
+  });
+
+  it('re-anchors onto a visible row when the active row drops out of the grid', async () => {
+    const user = userEvent.setup();
+
+    // A stateful host so we can drop the active row mid-task (what a filter, re-sort, or
+    // refetch does) and confirm the grid recovers rather than stranding focus.
+    function Harness() {
+      const [data, setData] = useState<Transaction[]>(txns);
+      return (
+        <>
+          <button onClick={() => setData((d) => d.filter((t) => t['db/id'] !== 1))}>
+            drop-first
+          </button>
+          <OptimisticTransactionTable
+            transactions={data}
+            categories={categories}
+            sorting={[]}
+            onSortingChange={vi.fn()}
+            onEditCategory={vi.fn()}
+            onEditDescription={vi.fn()}
+            onToggleReviewed={vi.fn()}
+          />
+        </>
+      );
+    }
+    const router = createMemoryRouter([{ path: '/', element: <Harness /> }], {
+      initialEntries: ['/'],
+    });
+    const { container } = render(<RouterProvider router={router} />);
+    const scroll = container.querySelector('.transactions-table-scroll') as HTMLElement;
+
+    scroll.focus();
+    await user.keyboard('{ArrowDown}'); // active: tx 1 (First), description
+    expect(activeCell()).toHaveTextContent('First');
+
+    await user.click(screen.getByRole('button', { name: 'drop-first' }));
+
+    // The active cell is now stale, so the container keeps the tab stop a keyboard user
+    // needs to get back in (it would otherwise be tabindex -1 with no active cell).
+    expect(scroll).toHaveAttribute('tabindex', '0');
+
+    // Re-entering and moving re-anchors onto the surviving row instead of no-op'ing.
+    scroll.focus();
+    await user.keyboard('{ArrowDown}');
+    expect(activeCell()).toHaveTextContent('Second');
   });
 
   it('starts editing a description on a printable key, seeded with that character', async () => {

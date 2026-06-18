@@ -104,7 +104,7 @@ describe('Sorting Across Pages', () => {
     expect(rows).toHaveLength(3); // Only 3 rows due to pagination
 
     const payees = rows.map(row => {
-      const cells = within(row).getAllByRole('cell');
+      const cells = within(row).getAllByRole('gridcell');
       return cells[3].textContent; // Payee is 4th column (Date, Account, Institution, Payee, ...)
     });
 
@@ -126,7 +126,7 @@ describe('Sorting Across Pages', () => {
     expect(rows).toHaveLength(2); // Only 2 rows left on page 2
 
     const payees = rows.map(row => {
-      const cells = within(row).getAllByRole('cell');
+      const cells = within(row).getAllByRole('gridcell');
       return cells[3].textContent; // Payee is 4th column (Date, Account, Institution, Payee, ...)
     });
 
@@ -145,7 +145,7 @@ describe('Sorting Across Pages', () => {
     // First page should show the 3 smallest amounts (-50, -40, -30)
     const rows = screen.getAllByRole('row').slice(1);
     const amounts = rows.map(row => {
-      const cells = within(row).getAllByRole('cell');
+      const cells = within(row).getAllByRole('gridcell');
       return cells[5].textContent; // Amount is 6th column (Date, Account, Institution, Payee, Description, Amount, ...)
     });
 

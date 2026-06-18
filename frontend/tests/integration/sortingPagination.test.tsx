@@ -106,7 +106,7 @@ describe('Sorting with Pagination', () => {
     // Should be sorted by date ascending (earliest first)
     const rows = screen.getAllByRole('row').slice(1);
     const dates = rows.map(row => {
-      const cells = within(row).getAllByRole('cell');
+      const cells = within(row).getAllByRole('gridcell');
       return cells[0].textContent; // Date is first column
     });
 
@@ -114,7 +114,7 @@ describe('Sorting with Pagination', () => {
     expect(dates[0]).toBeTruthy();
     // Just verify Store A is in first row since date formatting varies
     // Payee is at index 3 (Date, Account, Institution, Payee, Description, Amount, Category)
-    const firstRowPayee = within(rows[0]).getAllByRole('cell')[3];
+    const firstRowPayee = within(rows[0]).getAllByRole('gridcell')[3];
     expect(firstRowPayee).toHaveTextContent('Store A');
   });
 });
