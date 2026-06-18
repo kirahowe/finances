@@ -48,7 +48,8 @@
   :test {:extra-paths ["test" "env/test/resources"]
          :extra-deps {lambdaisland/kaocha {:mvn/version "1.91.1392"}
                       org.clojure/test.check {:mvn/version "1.1.1"}}
-         :jvm-opts ["-Djava.library.path=/opt/homebrew/opt/libomp/lib"
+         :jvm-opts ["--enable-native-access=ALL-UNNAMED"
+                    "-Djava.library.path=/opt/homebrew/opt/libomp/lib"
                     "-Djna.library.path=/opt/homebrew/opt/libomp/lib"]}
 
   ;; Development (uses env/dev/resources/config.edn)
@@ -66,7 +67,8 @@
                      ;; REPL servers (optional, for editor integration)
                      nrepl/nrepl {:mvn/version "1.5.1"}
                      cider/cider-nrepl {:mvn/version "0.58.0"}}
-        :jvm-opts ["-Djava.library.path=/opt/homebrew/opt/libomp/lib"
+        :jvm-opts ["--enable-native-access=ALL-UNNAMED"
+                   "-Djava.library.path=/opt/homebrew/opt/libomp/lib"
                    "-Djna.library.path=/opt/homebrew/opt/libomp/lib"]}
 
   ;; REPL development (uses env/dev/resources/config.edn)
@@ -76,7 +78,8 @@
                       vvvvalvalval/scope-capture {:mvn/version "0.3.3"}
                       nrepl/nrepl {:mvn/version "1.5.1"}
                       cider/cider-nrepl {:mvn/version "0.58.0"}}
-         :jvm-opts ["-Djava.library.path=/opt/homebrew/opt/libomp/lib"
+         :jvm-opts ["--enable-native-access=ALL-UNNAMED"
+                    "-Djava.library.path=/opt/homebrew/opt/libomp/lib"
                     "-Djna.library.path=/opt/homebrew/opt/libomp/lib"]}
 
   ;; CLI development (uses env/dev/resources/config.edn)
@@ -88,5 +91,6 @@
   ;; End-to-end test server: seeded, deterministic DB, no Plaid/secrets needed.
   ;; Run: clojure -M:e2e -m finance-aggregator.dev.e2e-server
   :e2e {:extra-paths ["env/e2e/src"]
-        :jvm-opts ["-Djava.library.path=/opt/homebrew/opt/libomp/lib"
+        :jvm-opts ["--enable-native-access=ALL-UNNAMED"
+                   "-Djava.library.path=/opt/homebrew/opt/libomp/lib"
                    "-Djna.library.path=/opt/homebrew/opt/libomp/lib"]}}}
