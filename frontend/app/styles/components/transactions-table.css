@@ -189,7 +189,9 @@
    the edit doesn't yank it away mid-task. It reads as de-emphasized — a faint tint and
    muted text — until the next filter/sort/page reset clears it. */
 .table.table-resizable tr.is-stale td {
-  background: var(--color-paper-deep);
+  /* A gentle tint, halfway between the deep paper and the page background, so the
+     lingering row reads as set-aside without the heavier full-strength fill. */
+  background: color-mix(in srgb, var(--color-paper-deep) 50%, var(--color-paper));
   color: var(--color-text-muted);
 }
 
