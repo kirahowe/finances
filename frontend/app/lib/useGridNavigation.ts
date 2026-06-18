@@ -72,15 +72,18 @@ export function useGridNavigation(): GridNavigation {
   }, []);
 
   // Move DOM focus to the active cell while navigating; in edit mode the editor
-  // owns focus, so leave it alone. Keyed by the cell's stable identity, so it
-  // survives re-sorts of the underlying rows.
+  // owns focus, so leave it alone. The active cell carries its own identity, so
+  // this needs no model lookup and is immune to row re-ordering.
   useEffect(() => {
     if (!navState.active || navState.mode !== 'navigation') return;
-    const row = modelRef.current.rows[navState.active.row];
-    if (!row) return;
-    cellEls.current.get(cellKey(row.key, navState.active.col))?.focus();
+    cellEls.current.get(cellKey(navState.active.key, navState.active.col))?.focus();
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [navState.active?.row, navState.active?.col, navState.mode]);
+  }, [
+    navState.active?.key.txId,
+    navState.active?.key.splitId,
+    navState.active?.col,
+    navState.mode,
+  ]);
 
   // Publish the freshly-built grid. This is called during the component's render
   // (not an effect) on purpose: cellStatus runs during that same render to decide
@@ -94,22 +97,14 @@ export function useGridNavigation(): GridNavigation {
   const cellStatus = (key: RowKey, col: ColId): CellStatus => {
     const { active, mode } = navState;
     if (!active) return { active: false, editing: false };
-    const row = modelRef.current.rows[active.row];
     const isActive =
-      !!row &&
-      row.key.txId === key.txId &&
-      row.key.splitId === key.splitId &&
-      active.col === col;
+      active.key.txId === key.txId && active.key.splitId === key.splitId && active.col === col;
     return { active: isActive, editing: isActive && mode === 'edit' };
   };
 
   const activate = (key: RowKey, col: ColId, opts?: { edit?: boolean }) => {
-    const row = modelRef.current.rows.findIndex(
-      (r) => r.key.txId === key.txId && r.key.splitId === key.splitId
-    );
-    if (row === -1) return;
     setEditSeed(null);
-    dispatch({ set: { row, col }, edit: !!opts?.edit });
+    dispatch({ set: { key, col }, edit: !!opts?.edit });
   };
 
   const clearActive = () => dispatch('reset');

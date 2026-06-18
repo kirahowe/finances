@@ -42,8 +42,10 @@ export interface NavigableRow {
 }
 
 export interface CellAddress {
-  // Index into the GridModel's `rows`.
-  row: number;
+  // The active row's stable identity (so the active cell survives a re-sort or an
+  // optimistic re-order of the rows) plus its column. Row indices are resolved
+  // from this against the live model only when computing neighbours.
+  key: RowKey;
   col: ColId;
 }
 
@@ -236,22 +238,32 @@ export function resolveIntent(e: KeyChord, mode: NavMode): Intent | null {
 const clamp = (n: number, lo: number, hi: number): number =>
   Math.max(lo, Math.min(hi, n));
 
-// Pick the column to land on when arriving at `rowIdx`: keep `preferred` if that
-// row offers it (so vertical motion stays in its column), else its first column.
-const columnOn = (rows: NavigableRow[], rowIdx: number, preferred: ColId): ColId => {
+const rowIndexOf = (rows: NavigableRow[], key: RowKey): number =>
+  rows.findIndex((r) => r.key.txId === key.txId && r.key.splitId === key.splitId);
+
+// The cell at row index `rowIdx`, keeping `preferred` if that row offers it (so
+// vertical motion stays in its column), else its first column.
+const cellAt = (rows: NavigableRow[], rowIdx: number, preferred: ColId): CellAddress => {
   const row = rows[rowIdx];
-  return row.cols.includes(preferred) ? preferred : row.cols[0];
+  return { key: row.key, col: row.cols.includes(preferred) ? preferred : row.cols[0] };
 };
 
-const moveVertical = (active: CellAddress, rows: NavigableRow[], delta: number): CellAddress => {
-  const row = clamp(active.row + delta, 0, rows.length - 1);
-  return { row, col: columnOn(rows, row, active.col) };
+// The active cell's current row index, or 0 when its row has dropped out of the
+// grid (a re-sort/filter removed it) — re-anchoring to the top beats moving from
+// a stale position.
+const activeIndex = (rows: NavigableRow[], active: CellAddress): number => {
+  const i = rowIndexOf(rows, active.key);
+  return i === -1 ? 0 : i;
 };
+
+const moveVertical = (active: CellAddress, rows: NavigableRow[], delta: number): CellAddress =>
+  cellAt(rows, clamp(activeIndex(rows, active) + delta, 0, rows.length - 1), active.col);
 
 const moveHorizontal = (active: CellAddress, rows: NavigableRow[], delta: number): CellAddress => {
-  const cols = rows[active.row].cols;
+  const i = activeIndex(rows, active);
+  const cols = rows[i].cols;
   const idx = clamp(cols.indexOf(active.col) + delta, 0, cols.length - 1);
-  return { row: active.row, col: cols[idx] };
+  return { key: rows[i].key, col: cols[idx] };
 };
 
 // Drive the navigation state machine. `model` is the current navigable grid; the
@@ -262,8 +274,9 @@ export function navReducer(state: NavState, intent: Intent, model: GridModel): N
 
   // Activate the first cell when something asks to move but nothing is active yet
   // (e.g. the first keystroke after focusing the table).
-  const active = state.active ?? { row: 0, col: rows[0].cols[0] };
+  const active = state.active ?? { key: rows[0].key, col: rows[0].cols[0] };
   const nav = (cell: CellAddress): NavState => ({ active: cell, mode: 'navigation' });
+  const i = activeIndex(rows, active);
 
   switch (intent) {
     case 'up':
@@ -275,21 +288,19 @@ export function navReducer(state: NavState, intent: Intent, model: GridModel): N
     case 'right':
       return nav(moveHorizontal(active, rows, +1));
     case 'row-start':
-      return nav({ row: active.row, col: rows[active.row].cols[0] });
-    case 'row-end': {
-      const cols = rows[active.row].cols;
-      return nav({ row: active.row, col: cols[cols.length - 1] });
-    }
+      return nav({ key: rows[i].key, col: rows[i].cols[0] });
+    case 'row-end':
+      return nav({ key: rows[i].key, col: rows[i].cols[rows[i].cols.length - 1] });
     case 'grid-start':
-      return nav({ row: 0, col: columnOn(rows, 0, active.col) });
+      return nav(cellAt(rows, 0, active.col));
     case 'grid-end':
-      return nav({ row: rows.length - 1, col: columnOn(rows, rows.length - 1, active.col) });
+      return nav(cellAt(rows, rows.length - 1, active.col));
 
     case 'edit':
     case 'type-to-edit':
       // Only inline-editable cells enter edit mode; the hook routes reviewed /
       // split-category cells to their side effects instead of dispatching here.
-      if (!isInlineEditable(rows[active.row], active.col)) return { active, mode: 'navigation' };
+      if (!isInlineEditable(rows[i], active.col)) return { active, mode: 'navigation' };
       return { active, mode: 'edit' };
 
     case 'commit-down': {
@@ -298,9 +309,10 @@ export function navReducer(state: NavState, intent: Intent, model: GridModel): N
       // "Enter walks the column" categorization flow. If we can't move (last row)
       // or the target isn't editable in this column, fall back to navigation.
       const next = moveVertical(active, rows, +1);
-      const moved = next.row !== active.row;
+      const nextIdx = rowIndexOf(rows, next.key);
+      const moved = nextIdx !== i;
       const stayEditing =
-        moved && next.col === active.col && isInlineEditable(rows[next.row], next.col);
+        moved && next.col === active.col && isInlineEditable(rows[nextIdx], next.col);
       return { active: next, mode: stayEditing ? 'edit' : 'navigation' };
     }
     case 'commit-close':

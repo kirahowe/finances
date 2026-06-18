@@ -121,7 +121,14 @@ describe('resolveIntent', () => {
 
 describe('navReducer', () => {
   const model: GridModel = buildGridModel(ALL_COLS, [tx(1), tx(2), tx(3)]);
-  const at = (row: number, col: ColId): NavState => ({ active: { row, col }, mode: 'navigation' });
+  // The reducer addresses cells by stable row key; these helpers express an
+  // expected/seed state by row INDEX in a given model, resolved to that key.
+  const cellOf = (m: GridModel, row: number, col: ColId): NavState => ({
+    active: { key: m.rows[row].key, col },
+    mode: 'navigation',
+  });
+  const at = (row: number, col: ColId): NavState => cellOf(model, row, col);
+  const editAt = (row: number, col: ColId): NavState => ({ ...at(row, col), mode: 'edit' });
 
   it('activates the first cell on the first move with no active cell', () => {
     expect(navReducer(INITIAL_NAV_STATE, 'down', model)).toEqual(at(1, 'description'));
@@ -157,22 +164,16 @@ describe('navReducer', () => {
   });
 
   it('cancel and commit-close return to navigation on the same cell', () => {
-    const editing: NavState = { active: { row: 1, col: 'category' }, mode: 'edit' };
-    expect(navReducer(editing, 'cancel', model)).toEqual(at(1, 'category'));
-    expect(navReducer(editing, 'commit-close', model)).toEqual(at(1, 'category'));
+    expect(navReducer(editAt(1, 'category'), 'cancel', model)).toEqual(at(1, 'category'));
+    expect(navReducer(editAt(1, 'category'), 'commit-close', model)).toEqual(at(1, 'category'));
   });
 
   it('commit-down walks the column staying in edit mode', () => {
-    const editing: NavState = { active: { row: 0, col: 'category' }, mode: 'edit' };
-    expect(navReducer(editing, 'commit-down', model)).toEqual({
-      active: { row: 1, col: 'category' },
-      mode: 'edit',
-    });
+    expect(navReducer(editAt(0, 'category'), 'commit-down', model)).toEqual(editAt(1, 'category'));
   });
 
   it('commit-down on the last row commits and drops to navigation', () => {
-    const editing: NavState = { active: { row: 2, col: 'category' }, mode: 'edit' };
-    expect(navReducer(editing, 'commit-down', model)).toEqual(at(2, 'category'));
+    expect(navReducer(editAt(2, 'category'), 'commit-down', model)).toEqual(at(2, 'category'));
   });
 
   it('toggle-reviewed leaves the state untouched (the toggle is a side effect)', () => {
@@ -180,28 +181,38 @@ describe('navReducer', () => {
     expect(navReducer(s, 'toggle-reviewed', model)).toBe(s);
   });
 
+  it('re-anchors to the top when the active row has dropped out of the grid', () => {
+    // A row that no longer exists (e.g. re-sorted / filtered away) must not move
+    // from a stale index; the reducer re-anchors to the first row.
+    const ghost: NavState = {
+      active: { key: { txId: 999, splitId: null }, col: 'category' },
+      mode: 'navigation',
+    };
+    expect(navReducer(ghost, 'up', model)).toEqual(at(0, 'category'));
+  });
+
   describe('split traversal', () => {
     const splitModel = buildGridModel(ALL_COLS, [tx(1), split(5, [51, 52]), tx(9)]);
     // rows: [0] tx1 normal, [1] split-parent(desc), [2] child51, [3] child52, [4] tx9
+    const atS = (row: number, col: ColId): NavState => cellOf(splitModel, row, col);
+    const editAtS = (row: number, col: ColId): NavState => ({ ...atS(row, col), mode: 'edit' });
 
     it('keeps the column when present, falls back to the first when absent', () => {
       // Down from tx1's category onto the split parent (description only) -> description.
-      expect(navReducer(at(0, 'category'), 'down', splitModel)).toEqual(at(1, 'description'));
+      expect(navReducer(atS(0, 'category'), 'down', splitModel)).toEqual(atS(1, 'description'));
       // Down again from the parent into the first child keeps description.
-      expect(navReducer(at(1, 'description'), 'down', splitModel)).toEqual(at(2, 'description'));
+      expect(navReducer(atS(1, 'description'), 'down', splitModel)).toEqual(atS(2, 'description'));
       // A child keeps category on the way down to the next child.
-      expect(navReducer(at(2, 'category'), 'down', splitModel)).toEqual(at(3, 'category'));
+      expect(navReducer(atS(2, 'category'), 'down', splitModel)).toEqual(atS(3, 'category'));
       // Down from the last child into the next normal tx keeps category.
-      expect(navReducer(at(3, 'category'), 'down', splitModel)).toEqual(at(4, 'category'));
+      expect(navReducer(atS(3, 'category'), 'down', splitModel)).toEqual(atS(4, 'category'));
     });
 
     it('commit-down out of a parent (description-only) drops to navigation in the child', () => {
       // Parent's description -> child's description is inline-editable, so it stays editing.
-      const editingParent: NavState = { active: { row: 1, col: 'description' }, mode: 'edit' };
-      expect(navReducer(editingParent, 'commit-down', splitModel)).toEqual({
-        active: { row: 2, col: 'description' },
-        mode: 'edit',
-      });
+      expect(navReducer(editAtS(1, 'description'), 'commit-down', splitModel)).toEqual(
+        editAtS(2, 'description')
+      );
     });
   });
 });

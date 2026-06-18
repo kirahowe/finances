@@ -640,8 +640,12 @@ export function OptimisticTransactionTable({
       return;
     }
 
-    const row = gridModel.rows[navState.active.row];
-    const col = navState.active.col;
+    const active = navState.active;
+    const row = gridModel.rows.find(
+      (r) => r.key.txId === active.key.txId && r.key.splitId === active.key.splitId
+    );
+    if (!row) return;
+    const col = active.col;
 
     if (intent === 'toggle-reviewed') {
       // Space toggles a reviewed cell; elsewhere it's swallowed (no page scroll).
