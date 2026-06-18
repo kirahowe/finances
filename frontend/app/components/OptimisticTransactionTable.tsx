@@ -588,8 +588,14 @@ export function OptimisticTransactionTable({
   const tableRef = useRef<HTMLTableElement>(null);
   const { recompute, autoFitColumn } = useAutoColumnSizing(table, tableRef, setAutoSizing);
   useLayoutEffect(() => {
+    // Don't re-measure while an editor is open: an open dropdown / text input has a
+    // wide default intrinsic width that would balloon its column (rapid-categorizing
+    // visibly widened the category column, because Enter opens the next row's
+    // dropdown). Fit only the resting content; the mode dep re-runs this the moment
+    // editing ends.
+    if (gridNav.navState.mode === 'edit') return;
     recompute();
-  }, [recompute, transactions, columnVisibility, sorting, page, pageSize]);
+  }, [recompute, transactions, columnVisibility, sorting, page, pageSize, gridNav.navState.mode]);
 
   // Get sorted rows, then apply pagination if specified
   const sortedRows = table.getRowModel().rows;
