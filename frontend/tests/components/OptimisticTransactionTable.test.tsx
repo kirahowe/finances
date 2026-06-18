@@ -338,10 +338,12 @@ describe('OptimisticTransactionTable', () => {
       />
     );
 
-    await user.click(screen.getByRole('button', { name: 'Unmatched' }));
+    // Unmatched rows render an ochre "Match" to-do button; matched rows render a
+    // quiet glyph whose accessible name describes the counterpart.
+    await user.click(screen.getByRole('button', { name: 'Match' }));
     expect(onOpenTransfer).toHaveBeenCalledWith(pillRows[0]);
 
-    await user.click(screen.getByRole('button', { name: 'Matched' }));
+    await user.click(screen.getByRole('button', { name: /Matched transfer with Savings/i }));
     expect(onOpenTransfer).toHaveBeenCalledWith(pillRows[1]);
   });
 
