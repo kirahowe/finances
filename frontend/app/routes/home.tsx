@@ -193,10 +193,11 @@ function TransactionsSection({
   // Free-text search (payee/description/category), URL-backed like the other view state.
   const [search, setSearch] = useState(() => searchParams.get("q") ?? "");
 
-  // Rows the user has categorized out of the active category filter but that we keep in
-  // view (stale) rather than yanking away mid-task — see lingeringRows / handleEditCategory.
-  // Annotating a category is keep-context work, not triage; reviewed stays triage (the
-  // row vanishes the moment you check it off). Cleared on any filter/sort/page reset below.
+  // Rows an in-place edit moved out of the active filter, kept in view (stale) rather
+  // than yanked away mid-task — see lingeringRows / deferFilterRemoval. Both a category
+  // change and a reviewed toggle linger this way: reviewing a row out from under you as
+  // you work down the list felt jarring, so it sets the row aside like a category edit
+  // does instead. Cleared on any filter/sort/page reset below.
   const [lingeringIds, setLingeringIds] = useState<Set<number>>(() => new Set());
 
   // Counts for the review-scope toggle and the binary filter chips, from the overlaid
@@ -263,9 +264,27 @@ function TransactionsSection({
     [presentCategoryIds]
   );
 
+  // After an in-place edit, keep the row in view (stale) when it no longer matches the
+  // active filters instead of yanking it away mid-task — and drop it from the linger set
+  // when an edit moves it back in. Shared by category and reviewed edits: project the
+  // edit onto the row and test it against the same predicate the table filter uses.
+  const deferFilterRemoval = (transactionId: number, projected: Transaction) => {
+    const stillVisible = applyFilters([projected], filters, txFilterAccessors).length > 0;
+    setLingeringIds((prev) => {
+      if (prev.has(transactionId) === !stillVisible) return prev;
+      const next = new Set(prev);
+      if (stillVisible) next.delete(transactionId);
+      else next.add(transactionId);
+      return next;
+    });
+  };
+
   const handleToggleReviewed = (transactionId: number, reviewed: boolean) => {
     setReviewedOverrides((prev) => setTxOverride(prev, transactionId, reviewed));
     enqueue(`tx:${transactionId}`, () => api.setTransactionReviewed(transactionId, reviewed));
+    // Set the row aside (stale) rather than yanking it out of the needs-review filter.
+    const tx = mergedTransactions.find((t) => t["db/id"] === transactionId);
+    if (tx) deferFilterRemoval(transactionId, { ...tx, "transaction/reviewed": reviewed });
   };
 
   const handleToggleSplitReviewed = (
@@ -275,6 +294,13 @@ function TransactionsSection({
   ) => {
     setReviewedOverrides((prev) => setSplitOverride(prev, splitId, reviewed));
     enqueue(`split:${splitId}`, () => api.setSplitReviewed(transactionId, splitId, reviewed));
+    // Reviewing the last part rolls the whole transaction up to reviewed; project that
+    // (derived) state onto the row so it lingers rather than vanishing from the queue.
+    const merged = mergedTransactions.find((t) => t["db/id"] === transactionId);
+    if (merged) {
+      const projected = applyReviewedOverlay([merged], { tx: {}, split: { [splitId]: reviewed } })[0];
+      deferFilterRemoval(transactionId, projected);
+    }
   };
 
   const handleEditDescription = (transactionId: number, description: string) => {
@@ -309,28 +335,12 @@ function TransactionsSection({
       api.updateTransactionCategory(transactionId, categoryId)
     );
 
-    // Defer removal: when a category filter is active and the new category no longer
-    // matches it, keep the row visible (stale) instead of yanking it out from under the
-    // user. If the edit makes it match again, drop it from the linger set.
-    const active = filters.category ?? [];
-    if (active.length > 0) {
-      // Test the edit against the same predicate the filter uses: project the new
-      // category onto the row and ask categoryFilterValues what it now matches, rather
-      // than re-deriving the token here. (`ref` is the overlay value computed above; the
-      // override isn't in mergedTransactions yet, so we project it onto a copy.)
-      const tx = mergedTransactions.find((t) => t["db/id"] === transactionId);
-      const stillMatches =
-        tx != null &&
-        categoryFilterValues({ ...tx, "transaction/category": ref }, presentCategoryIds).some(
-          (t) => active.includes(t)
-        );
-      setLingeringIds((prev) => {
-        const next = new Set(prev);
-        if (stillMatches) next.delete(transactionId);
-        else next.add(transactionId);
-        return next;
-      });
-    }
+    // Defer removal the same way a reviewed toggle does: project the new category onto
+    // the row and, if it no longer matches the active filters, keep it in view (stale)
+    // rather than yanking it out mid-task (the override isn't in mergedTransactions yet,
+    // so project it onto a copy).
+    const tx = mergedTransactions.find((t) => t["db/id"] === transactionId);
+    if (tx) deferFilterRemoval(transactionId, { ...tx, "transaction/category": ref });
   };
 
   // Per-field options for the in-header column filters, derived from the overlaid

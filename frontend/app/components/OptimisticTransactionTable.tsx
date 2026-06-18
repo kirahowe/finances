@@ -475,9 +475,12 @@ export function OptimisticTransactionTable({
           );
         }
 
-        // A stale (lingering) row was just moved out of the active filter; mark where it
-        // went and keep it editable so the user can keep working before it clears.
+        // A stale (lingering) row no longer matches the active filter but is kept in
+        // view. The "moved to <category>" breadcrumb only applies when a category filter
+        // is active (a category edit pushed it out); a row kept by a reviewed toggle is
+        // stale too but hasn't moved category, so it shows no breadcrumb.
         const stale = staleTransactionIds?.has(transaction['db/id']) ?? false;
+        const movedOut = stale && (filterState?.category?.length ?? 0) > 0;
         return (
           <div className="category-cell-row">
             <button
@@ -487,12 +490,12 @@ export function OptimisticTransactionTable({
               // so Enter could never open it and could clobber an existing category.
               onClick={() => gridNav.activate(txKey, 'category', { edit: true })}
               title={
-                stale
+                movedOut
                   ? `Moved to ${category.name} — no longer matches the filter; clears on refresh`
                   : undefined
               }
             >
-              {stale && (
+              {movedOut && (
                 <span className="category-moved-mark" aria-hidden="true">
                   →{' '}
                 </span>
