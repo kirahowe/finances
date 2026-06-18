@@ -90,6 +90,39 @@
   position: relative;
 }
 
+/* The category reads as a form control alongside the amount/description inputs:
+   a bordered box at rest (like .form-input), with the dropdown sharing the same
+   box so opening it never shifts the row. (In the table the category cell is
+   borderless and editing is flush; in this form it's a field like its siblings.) */
+.split-category-cell .category-button,
+.split-category-cell .category-dropdown-input {
+  width: 100%;
+  margin: 0;
+  padding: var(--control-pad-y) 0.7rem;
+  border-radius: var(--border-radius);
+}
+
+.split-category-cell .category-button {
+  border: 1px solid var(--color-border-strong);
+  background: transparent;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+/* Hover hints focus with a pine border, not the table's old filled box. */
+.split-category-cell .category-button:hover {
+  background: transparent;
+  border-color: var(--color-primary);
+  color: var(--color-ink);
+}
+
+/* The open dropdown matches a focused .form-input (border + soft glow). */
+.split-category-cell .category-dropdown-input {
+  border: 1px solid var(--color-primary);
+  box-shadow: var(--focus-ring);
+}
+
 .split-add-button {
   background: none;
   border: none;
