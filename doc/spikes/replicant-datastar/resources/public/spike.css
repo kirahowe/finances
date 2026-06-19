@@ -1,0 +1,76 @@
+:root {
+  --bg: #f6f3ec; --panel: #fffdf8; --ink: #15130d; --muted: #7a7466;
+  --line: #e4ddcd; --pine: #1f5c4a; --pine-soft: #e4efe9; --neg: #a23b2d;
+  --active: #1f5c4a;
+}
+* { box-sizing: border-box; }
+body {
+  margin: 0; background: var(--bg); color: var(--ink);
+  font-family: "Hanken Grotesk", system-ui, sans-serif; font-size: 14px;
+}
+.topbar {
+  display: flex; align-items: center; justify-content: space-between;
+  padding: 18px 24px; border-bottom: 1px solid var(--line); background: var(--panel);
+}
+h1 { font-family: "Fraunces", Georgia, serif; font-size: 22px; margin: 0; font-weight: 600; }
+.tag {
+  font-family: "Hanken Grotesk", sans-serif; font-size: 11px; font-weight: 600;
+  background: var(--pine-soft); color: var(--pine); padding: 2px 8px;
+  border-radius: 999px; vertical-align: middle; margin-left: 8px;
+}
+.sub { margin: 4px 0 0; color: var(--muted); font-size: 13px; }
+.muted { color: var(--muted); }
+.chip {
+  font-family: "IBM Plex Mono", monospace; font-size: 12px; color: var(--muted);
+  background: var(--bg); border: 1px solid var(--line); padding: 8px 12px; border-radius: 8px;
+}
+.chip strong { color: var(--pine); }
+.controls {
+  display: flex; align-items: center; gap: 16px; padding: 12px 24px;
+  border-bottom: 1px solid var(--line);
+}
+.search {
+  font-family: inherit; font-size: 14px; padding: 7px 12px; width: 280px;
+  border: 1px solid var(--line); border-radius: 8px; background: var(--panel);
+}
+.hint { font-size: 12px; color: var(--muted); }
+.tablewrap { padding: 16px 24px; overflow: auto; }
+table { border-collapse: collapse; width: 100%; background: var(--panel); }
+thead th {
+  position: sticky; top: 0; background: var(--panel); text-align: left;
+  font-size: 11px; text-transform: uppercase; letter-spacing: .04em; color: var(--muted);
+  padding: 8px 10px; border-bottom: 1px solid var(--line);
+}
+#grid:focus { outline: none; }
+tbody td { padding: 6px 10px; border-bottom: 1px solid var(--line); }
+.cell.ro { color: var(--ink); }
+.amount { font-family: "IBM Plex Mono", monospace; text-align: right; }
+.amount.neg { color: var(--neg); }
+.split-child td { background: #faf8f1; color: var(--muted); }
+.tree { color: var(--line); margin-right: 6px; }
+
+/* Active cell ring — the spreadsheet focus */
+.cell.editable { cursor: default; position: relative; }
+.cell-active {
+  box-shadow: inset 0 0 0 2px var(--active); border-radius: 4px;
+  background: var(--pine-soft);
+}
+.cell.editable:focus { outline: none; }
+
+/* Inline editor: span <-> input swap via the .editing class */
+.cell-input {
+  display: none; font-family: inherit; font-size: 14px; width: 100%;
+  border: none; background: transparent; padding: 0; color: var(--ink);
+}
+.cell-input:focus { outline: none; }
+.editing .cell-view { display: none; }
+.editing .cell-input { display: block; }
+
+/* Reviewed checkbox */
+.reviewed-cell { text-align: center; }
+.check {
+  width: 20px; height: 20px; border: 1.5px solid var(--line); border-radius: 5px;
+  background: var(--panel); cursor: pointer; font-size: 13px; line-height: 1;
+  color: var(--pine); display: inline-flex; align-items: center; justify-content: center;
+}
+.check.checked { background: var(--pine); color: #fff; border-color: var(--pine); }
