@@ -122,8 +122,14 @@
 
 (defonce ^:private !server (atom nil))
 
+(defn stop! []
+  (when-let [srv @!server]
+    (http/server-stop! srv)        ; closes the listener, frees the port
+    (reset! !server nil)
+    (println "spike server stopped")))
+
 (defn start! [port]
-  (when-let [stop @!server] (stop))
+  (stop!)
   (reset! !server (http/run-server #'handler {:port port :legacy-return-value? false}))
   (println (str "spike server up on http://localhost:" port))
   @!server)
@@ -131,4 +137,9 @@
 (defn -main [& args]
   (let [port (parse-long (or (first args) "7777"))]
     (start! port)
+    ;; Stop gracefully on shutdown (SIGTERM / normal exit) so the port is freed.
+    ;; run.sh translates Ctrl-C into a SIGTERM, since the Clojure CLI's JVM
+    ;; doesn't reliably act on SIGINT.
+    (.addShutdownHook (Runtime/getRuntime) (Thread. stop!))
+    (println "Press Ctrl-C to stop.")
     @(promise)))

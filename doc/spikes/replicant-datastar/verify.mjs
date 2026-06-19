@@ -158,6 +158,15 @@ const catText = await page.evaluate(() =>
   document.querySelector('[data-cell="1:tx:category"] .cell-view').textContent);
 check('combobox Enter selects → cell updates optimistically', catText === 'Dining', catText);
 
+// Tab with the combobox open closes it and moves to the next cell (no focus trap).
+await page.click('[data-cell="6:tx:category"]');
+await page.waitForSelector('.combo-dropdown');
+await page.keyboard.press('Tab');
+await page.waitForTimeout(50);
+const tabState = { comboOpen: await page.evaluate(() => window.__comboOpen()), active: await activeCell() };
+check('Tab closes combobox & moves to next cell (no focus trap)',
+  !tabState.comboOpen && tabState.active === '6:tx:reviewed', JSON.stringify(tabState));
+
 await page.screenshot({ path: '/tmp/spike-screenshot.png', fullPage: true });
 
 // JSON-API persistence: reload and confirm the server kept the new category.

@@ -61,6 +61,14 @@ function open(td) {
     else if (e.key === 'ArrowUp') { e.preventDefault(); moveHi(-1); }
     else if (e.key === 'Enter') { e.preventDefault(); if (filtered[hi]) select(filtered[hi]); }
     else if (e.key === 'Escape') { e.preventDefault(); close(true); }
+    else if (e.key === 'Tab') {
+      // Tab/Shift+Tab closes without committing and hands focus back to the grid,
+      // which moves to the next/previous cell — never trap focus in the dropdown.
+      e.preventDefault();
+      const td = cellTd;
+      close(false);
+      td.dispatchEvent(new KeyboardEvent('keydown', { key: 'Tab', shiftKey: e.shiftKey, bubbles: true }));
+    }
   });
   input.focus();
 }
