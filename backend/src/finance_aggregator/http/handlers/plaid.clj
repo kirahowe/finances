@@ -7,14 +7,11 @@
    - GET /api/plaid/accounts - Fetch accounts from Plaid
    - POST /api/plaid/transactions - Fetch transactions from Plaid"
   (:require
+   [finance-aggregator.auth :as auth]
    [finance-aggregator.plaid.client :as plaid]
    [finance-aggregator.plaid.service :as plaid-svc]
    [finance-aggregator.db.credentials :as credentials]
    [finance-aggregator.http.responses :as responses]))
-
-(def ^:private hardcoded-user-id
-  "Hardcoded user ID for Phase 2/3 testing. Will be removed in Phase 7."
-  "test-user")
 
 (defn create-link-token-handler
   "Factory: creates handler for POST /api/plaid/create-link-token.
@@ -29,7 +26,7 @@
      Ring handler function"
   [{:keys [plaid-config]}]
   (fn [_request]
-    (let [link-token (plaid/create-link-token plaid-config hardcoded-user-id)]
+    (let [link-token (plaid/create-link-token plaid-config auth/user-id)]
       (responses/success-response {:linkToken link-token}))))
 
 (defn exchange-token-handler

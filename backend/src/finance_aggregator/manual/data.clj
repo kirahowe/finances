@@ -8,27 +8,12 @@
    - Type conversions (string→date, string→bigdec)
    - Returns database-ready entity maps"
   (:require
-   [clojure.string :as str])
+   [clojure.string :as str]
+   [finance-aggregator.utils :as u])
   (:import
-   [java.security MessageDigest]
-   [java.time LocalDate ZoneId]
-   [java.time.format DateTimeFormatter]
-   [java.util Date UUID]))
+   [java.util UUID]))
 
 ;;; Helper Functions
-
-(defn- string->date
-  "Convert date string to java.util.Date at UTC midnight using given format.
-
-   date-string: string like '2024-01-15'
-   date-format: Java DateTimeFormatter pattern like 'yyyy-MM-dd'
-
-   Returns: java.util.Date"
-  [date-string date-format]
-  (-> (LocalDate/parse date-string (DateTimeFormatter/ofPattern date-format))
-      (.atStartOfDay (ZoneId/of "UTC"))
-      .toInstant
-      Date/from))
 
 (defn- clean-amount-string
   "Remove currency symbols, parentheses, and commas from amount string.
@@ -61,13 +46,6 @@
                      str/lower-case
                      (str/replace #"\s+" "-")
                      (str/replace #"[^a-z0-9-]" ""))))
-
-(defn- sha256-hex
-  "Compute SHA-256 hash of string and return as hex string."
-  [s]
-  (let [digest (MessageDigest/getInstance "SHA-256")
-        hash-bytes (.digest digest (.getBytes s "UTF-8"))]
-    (apply str (map #(format "%02x" %) hash-bytes))))
 
 ;;; Parse Functions
 
@@ -111,7 +89,7 @@
                        "|" amount
                        "|" (or payee "")
                        "|" row-index)
-        hash (sha256-hex hash-input)]
+        hash (u/sha256-hex hash-input)]
     (str "csv-" (subs hash 0 32))))
 
 (defn parse-csv-transaction
@@ -136,7 +114,7 @@
             :transaction/user lookup-ref}"
   [row account-external-id user-id mapping row-index]
   (let [date-format (:date-format mapping)
-        parsed-date (string->date (:date row) date-format)
+        parsed-date (u/string->date (:date row) date-format)
         cleaned-amount (clean-amount-string (:amount row))
         amount-bigdec (bigdec cleaned-amount)
         external-id (generate-transaction-external-id

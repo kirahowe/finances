@@ -135,14 +135,6 @@
 
 ;;; Debug/Admin
 
-(defn get-all-connections
-  "Get info about all connected clients (for debugging)."
-  []
-  (into {}
-        (map (fn [[id {:keys [subscriptions]}]]
-               [id {:subscriptions subscriptions}]))
-        @connections))
-
 (defn get-all-sync-states
   "Get all current sync states (for debugging)."
   []

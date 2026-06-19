@@ -15,13 +15,10 @@
   (:require
    [clojure.data.json :as json]
    [datalevin.core :as d]
+   [finance-aggregator.auth :as auth]
    [finance-aggregator.lib.encryption :as encryption]
    [finance-aggregator.lib.log :as log]
    [finance-aggregator.lib.secrets :as secrets]))
-
-(def ^:private hardcoded-user-id
-  "Hardcoded user ID for Phase 2/3 testing. Will be removed in Phase 7."
-  "test-user")
 
 (defn- get-encryption-key
   "Get the encryption key from secrets.
@@ -38,12 +35,12 @@
    Creates the user if it doesn't exist."
   [conn]
   (let [db (d/db conn)
-        user-exists? (d/entity db [:user/id hardcoded-user-id])]
+        user-exists? (d/entity db [:user/id auth/user-id])]
     (when-not user-exists?
-      (log/debug "Creating hardcoded test user" {:user-id hardcoded-user-id})
-      (d/transact! conn [{:user/id hardcoded-user-id
+      (log/debug "Creating hardcoded test user" {:user-id auth/user-id})
+      (d/transact! conn [{:user/id auth/user-id
                           :user/created-at (java.util.Date.)}])
-      (log/debug "Test user created" {:user-id hardcoded-user-id}))))
+      (log/debug "Test user created" {:user-id auth/user-id}))))
 
 (defn store-credential!
   "Store an encrypted credential in the database.
@@ -75,7 +72,7 @@
         encrypted-data-str (pr-str encrypted-data)
         credential-id (str "cred-" (name institution) "-" (java.util.UUID/randomUUID))
         credential {:credential/id credential-id
-                    :credential/user [:user/id hardcoded-user-id]
+                    :credential/user [:user/id auth/user-id]
                     :credential/institution institution
                     :credential/encrypted-data encrypted-data-str
                     :credential/created-at (java.util.Date.)}]
@@ -115,7 +112,7 @@
                       [?e :credential/user ?u]
                       [?e :credential/institution ?institution]]
                     db
-                    hardcoded-user-id
+                    auth/user-id
                     institution)]
 
     (when (seq result)
@@ -155,7 +152,7 @@
                       [?e :credential/user ?u]
                       [?e :credential/institution ?institution]]
                     db
-                    hardcoded-user-id
+                    auth/user-id
                     institution)]
     (some? result)))
 
@@ -182,7 +179,7 @@
                            [?e :credential/user ?u]
                            [?e :credential/institution ?institution]]
                          db
-                         hardcoded-user-id
+                         auth/user-id
                          institution)]
 
     (when (seq credentials)
@@ -226,7 +223,7 @@
          ;; Use item-id as the credential ID for easy lookup
          credential-id (str "plaid-item-" item-id)
          credential (cond-> {:credential/id credential-id
-                             :credential/user [:user/id hardcoded-user-id]
+                             :credential/user [:user/id auth/user-id]
                              :credential/institution :plaid
                              :credential/item-id item-id
                              :credential/institution-name institution-name
@@ -310,7 +307,7 @@
                            [?e :credential/institution :plaid]
                            [?e :credential/item-id _]]  ; Only items with item-id
                          db
-                         hardcoded-user-id)
+                         auth/user-id)
         encryption-key (get-encryption-key secrets-data)]
 
     (mapv (fn [cred]
@@ -375,7 +372,7 @@
                            [?e :credential/institution :plaid]
                            [?e :credential/item-id _]]
                          db
-                         hardcoded-user-id)]
+                         auth/user-id)]
     (mapv (fn [cred]
             {:item-id (:credential/item-id cred)
              :institution-name (:credential/institution-name cred)
@@ -534,29 +531,6 @@
                             :credential/transaction-count 0}])
         true)
       false)))
-
-(defn get-selected-account-ids
-  "Get the selected account IDs for a Plaid Item.
-
-   Returns the account IDs that the user selected during Plaid Link.
-
-   Parameters:
-   - conn: Datalevin connection
-   - item-id: Plaid item_id
-
-   Returns:
-   Vector of account ID strings, or nil if not stored
-
-   Example:
-   (get-selected-account-ids conn \"item_abc123\")
-   ;; => [\"acc_1\" \"acc_2\"]"
-  [conn item-id]
-  (let [db (d/db conn)
-        credential-id (str "plaid-item-" item-id)
-        credential (d/pull db '[:credential/selected-account-ids]
-                           [:credential/id credential-id])]
-    (when-let [json-str (:credential/selected-account-ids credential)]
-      (json/read-str json-str))))
 
 (defn get-institution-name
   "Get the institution name for a Plaid Item.

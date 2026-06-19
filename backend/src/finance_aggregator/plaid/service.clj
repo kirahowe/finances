@@ -11,6 +11,7 @@
    All functions are pure at the transformation level, with side effects
    isolated to API calls and database operations."
   (:require
+   [finance-aggregator.auth :as auth]
    [finance-aggregator.db :as db]
    [finance-aggregator.db.credentials :as creds]
    [finance-aggregator.lib.log :as log]
@@ -26,7 +27,6 @@
 
 ;;; Constants
 
-(def ^:private hardcoded-user-id "test-user")
 (def ^:private date-formatter (DateTimeFormatter/ofPattern "yyyy-MM-dd"))
 
 ;;; Public API
@@ -335,22 +335,6 @@
      :failed {:transactions (get-in result [:summary :errors] 0)}
      :errors (mapcat #(get-in % [:result :errors] []) (:items result))}))
 
-(defn sync-all!
-  "Sync both accounts and transactions.
-   Accounts are synced first (required for transaction references).
-
-   deps: {:db-conn datalevin-connection
-          :secrets secrets-map
-          :plaid-config plaid-configuration-map (must include :days-requested)}
-
-   Returns: {:accounts {...result from sync-accounts!...}
-            :transactions {...result from sync-transactions!...}}"
-  [deps]
-  (let [accounts-result (sync-accounts! deps)
-        transactions-result (sync-transactions! deps)]
-    {:accounts accounts-result
-     :transactions transactions-result}))
-
 (defn- parse-month-to-date-range
   "Parse YYYY-MM string into start-date and end-date strings for Plaid API.
    Returns {:start-date 'YYYY-MM-DD', :end-date 'YYYY-MM-DD'}"
@@ -395,7 +379,7 @@
     (let [transactions (client/fetch-transactions plaid-config access-token start-date end-date)
 
           ;; 2. Parse transactions (parallel, filters pending)
-          tx-results (plaid-provider/safe-parse-transactions transactions hardcoded-user-id)
+          tx-results (plaid-provider/safe-parse-transactions transactions auth/user-id)
           parsed-txns (:success tx-results)
           tx-errors (:errors tx-results)]
 

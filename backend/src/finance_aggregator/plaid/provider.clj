@@ -16,6 +16,7 @@
    `finance-aggregator.plaid.client`."
   (:require
    [datalevin.core :as d]
+   [finance-aggregator.auth :as auth]
    [finance-aggregator.db :as db]
    [finance-aggregator.db.credentials :as creds]
    [finance-aggregator.lib.log :as log]
@@ -25,8 +26,6 @@
    [finance-aggregator.ws.state :as ws-state]))
 
 ;;; Constants
-
-(def ^:private hardcoded-user-id "test-user")
 
 (def ^:private historical-poll-interval-ms
   "Time to wait between polls for historical transaction data (30 seconds)"
@@ -125,7 +124,7 @@
 
               (when (or (seq added) (seq modified))
                 (let [upsert-txns (concat added modified)
-                      tx-results (safe-parse-transactions upsert-txns hardcoded-user-id)
+                      tx-results (safe-parse-transactions upsert-txns auth/user-id)
                       parsed-txns (:success tx-results)]
                   (when (seq parsed-txns)
                     (db/insert! {:institutions #{}
@@ -197,7 +196,7 @@
         institution (client/fetch-institution plaid-config institution-id)
         parsed-institution (data/parse-institution institution)
         {parsed-accounts :success
-         account-errors :errors} (safe-parse-accounts accounts institution-id hardcoded-user-id)]
+         account-errors :errors} (safe-parse-accounts accounts institution-id auth/user-id)]
     (log/info "Fetched Plaid Item accounts"
               {:institution-id institution-id
                :accounts-count (count parsed-accounts)
@@ -252,7 +251,7 @@
           ;; defer cursor/status/poll finalization to :on-complete (post-persist).
           (let [upsert-txns (concat added modified)
                 {parsed-txns :success
-                 tx-errors :errors} (safe-parse-transactions upsert-txns hardcoded-user-id)
+                 tx-errors :errors} (safe-parse-transactions upsert-txns auth/user-id)
                 removed-ext-ids (mapv :transaction_id removed)
                 historical-complete? (= :historical-update-complete update-status)
                 initial-complete? (= :initial-update-complete update-status)

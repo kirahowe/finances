@@ -8,14 +8,11 @@
   (:require
    [clojure.edn :as edn]
    [datalevin.core :as d]
+   [finance-aggregator.auth :as auth]
    [finance-aggregator.csv.data :as csv-data]
    [finance-aggregator.lib.log :as log]
    [finance-aggregator.manual.data :as manual-data]
    [tablecloth.api :as tc]))
-
-;;; Constants
-
-(def ^:private hardcoded-user-id "test-user")
 
 ;;; CSV Mapping Configuration
 
@@ -119,7 +116,7 @@
             :error string (if failure)}"
   [db-conn account-external-id csv-content mapping]
   (try
-    (let [user-id hardcoded-user-id
+    (let [user-id auth/user-id
           ;; Parse CSV
           ds (csv-data/parse-csv csv-content)
           total-rows (csv-data/row-count ds)

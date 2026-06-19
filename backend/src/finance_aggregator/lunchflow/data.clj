@@ -8,25 +8,10 @@
    lookup refs for relationships, string->date / ->bigdec coercions, and a
    deterministic hash fallback for transactions that arrive without an id."
   (:require
-   [clojure.string :as str])
-  (:import
-   [java.security MessageDigest]
-   [java.time LocalDate ZoneId]
-   [java.util Date]))
+   [clojure.string :as str]
+   [finance-aggregator.utils :as u]))
 
 ;;; Helpers
-
-(defn- string->date
-  "Convert a YYYY-MM-DD string to java.util.Date at UTC midnight."
-  [date-string]
-  (-> (LocalDate/parse date-string)
-      (.atStartOfDay (ZoneId/of "UTC"))
-      .toInstant
-      Date/from))
-
-(defn- sha256-hex [s]
-  (let [digest (MessageDigest/getInstance "SHA-256")]
-    (apply str (map #(format "%02x" %) (.digest digest (.getBytes (str s) "UTF-8"))))))
 
 (defn- institution-id
   "Synthesize a stable institution id from a Lunchflow institution name."
@@ -45,7 +30,7 @@
   "Deterministic external-id suffix for transactions that arrive without an id
    (the API can return id: null). Hashes the stable identifying fields."
   [account-external-id {:keys [date amount description]}]
-  (subs (sha256-hex (str account-external-id "|" date "|" amount "|" (or description "")))
+  (subs (u/sha256-hex (str account-external-id "|" date "|" amount "|" (or description "")))
         0 32))
 
 ;;; Parse functions
@@ -94,7 +79,7 @@
                            (if-some [id (:id txn)]
                              id
                              (transaction-hash account-external-id txn)))
-          date (string->date (:date txn))
+          date (u/string->date (:date txn))
           payee (or (:merchant txn) (:description txn))]
       (cond-> {:transaction/external-id external-id
                :transaction/account [:account/external-id account-external-id]

@@ -1,7 +1,9 @@
 (ns finance-aggregator.utils
   (:require
    [tick.core :as t])
-  (:import [java.time ZoneOffset]
+  (:import [java.security MessageDigest]
+           [java.time LocalDate ZoneId ZoneOffset]
+           [java.time.format DateTimeFormatter]
            [java.util Date]
            [java.util.regex Pattern]))
 
@@ -9,6 +11,28 @@
   "Converts Unix epoch timestamp to a date in UTC."
   [timestamp]
   (-> timestamp (* 1000) t/instant Date/from))
+
+(defn- local-date->utc-midnight
+  "java.util.Date at UTC midnight for a LocalDate."
+  ^Date [^LocalDate ld]
+  (-> ld (.atStartOfDay (ZoneId/of "UTC")) .toInstant Date/from))
+
+(defn string->date
+  "Parse a date string to a java.util.Date at UTC midnight.
+   1-arity parses ISO yyyy-MM-dd; 2-arity uses an explicit
+   DateTimeFormatter pattern (e.g. \"yyyy-MM-dd\")."
+  ([date-string]
+   (local-date->utc-midnight (LocalDate/parse date-string)))
+  ([date-string date-format]
+   (local-date->utc-midnight
+    (LocalDate/parse date-string (DateTimeFormatter/ofPattern date-format)))))
+
+(defn sha256-hex
+  "Hex-encoded SHA-256 digest of (str s). Used for deterministic external-ids."
+  [s]
+  (let [digest (MessageDigest/getInstance "SHA-256")]
+    (apply str (map #(format "%02x" %)
+                    (.digest digest (.getBytes (str s) "UTF-8"))))))
 
 (defn date->epoch-day
   "Calendar day (as an epoch-day long) of a java.util.Date interpreted in UTC, or

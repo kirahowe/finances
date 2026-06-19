@@ -8,12 +8,29 @@
   - dates, currency, and language
 
 ## Transactions table
-- better keyboard navigation
-  - when a category dropdown has focus, pressing enter does not open it. It should.
-- on second though, auto-updating the filters is a weird ux, i.e. if you have it filtered to 'uncategorized', then you add a category, the row disappears out from under you. I do like this for "reviewed/unreviewed" because has the feel of checking off a list, but it's weird for the category filter. What's a sane UX around this? Research what best practices exist in this area.
 - search
 - undo
-- the category column width jumps wider when any category is set
+- toggling "uncategorized" shouldn't change column widths
+
+### Filters
+- getting to the point where we really need proper, first-class real filtering
+- how do we do this sanely?
 
 ## Transfers
 - When one side of a transfer is matched, the other should be auto-given the same category (if it doesn't already have one)
+
+### Transfer modal
+- show transaction date
+
+
+## Splits
+- closing a split refreshes the table, doesn't leave them as pending uncategorized rows, that would be better
+- reviewed splits don't look "stale"
+
+### Split modal
+- start typing should open the category dropdown here, too
+
+## Setup
+
+### Categories
+- preserve user-specified order (in dropdown, rollup, and setup)

@@ -7,12 +7,9 @@
    - Account settings updates"
   (:require
    [datalevin.core :as d]
+   [finance-aggregator.auth :as auth]
    [finance-aggregator.lib.log :as log]
    [finance-aggregator.manual.data :as data]))
-
-;;; Constants
-
-(def ^:private hardcoded-user-id "test-user")
 
 ;;; Helper Functions
 
@@ -66,7 +63,7 @@
             :error string (if failure)}"
   [db-conn account-data]
   (try
-    (let [user-id hardcoded-user-id
+    (let [user-id auth/user-id
           ;; Ensure institution exists
           _ (get-or-create-institution! db-conn (:institution-name account-data))
           ;; Transform account data

@@ -13,6 +13,7 @@
    pulls only for connected accounts."
   (:require
    [datalevin.core :as d]
+   [finance-aggregator.auth :as auth]
    [finance-aggregator.lib.secrets :as secrets]
    [finance-aggregator.lunchflow.client :as client]
    [finance-aggregator.lunchflow.data :as data]
@@ -20,9 +21,6 @@
   (:import
    [java.time LocalDate ZoneId]
    [java.util Date]))
-
-;; Single-user app for now; matches the hardcoded user used by other providers.
-(def ^:private user-id "test-user")
 
 (defn- api-key [secrets]
   (or (secrets/get-secret secrets :lunchflow)
@@ -55,7 +53,7 @@
 (defmethod provider/available-accounts :lunchflow
   [_ {:keys [secrets]}]
   (mapv (fn [account]
-          (let [acct (data/parse-account account user-id)
+          (let [acct (data/parse-account account auth/user-id)
                 inst (data/parse-institution account)]
             {:external-id (:account/external-id acct)
              :name (:account/external-name acct)
@@ -70,7 +68,7 @@
         wanted (->> (client/list-accounts (api-key secrets))
                     (filter #(contains? target (data/account-external-id %))))]
     {:institutions (set (map data/parse-institution wanted))
-     :accounts (set (map #(data/parse-account % user-id) wanted))}))
+     :accounts (set (map #(data/parse-account % auth/user-id) wanted))}))
 
 (defmethod provider/fetch-transactions :lunchflow
   [_ {:keys [secrets db-conn]}]
@@ -85,7 +83,7 @@
                         (->> (client/fetch-account-transactions
                               key (:id account)
                               {:from from :to to :include-pending false})
-                             (keep #(data/parse-transaction % user-id))))
+                             (keep #(data/parse-transaction % auth/user-id))))
                       accounts)]
     {:transactions (vec transactions)
      :removed []

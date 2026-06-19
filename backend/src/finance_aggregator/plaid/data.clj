@@ -8,20 +8,8 @@
    - Type conversions (string→date, number→bigdec)
    - Returns database-ready entity maps"
   (:require
-   [clojure.set :as set])
-  (:import
-   [java.time LocalDate ZoneId]
-   [java.util Date]))
-
-;;; Helper Functions
-
-(defn- string->date
-  "Convert YYYY-MM-DD string to java.util.Date at UTC midnight."
-  [date-string]
-  (-> (LocalDate/parse date-string)
-      (.atStartOfDay (ZoneId/of "UTC"))
-      .toInstant
-      Date/from))
+   [clojure.set :as set]
+   [finance-aggregator.utils :as u]))
 
 ;;; Parse Functions
 
@@ -105,7 +93,7 @@
   [txn user-id]
   (when-not (:pending txn)
     (let [payee (or (:merchant_name txn) (:name txn))
-          posted-date (string->date (:date txn))]
+          posted-date (u/string->date (:date txn))]
       (-> txn
           (select-keys [:transaction_id :account_id :amount :name])
           (set/rename-keys {:transaction_id :transaction/external-id
