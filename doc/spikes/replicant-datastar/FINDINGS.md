@@ -253,15 +253,37 @@ Why to be cautious:
   is single-maintainer. This is the real risk, not the interactivity.
 - You trade a mature, well-staffed React ecosystem for a small-community stack.
   Hiring/onboarding and library longevity are non-code costs.
+- **Interaction-polish papercuts.** Mature widget libraries (downshift, TanStack)
+  encode years of edge-case fixes — focus management, full ARIA, IME/composition,
+  touch, scroll-into-view, key-repeat races. Hand-rolled islands start without
+  them. The spike already hit one: Tab inside the combobox trapped focus instead
+  of closing-and-advancing (a one-line `data-on`/island fix, but downshift gives
+  it free). Expect a tail of these on any *rich* widget you reinvent.
+
+  Where this risk does and doesn't live:
+  - **Low/none**: table chrome (filters, hide, resize, search, sort) — shallow,
+    declarative. And the grid keyboard nav + drag-reorder, which you *already*
+    hand-roll today — migrating them adds no new edge-case ownership.
+  - **Concentrated**: the category combobox (was downshift) and, to a lesser
+    degree, the split editor. ~1–2 widgets, not the whole UI.
+  - **Mitigation that retires most of it**: a Datastar "island" is just a DOM node
+    + JS — that JS can mount a *mature headless* widget. You don't have to reinvent
+    downshift; mount it (a one-component Preact/React island), or a framework-
+    agnostic headless combobox (Zag.js, Ariakit, a Shoelace web component) inside
+    the island. So per-widget you *choose* hand-roll vs. wrap; the papercut tax is
+    opt-in, not a blanket cost.
 
 Suggested path if pursued:
 1. Bump http-kit to 2.9.x and confirm nothing in the current server regresses
    (this is independently useful and de-risks the biggest unknown).
 2. Migrate a **read-only** page first (e.g. `/setup` account list) to
    Replicant+Datastar behind a route, running alongside React.
-3. Migrate the transactions table next, reusing the existing pure modules as
+3. For the one high-papercut widget (the combobox), prototype it as a *headless-
+   library* island (Zag.js or a mounted downshift) rather than hand-rolled — to
+   confirm the "wrap, don't reinvent" mitigation before relying on it.
+4. Migrate the transactions table next, reusing the existing pure modules as
    islands. Keep React for anything not yet ported.
-4. Re-evaluate once the table is shipped — that's where 80% of the value and risk
+5. Re-evaluate once the table is shipped — that's where 80% of the value and risk
    concentrate, and this spike shows it lands.
 
 If the pre-1.0 dependency risk is unacceptable, the same *patterns* (server
