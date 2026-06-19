@@ -19,7 +19,8 @@
       8. Column resize / auto-fit drag — table-tools.js island (pointer events)."
   (:require [clojure.string :as str]
             [replicant.string :as rs]
-            [spike.data :as data]))
+            [spike.data :as data]
+            [spike.shared :as shared]))
 
 ;; ---------------------------------------------------------------------------
 ;; Datastar attribute helpers
@@ -38,10 +39,8 @@
 (defn- js-str [s]
   (str "'" (-> (str s) (str/replace "\\" "\\\\") (str/replace "'" "\\'")) "'"))
 
-(defn cents->str [c]
-  (let [neg? (neg? c)
-        c (Math/abs (long c))]
-    (str (when neg? "-") "$" (quot c 100) "." (format "%02d" (rem c 100)))))
+;; cents->str lives in spike.shared (.cljc) — same code the CLJS island runs.
+(def cents->str shared/cents->str)
 
 (defn- row-key [tx-id split-id] (str tx-id ":" (or split-id "tx")))
 
@@ -243,5 +242,10 @@
          (for [c data/categories] [:li c])]
 
         [:script {:type "module" :src "/public/grid-nav.js"}]
-        [:script {:type "module" :src (if (= combo :zag) "/public/combobox-zag.js" "/public/combobox.js")}]
+        ;; the combobox island — hand-rolled JS / TS+Zag / CLJS+web-component
+        (case combo
+          :zag  [:script {:type "module" :src "/public/combobox-zag.js"}]
+          :cljs (list [:script {:type "module" :src "/public/combobox-framework.js"}]
+                      [:script {:src "/public/combobox-cljs.js"}])
+          [:script {:type "module" :src "/public/combobox.js"}])
         [:script {:type "module" :src "/public/table-tools.js"}]]]))))

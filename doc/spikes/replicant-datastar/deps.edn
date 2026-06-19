@@ -1,4 +1,4 @@
-{:paths ["src" "resources"]
+{:paths ["src" "resources" "shared"]  ; shared/ holds spike.shared (.cljc) — also compiled to JS by cljs/
  :deps {org.clojure/clojure {:mvn/version "1.12.0"}
 
         ;; Web server — Datastar's http-kit adapter needs >= 2.9.0-beta2 for SSE.

@@ -4,14 +4,15 @@
   The spike deliberately does NOT touch Datalevin — the research question is
   about the interaction model (can server-rendered hypermedia carry this app's
   client interactivity?), not the data layer, which is unchanged. In-memory data
-  keeps the spike runnable without the native LMDB libs / seeded DB.")
+  keeps the spike runnable without the native LMDB libs / seeded DB."
+  (:require [spike.shared :as shared]))
 
 ;; A signed-amount transaction (inflows +, outflows −), mirroring the project's
 ;; provider conventions. Splits are modelled as child parts that carry their own
 ;; category + amount — the real app navigates these as extra grid rows.
-(def categories
-  ["Groceries" "Dining" "Transport" "Rent" "Utilities" "Income"
-   "Shopping" "Health" "Subscriptions" "Transfer"])
+;; The category list is defined once in spike.shared (.cljc) and used by both the
+;; JVM server (here) and the ClojureScript island.
+(def categories shared/categories)
 
 (def accounts
   [{:id "chk" :name "Checking" :institution "Pine Bank"}

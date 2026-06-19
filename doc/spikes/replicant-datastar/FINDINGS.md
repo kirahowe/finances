@@ -422,29 +422,84 @@ The decision is **not** "Zag-TS vs hand-roll-CLJS." It's really:
   thinner ecosystem of *high-quality headless combobox web components* (Zag/downshift
   are more mature here than any framework-agnostic web component).
 
-**Bottom line for "is Zag worth foregoing CLJS":** Zag is excellent and cost ~100
-LOC + 32 KB for a genuinely accessible combobox — but choosing it is a vote to keep
-TS as a second language and forgo server/client code sharing. If one-language +
-`.cljc` unification is a primary goal, the honest comparison is **TS+Zag** vs
-**CLJS + web-component widgets** — and the deciding question is whether a
-framework-agnostic widget (web component) meets your a11y bar as well as Zag does.
-That's the one piece still worth a prototype (a CLJS island + a headless web-
-component combobox) before committing.
+### Both built and verified — the head-to-head
+
+I then built option 2 too: a **CLJS island (cljs.main, advanced) + the
+`combobox-framework` web component**, sharing a real `.cljc` with the backend
+(`cljs/`, `shared/spike/shared.cljc`, served at `?combo=cljs`, `verify-cljs.mjs`,
+**9/9**). Both options now exist end-to-end. Measured:
+
+| | hand-rolled JS | **TS + Zag** | **CLJS + web component** |
+|---|---|---|---|
+| Island source | ~110 LOC | ~100 LOC glue | ~75 LOC cljs |
+| Build | none | esbuild **23 ms** | cljs.main **~4 s** (Closure) |
+| Bundle (gz) | 1.8 KB | **32.4 KB** (self-contained) | **38.8 KB** (cljs.core+Replicant baseline) **+ 9 KB** web component |
+| A11y | ✗ none | ✓ WAI-ARIA (`aria-activedescendant`) | ✓ WAI-ARIA (focus-into-listbox + `aria-selected`) |
+| `.cljc` shared w/ server | ✗ | ✗ | ✓ **proven** — `cents->str`/`categories` defined once, ran on the JVM (server) *and* in the browser (console-confirmed) |
+| Replicant on client | — | — | ✓ rendered the custom element |
+| Verified | 23/23 | 8/8 | 9/9 |
+
+What the numbers say:
+- **The `.cljc` payoff is real and exclusive to CLJS.** One file (`spike.shared`)
+  compiled to both targets — the server renders amounts/categories from it and the
+  island runs the *same* `cents->str` in the browser. TS+Zag structurally cannot do
+  this. For an app whose client logic overlaps backend rules (splitMath, category,
+  transfer, provider-sign), this is the genuine prize.
+- **Bundle:** Zag's 32 KB is self-contained; the CLJS path is ~48 KB for *one*
+  combobox — BUT 38.8 KB of that is the cljs.core+Replicant **baseline paid once**
+  and amortized across *every* CLJS island (each additional island adds little). TS
+  islands are individually tiny but have no shared runtime, and each Zag widget
+  carries its machine. So: few rich islands → TS is lighter; many islands → CLJS's
+  baseline amortizes.
+- **DX asymmetry — the honest finding.** Zag's vanilla adapter was smooth and
+  predictable (documented prop-getters; went green fast). The headless web component
+  *worked* and is genuinely accessible, but integrating it took real
+  reverse-engineering of *undocumented* behavior: it auto-selects on type (fires
+  `change` mid-typing), moves focus **into** the listbox (so an input-only handler
+  misses Enter), renders its list via the **Popover API** (top-layer, `offsetParent`
+  null), and defaults to CSS `anchor()` positioning (Chromium-only — needed a manual
+  override). None of that is CLJS's fault — it's the web component's — but it
+  confirms the caveat: **the headless-combobox web-component ecosystem is less
+  turnkey than Zag.** cljs.main release builds (~4 s) are far slower than esbuild
+  (23 ms); shadow-cljs would close the *dev* gap with hot-reload but release builds
+  stay Closure-slow.
+
+**Bottom line — now a values call between two PROVEN options, not a feasibility
+question:**
+- **TS + Zag** — smoother, more mature widgets, lighter for a few islands; but keeps
+  TS as a second language and forgoes `.cljc` sharing.
+- **CLJS + web components** — one language end-to-end, Replicant everywhere, and the
+  real, proven `.cljc` server/client sharing; but a ~39 KB runtime baseline,
+  Closure build times, and you'll either standardize on / wrap one good headless web
+  component or hand-roll the few rich widgets (you already hand-roll the grid).
+
+Given the stated goals (one language, Clojure-native, unification, willing to
+maintain libs), **CLJS is now de-risked and defensible** — the `.cljc` payoff is the
+deciding asset, and the widget friction is bounded to ~1–2 rich components. If that
+per-widget friction reads as a recurring tax, **TS+Zag is the pragmatic hedge**.
+Either way the spike's job is done: both are real, and the choice is about values,
+not whether it works.
 
 ## How to run the spike
 
 ```bash
 cd doc/spikes/replicant-datastar
-./run.sh                 # starts http-kit + Datastar + Replicant on :7777
-open http://localhost:7777
+./run.sh                 # starts http-kit + Datastar + Replicant on :7777 (Ctrl-C to quit)
+open http://localhost:7777            # hand-rolled combobox
+open http://localhost:7777/?combo=zag  # TS + Zag.js island   (needs: cd islands && npm i && npm run build)
+open http://localhost:7777/?combo=cljs # CLJS + web-component (needs: cd cljs && ./build.sh)
 
-# in another shell, browser-driven verification (uses the frontend's Playwright):
-node verify.mjs          # prints the 13-check report + /tmp/spike-screenshot.png
+# browser-driven verification (uses the frontend's Playwright):
+node verify.mjs          # hand-rolled path — 23 checks + /tmp/spike-screenshot.png
+node verify-zag.mjs      # TS+Zag path — 8 checks
+node verify-cljs.mjs     # CLJS+web-component path — 9 checks
 ```
 
 `run.sh` points `JAVA_HOME` at the project's jabba-managed JDK 25 so it works in a
 non-interactive shell. The spike is fully isolated: in-memory data, its own
 `deps.edn`, its own port — it touches nothing in `backend/` or `frontend/`.
+(The `combobox-zag.js` and `combobox-cljs.js` bundles are git-ignored build
+artifacts; build them with the commands above.)
 
 ### Files
 - `deps.edn` — pinned library coordinates (note the http-kit override).
@@ -454,8 +509,12 @@ non-interactive shell. The spike is fully isolated: in-memory data, its own
 - `src/spike/server.clj` — http-kit routing, the SSE handlers, and the JSON
   category endpoint (showing the JSON API coexists).
 - `resources/public/grid-nav.js` — the keyboard-nav island (ported reducer).
-- `resources/public/combobox.js` — the category combobox island (downshift replacement).
+- `resources/public/combobox.js` — hand-rolled combobox island (downshift replacement).
 - `resources/public/table-tools.js` — the column resize / auto-fit island.
+- `shared/spike/shared.cljc` — logic shared by the JVM server AND the CLJS island.
+- `islands/combobox-zag.ts` (+ `package.json`) — TS + Zag.js vanilla combobox.
+- `cljs/src/spike_cljs/combobox.cljs` (+ `deps.edn`, `build.sh`) — CLJS combobox island.
+- `resources/public/combobox-framework.js` — vendored headless combobox web component.
 - `resources/public/spike.css` — the Ledger styling.
 - `resources/public/datastar.js` — vendored Datastar v1.0.2 runtime (34 KB).
 - `verify.mjs` — the Playwright verification (22 checks).

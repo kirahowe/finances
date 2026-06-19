@@ -153,3 +153,16 @@ thead th { position: sticky; }
 .zag-combobox .combobox-item { padding: 6px 8px; border-radius: 6px; cursor: pointer; font-size: 13px; }
 .zag-combobox .combobox-item[data-highlighted] { background: var(--pine); color: #fff; }
 .zag-combobox .combobox-item[aria-selected="true"] { font-weight: 600; }
+
+/* CLJS variant: combobox-framework web component (?combo=cljs). It leaves list
+   positioning to you (its default is CSS anchor() — Chromium-only); we position
+   it explicitly inside the fixed root instead, so it works cross-browser. */
+.zag-combobox combobox-framework { display: block; position: relative; }
+.zag-combobox combobox-framework .combobox-content {
+  position: absolute; top: calc(100% + 4px); left: 0; min-width: 100%;
+}
+.zag-combobox combobox-framework .combobox-item[aria-selected="true"],
+.zag-combobox combobox-framework .combobox-item[data-active] {
+  background: var(--pine); color: #fff;
+}
+.zag-combobox combobox-framework strong { font-weight: 700; text-decoration: underline; }
