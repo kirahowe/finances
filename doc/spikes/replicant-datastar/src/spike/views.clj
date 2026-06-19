@@ -189,7 +189,9 @@
   []
   (str "{" (str/join ", " (map #(str "'hide-" (:id %) "': !$cols." (:id %)) columns)) "}"))
 
-(defn page []
+(defn page
+  "opts :combo — :zag loads the Zag.js TS island, else the hand-rolled JS one."
+  [{:keys [combo]}]
   (let [txs (data/all-transactions)]
     (str
      "<!DOCTYPE html>"
@@ -241,5 +243,5 @@
          (for [c data/categories] [:li c])]
 
         [:script {:type "module" :src "/public/grid-nav.js"}]
-        [:script {:type "module" :src "/public/combobox.js"}]
+        [:script {:type "module" :src (if (= combo :zag) "/public/combobox-zag.js" "/public/combobox.js")}]
         [:script {:type "module" :src "/public/table-tools.js"}]]]))))

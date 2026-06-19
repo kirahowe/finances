@@ -103,7 +103,8 @@
         cat-match   (re-matches #"/tx/(\d+)/category" uri)]
     (cond
       (and (= :get request-method) (= uri "/"))
-      {:status 200 :headers {"content-type" "text/html"} :body (views/page)}
+      (let [combo (when (some-> (:query-string req) (str/includes? "combo=zag")) :zag)]
+        {:status 200 :headers {"content-type" "text/html"} :body (views/page {:combo combo})})
 
       (str/starts-with? uri "/public/")
       (static-handler uri)

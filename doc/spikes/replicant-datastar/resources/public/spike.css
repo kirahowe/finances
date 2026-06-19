@@ -133,3 +133,23 @@ thead th { position: sticky; }
 .combo-list { list-style: none; margin: 0; padding: 0; max-height: 220px; overflow-y: auto; }
 .combo-opt { padding: 6px 8px; border-radius: 6px; cursor: pointer; font-size: 13px; }
 .combo-opt.hl { background: var(--pine); color: #fff; }
+
+/* Zag.js combobox island (?combo=zag) — Zag drives data-highlighted / aria-selected */
+.zag-combobox { z-index: 50; }
+.zag-combobox .combobox-control { margin: 0; }
+.zag-combobox .combobox-input {
+  font: inherit; font-size: 13px; width: 100%; min-width: 200px; padding: 6px 8px;
+  border: 1px solid var(--pine); border-radius: 8px; background: var(--panel);
+}
+.zag-combobox .combobox-input:focus { outline: none; }
+.zag-combobox .combobox-positioner { z-index: 50; }
+.zag-combobox .combobox-content {
+  list-style: none; margin: 4px 0 0; padding: 6px; max-height: 240px; overflow-y: auto;
+  background: var(--panel); border: 1px solid var(--pine); border-radius: 8px;
+  box-shadow: 0 10px 30px rgba(0,0,0,.14);
+}
+.zag-combobox .combobox-content[hidden],
+.zag-combobox .combobox-content[data-state="closed"] { display: none; }
+.zag-combobox .combobox-item { padding: 6px 8px; border-radius: 6px; cursor: pointer; font-size: 13px; }
+.zag-combobox .combobox-item[data-highlighted] { background: var(--pine); color: #fff; }
+.zag-combobox .combobox-item[aria-selected="true"] { font-weight: 600; }

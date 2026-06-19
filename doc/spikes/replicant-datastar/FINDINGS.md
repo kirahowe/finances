@@ -366,6 +366,71 @@ future "all transactions, all time" view appears, a virtualized list is the kind
 of thing you'd keep as a dedicated island (or reconsider). Everything you use
 *today* ports.
 
+## 9. Island layer: TS + Zag vs CLJS (prototype data)
+
+Decision under test: now that React is going entirely, what do the islands run on?
+Built a **TS + Zag.js (vanilla adapter)** combobox to get real numbers
+(`islands/combobox-zag.ts`, served at `?combo=zag`, verified by `verify-zag.mjs`).
+
+What Zag's vanilla adapter cost & delivered:
+- **~100 LOC of glue** (build the DOM, subscribe to the machine, apply its
+  prop-getters via `spreadProps`, persist on select) — see `islands/combobox-zag.ts`.
+- **Build: 23ms** (`esbuild --bundle --minify`, zero config).
+- **8/8 browser checks**, including the a11y the hand-rolled one omits:
+  `role=combobox/listbox/option`, `aria-expanded`, `aria-controls`, and
+  **`aria-activedescendant` tracking the highlighted option** (screen-reader virtual
+  focus) — plus `@zag-js/live-region`, `dismissable`, `interact-outside`, popper
+  positioning, all for free.
+
+Size (gzipped), for context:
+
+| Asset | gzip | note |
+|---|---:|---|
+| `datastar.js` (runtime, every page) | 13.3 KB | the framework |
+| hand-rolled `combobox.js` | 1.8 KB | **no real ARIA** |
+| **`combobox-zag.js` (TS+Zag)** | **32.4 KB** | full WAI-ARIA combobox |
+| `grid-nav.js` | 3.3 KB | |
+| `table-tools.js` | 0.9 KB | |
+
+~18 KB of the Zag bundle is `@floating-ui` (positioning) + `@zag-js/core`/`dom-query`/
+`dismissable` — **shared infrastructure**, so a *second* Zag widget (menu, dialog,
+date-picker) adds only its machine (~5–15 KB), not another 32 KB. The hand-rolled
+1.8 KB is the honest floor *without* real accessibility.
+
+### So what are the real alternatives? (and is CLJS-hand-roll the only one?)
+
+No — "hand-roll everything in CLJS" is only the *worst* corner of the CLJS option.
+The island layer has four realistic shapes:
+
+| Option | Lang(s) | A11y widgets | `.cljc` share w/ backend | Toolchain | Verdict |
+|---|---|---|---|---|---|
+| **1. TS + esbuild + Zag** (prototyped) | Clojure + **TS** | Zag (mature, free a11y) | ✗ | esbuild (trivial) | lower-risk default; reuse existing `.ts` + tests |
+| **2. CLJS + shadow + web-component widgets** | **Clojure only** | a headless **web component** (`[:my-combobox]` in hiccup, DOM events — clean interop, no JS prop-getters) | ✓ | shadow-cljs | the one-language path that *keeps a11y cheap* |
+| **3. CLJS + shadow, hand-rolled a11y** | Clojure only | you own the ARIA tail | ✓ | shadow-cljs | one language, but the papercut tax now in CLJS |
+| **4. CLJS + Zag via interop** | Clojure only | Zag | ✓ | shadow-cljs | rejected — fighting JS-shaped prop-getters |
+
+The decision is **not** "Zag-TS vs hand-roll-CLJS." It's really:
+
+- **TS+Zag keeps a second language.** You still write+build TS (a thin island layer,
+  not a SPA, but TS nonetheless). You *don't* get `.cljc` logic sharing
+  (`splitMath`/category rules live once, run on server+client).
+- **CLJS gives one language end-to-end** + `.cljc` sharing + Replicant on the client.
+  To keep a11y cheap there, you reach for **web components** (option 2), which
+  interop with Replicant/Datastar as plain custom elements — *not* Zag-from-CLJS.
+  Cost: shadow-cljs, a CLJS runtime baseline (~tens of KB gz, ballpark Zag), porting
+  the existing pure `.ts` modules to `.cljc` once, and — the real variable — the
+  thinner ecosystem of *high-quality headless combobox web components* (Zag/downshift
+  are more mature here than any framework-agnostic web component).
+
+**Bottom line for "is Zag worth foregoing CLJS":** Zag is excellent and cost ~100
+LOC + 32 KB for a genuinely accessible combobox — but choosing it is a vote to keep
+TS as a second language and forgo server/client code sharing. If one-language +
+`.cljc` unification is a primary goal, the honest comparison is **TS+Zag** vs
+**CLJS + web-component widgets** — and the deciding question is whether a
+framework-agnostic widget (web component) meets your a11y bar as well as Zag does.
+That's the one piece still worth a prototype (a CLJS island + a headless web-
+component combobox) before committing.
+
 ## How to run the spike
 
 ```bash
