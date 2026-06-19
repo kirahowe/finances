@@ -74,3 +74,62 @@ tbody td { padding: 6px 10px; border-bottom: 1px solid var(--line); }
   color: var(--pine); display: inline-flex; align-items: center; justify-content: center;
 }
 .check.checked { background: var(--pine); color: #fff; border-color: var(--pine); }
+
+/* ── Round 2: column picker, header filter, combobox, resize ─────────────── */
+
+.btn {
+  font: inherit; font-size: 13px; padding: 6px 12px; border: 1px solid var(--line);
+  border-radius: 8px; background: var(--panel); color: var(--ink); cursor: pointer;
+}
+.dropdown { position: relative; display: inline-block; }
+.menu {
+  position: absolute; z-index: 30; top: calc(100% + 4px); left: 0; min-width: 150px;
+  background: var(--panel); border: 1px solid var(--line); border-radius: 8px;
+  box-shadow: 0 8px 24px rgba(0,0,0,.10); padding: 6px;
+}
+.menu-item {
+  display: flex; align-items: center; gap: 6px; padding: 5px 8px; font-size: 13px;
+  border-radius: 6px; cursor: pointer; white-space: nowrap;
+}
+.menu-item:hover { background: var(--pine-soft); }
+
+/* Header filter funnel */
+thead th { position: sticky; top: 0; }
+.th-label { margin-right: 4px; }
+.funnel {
+  border: none; background: transparent; cursor: pointer; color: var(--muted);
+  font-size: 10px; padding: 0 2px; vertical-align: middle;
+}
+.funnel.active { color: var(--pine); }
+thead th .menu { font-weight: 400; text-transform: none; letter-spacing: 0; color: var(--ink); }
+
+/* Resize handle on each header's right edge */
+thead th { position: sticky; }
+.resize-handle {
+  position: absolute; top: 0; right: 0; width: 7px; height: 100%;
+  cursor: col-resize; user-select: none;
+}
+.resize-handle:hover { background: var(--pine-soft); }
+#grid.resizing { user-select: none; cursor: col-resize; }
+
+/* Column show/hide — table carries hide-<id> from the cols.* signals */
+#grid.hide-date th.col-date, #grid.hide-date td.col-date,
+#grid.hide-description th.col-description, #grid.hide-description td.col-description,
+#grid.hide-account th.col-account, #grid.hide-account td.col-account,
+#grid.hide-category th.col-category, #grid.hide-category td.col-category,
+#grid.hide-amount th.col-amount, #grid.hide-amount td.col-amount,
+#grid.hide-reviewed th.col-reviewed, #grid.hide-reviewed td.col-reviewed { display: none; }
+
+/* Combobox dropdown (the downshift replacement) — body-anchored, position:fixed */
+.combo-dropdown {
+  position: fixed; z-index: 50; background: var(--panel); border: 1px solid var(--pine);
+  border-radius: 8px; box-shadow: 0 10px 30px rgba(0,0,0,.14); padding: 6px; width: max-content;
+}
+.combo-input {
+  font: inherit; font-size: 13px; width: 100%; min-width: 180px; padding: 6px 8px;
+  border: 1px solid var(--line); border-radius: 6px; margin-bottom: 4px;
+}
+.combo-input:focus { outline: none; border-color: var(--pine); }
+.combo-list { list-style: none; margin: 0; padding: 0; max-height: 220px; overflow-y: auto; }
+.combo-opt { padding: 6px 8px; border-radius: 6px; cursor: pointer; font-size: 13px; }
+.combo-opt.hl { background: var(--pine); color: #fff; }

@@ -169,6 +169,9 @@ function toggleReviewed() {
 }
 
 grid.addEventListener('keydown', (e) => {
+  // If the category combobox island is open, it owns the keyboard.
+  if (document.querySelector('.combo-dropdown')) return;
+
   const editing = document.activeElement &&
     document.activeElement.classList.contains('cell-input');
   // In edit mode the input (Datastar) owns Enter/Escape; the grid only steals Tab.
@@ -177,6 +180,17 @@ grid.addEventListener('keydown', (e) => {
   const intent = resolveIntent(e, editing ? 'edit' : state.mode);
   if (!intent) return;
   e.preventDefault();
+
+  // Editing a category cell means opening the combobox island, not an inline
+  // input — hand off via a DOM event (island↔island through the DOM).
+  if ((intent === 'edit' || intent === 'type-to-edit') &&
+      state.active && state.active.col === 'category') {
+    const td = elFor(state.active);
+    if (td && td.classList.contains('combo-cell')) {
+      document.dispatchEvent(new CustomEvent('open-combo', { detail: { td } }));
+      return;
+    }
+  }
 
   if (editing && e.key === 'Tab') {
     // commit the open editor, then move like an arrow

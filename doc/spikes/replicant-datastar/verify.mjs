@@ -86,12 +86,13 @@ const col3 = await activeCell();
 check('horizontal arrow nav hops editable columns',
   col2 === '2:tx:category' && col3 === '2:tx:reviewed', `${col2} → ${col3}`);
 
-// ArrowDown keeps the preferred column; landing row must change.
-await page.click('[data-cell="2:tx:category"]');
+// ArrowDown keeps the preferred column; landing row must change. (Use the
+// description column — clicking a category cell now opens the combobox.)
+await page.click('[data-cell="2:tx:description"]');
 await page.keyboard.press('ArrowDown');
 const downCell = await activeCell();
 check('vertical arrow nav preserves column, changes row',
-  downCell !== '2:tx:category' && downCell.endsWith(':category'), downCell);
+  downCell !== '2:tx:description' && downCell.endsWith(':description'), downCell);
 
 // Latency probe: time a single synchronous ArrowRight in the keydown handler.
 const navMs = await page.evaluate(() => {
@@ -130,7 +131,84 @@ const spanText = await page.evaluate(() =>
   document.querySelector('[data-cell="9:tx:description"] .cell-view').textContent);
 check('inline edit commits optimistically to the cell', spanText.includes('EDITED'), spanText);
 
+// ── 5. Category combobox (the downshift replacement) ────────────────────────
+check('combobox island loaded', logs.some((l) => l.includes('combobox island ready')));
+
+// Keyboard handoff: arrow to a category cell, Enter opens the combobox island.
+await page.click('[data-cell="5:tx:description"]');
+await page.keyboard.press('ArrowRight'); // → 5:tx:category
+await page.keyboard.press('Enter');
+await page.waitForSelector('.combo-dropdown', { timeout: 1000 });
+const comboOpenViaKbd = await page.evaluate(() => window.__comboOpen());
+check('Enter on a category cell opens the combobox (grid→combo handoff)', comboOpenViaKbd);
+await page.keyboard.press('Escape');
+await page.waitForTimeout(40);
+check('Escape closes the combobox', !(await page.evaluate(() => window.__comboOpen())));
+
+// Click-open + type-ahead filter + arrow highlight + Enter select.
+await page.click('[data-cell="1:tx:category"]');
+await page.waitForSelector('.combo-input');
+await page.fill('.combo-input', 'dining');
+await page.waitForTimeout(40);
+const hl = await page.evaluate(() => document.querySelector('.combo-opt.hl')?.textContent);
+check('combobox type-ahead filters & highlights', hl === 'Dining', hl);
+await page.keyboard.press('Enter');
+await page.waitForTimeout(50);
+const catText = await page.evaluate(() =>
+  document.querySelector('[data-cell="1:tx:category"] .cell-view').textContent);
+check('combobox Enter selects → cell updates optimistically', catText === 'Dining', catText);
+
 await page.screenshot({ path: '/tmp/spike-screenshot.png', fullPage: true });
+
+// JSON-API persistence: reload and confirm the server kept the new category.
+await page.reload({ waitUntil: 'networkidle' });
+await page.waitForTimeout(150);
+const catPersisted = await page.evaluate(() =>
+  document.querySelector('[data-cell="1:tx:category"] .cell-view').textContent);
+check('category persisted via JSON API (survives reload)', catPersisted === 'Dining', catPersisted);
+
+// ── 6. Column show/hide (Datastar signals + CSS) ────────────────────────────
+await page.click('button.btn');                    // open Columns menu
+await page.click('input[data-bind="cols.account"]'); // uncheck Account
+await page.waitForTimeout(40);
+const acctColHidden = await page.evaluate(() => {
+  const td = document.querySelector('td.col-account');
+  return td && getComputedStyle(td).display === 'none';
+});
+check('column hide toggles a column off (pure client)', acctColHidden);
+await page.click('input[data-bind="cols.account"]'); // restore
+await page.keyboard.press('Escape');
+
+// ── 7. Header filter by account (Datastar array signal + data-show) ──────────
+await page.click('.funnel');
+await page.click('input[value="sav"]');            // show only Savings
+await page.waitForTimeout(60);
+const filterState = await page.evaluate(() => {
+  const rowVisible = (cell) => {
+    const tr = document.querySelector(`[data-cell="${cell}"]`)?.closest('tr');
+    return tr && tr.offsetParent !== null;
+  };
+  return { chkHidden: !rowVisible('1:tx:description'), savVisible: rowVisible('7:tx:description') };
+});
+check('header filter shows only matching account (Savings)',
+  filterState.chkHidden && filterState.savVisible, JSON.stringify(filterState));
+await page.click('input[value="sav"]');            // restore
+await page.keyboard.press('Escape');
+
+// ── 8. Column resize (pointer-event island) ─────────────────────────────────
+const widthBefore = await page.evaluate(() =>
+  document.querySelector('col[data-col="description"]').getBoundingClientRect().width);
+const handle = await page.locator('th.col-description .resize-handle').boundingBox();
+await page.mouse.move(handle.x + handle.width / 2, handle.y + handle.height / 2);
+await page.mouse.down();
+await page.mouse.move(handle.x + 120, handle.y + handle.height / 2, { steps: 8 });
+await page.mouse.up();
+await page.waitForTimeout(40);
+const widthAfter = await page.evaluate(() =>
+  document.querySelector('col[data-col="description"]').getBoundingClientRect().width);
+check('column resize drag widens the column', widthAfter > widthBefore + 60,
+  `${Math.round(widthBefore)} → ${Math.round(widthAfter)}px`);
+
 await browser.close();
 
 // ── report ──────────────────────────────────────────────────────────────────

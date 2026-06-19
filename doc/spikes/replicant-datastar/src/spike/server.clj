@@ -84,12 +84,23 @@
         (d*/patch-elements! sse (rs/render (views/counts-chip)))
         (d*/close-sse! sse))})))
 
+(defn set-category
+  "Plain JSON endpoint (NOT Datastar) used by the combobox island — demonstrating
+  a JSON API coexisting with the hypermedia pages. The same data layer backs both;
+  only the response shaping differs (here: JSON; the Datastar handlers: HTML/SSE)."
+  [req tx-id]
+  (let [{:strs [category]} (json/read-str (slurp (:body req)))]
+    (data/set-category! tx-id category)
+    {:status 200 :headers {"content-type" "application/json"}
+     :body (json/write-str {:ok true :category category})}))
+
 ;; ---------------------------------------------------------------------------
 ;; Routing
 ;; ---------------------------------------------------------------------------
 
 (defn handler [{:keys [request-method uri] :as req}]
-  (let [payee-match (re-matches #"/tx/(\d+)/payee" uri)]
+  (let [payee-match (re-matches #"/tx/(\d+)/payee" uri)
+        cat-match   (re-matches #"/tx/(\d+)/category" uri)]
     (cond
       (and (= :get request-method) (= uri "/"))
       {:status 200 :headers {"content-type" "text/html"} :body (views/page)}
@@ -102,6 +113,9 @@
 
       (and (= :put request-method) payee-match)
       (set-payee req (parse-long (second payee-match)))
+
+      (and (= :put request-method) cat-match)
+      (set-category req (parse-long (second cat-match)))
 
       :else
       {:status 404 :headers {"content-type" "text/plain"} :body "not found"})))

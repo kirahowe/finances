@@ -8,7 +8,8 @@ overlays, inline edit, splits, transfer matching, CSV wizard)?
 
 **Verdict: feasible, with one structural caveat.** The architecture composes
 cleanly on our existing stack, and a *working* end-to-end prototype in this folder
-passes 13/13 browser checks covering the patterns we were most worried about. The
+passes 22/22 browser checks covering the patterns we were most worried about
+(including the full TanStack-Table / downshift feature set). The
 caveat is the one we predicted: the latency-critical spreadsheet keyboard
 navigation **cannot** ride server round-trips and must stay client-side JavaScript.
 But that turns out to be cheap, because our keyboard layer (`gridNavigation.ts`)
@@ -39,21 +40,41 @@ drives it in real Chromium (the frontend's Playwright):
 ✅  island loaded  [grid-nav island ready: 43 navigable rows]
 ✅  no page errors
 ✅  Datastar bound initial state (tx3 checked ✓)
-✅  optimistic flip is instant (<200ms, no round-trip)  [56ms]
+✅  optimistic flip is instant (<200ms, no round-trip)  [60ms]
 ✅  write-behind → SSE patched counts chip (server-authoritative)  [12 → 13]
 ✅  client-side search filters instantly (only Spotify row)  [1 rows]
 ✅  click selects a cell
 ✅  horizontal arrow nav hops editable columns  [2:tx:category → 2:tx:reviewed]
-✅  vertical arrow nav preserves column, changes row  [3:tx:category]
-✅  single keystroke nav latency < 5ms (pure client)  [0.20ms]
+✅  vertical arrow nav preserves column, changes row  [3:tx:description]
+✅  single keystroke nav latency < 5ms (pure client)  [0.30ms]
 ✅  Space toggles reviewed (island → Datastar handler)  [true→false]
 ✅  Enter opens inline editor & focuses input
 ✅  inline edit commits optimistically to the cell  [ EDITED]
+✅  combobox island loaded
+✅  Enter on a category cell opens the combobox (grid→combo handoff)
+✅  Escape closes the combobox
+✅  combobox type-ahead filters & highlights  [Dining]
+✅  combobox Enter selects → cell updates optimistically  [Dining]
+✅  category persisted via JSON API (survives reload)  [Dining]
+✅  column hide toggles a column off (pure client)
+✅  header filter shows only matching account (Savings)
+✅  column resize drag widens the column  [369 → 485px]
 ----------------------------------------------------
-13/13 checks passed
+22/22 checks passed
 ```
 
-Mapped to the four experiments:
+**Round 2** added the TanStack-Table / downshift features specifically, because
+"we render with TanStack but use much more than rendering" is the right concern:
+
+| Feature | TanStack/downshift today | Path proven in the spike | Result |
+|---|---|---|---|
+| Category combobox | downshift | `combobox.js` island (~110 LOC): type-ahead filter, arrow highlight, Enter select, Escape/click-outside, **position:fixed portal** escaping table overflow | ✅ |
+| Header filter (by account) | TanStack column filters | Datastar array signal + `data-show`, pure client | ✅ |
+| Column show/hide | TanStack visibility | Datastar `cols.*` signals + CSS, pure client | ✅ |
+| Column resize / auto-fit | TanStack column sizing | `table-tools.js` island (~50 LOC): pointer-drag + dbl-click auto-fit, writes `<col>` widths | ✅ |
+| JSON API coexists | — | combobox persists via `PUT /tx/:id/category` **as JSON**, not Datastar, same server + data layer | ✅ |
+
+Mapped to the round-1 experiments:
 
 | # | Experiment | App pattern it stands in for | Result |
 |---|------------|------------------------------|--------|
@@ -181,6 +202,17 @@ These are the things you only learn by building it:
 
 ---
 
+6. **Datastar's checkbox-array binding seeds one empty string per unchecked box.**
+   Three `data-bind="acct"` checkboxes left the signal as `["","",""]`, not `[]`,
+   so a `$acct.length === 0` "no filter" guard never fired and every row hid.
+   Fix: count non-empty entries (`$acct.filter(x => x).length`). A real gotcha for
+   any multi-select filter.
+
+7. **Dropdown toggle vs. `data-on:click__outside` race.** A menu that closes on
+   outside-click will treat the click on its own toggle button as "outside" and
+   close immediately. Fix: `__stop` on the toggle so the open-click doesn't bubble
+   to the document `__outside` listener.
+
 ## 5. The irreducible JavaScript
 
 The honest accounting of what JS survives the migration (everything else becomes
@@ -238,6 +270,80 @@ pure-logic islands) are reusable without betting the app on these specific libs.
 
 ---
 
+## 7. LOC estimate
+
+Measured today (`frontend/app`, excluding tests):
+
+| Bucket | LOC | Fate |
+|---|---:|---|
+| `components/` (React) | 4,294 | → Clojure hiccup views |
+| `lib/` | 3,878 | mixed: API client + URL/state codecs + overlay/write-behind plumbing → **deleted** (Datastar + server state); pure logic (`gridNavigation`, `splitMath`, `dragAndDrop`, `columnAutoSizing`, `categoryHierarchy`) → **islands** |
+| `routes/` (loaders/actions/JSX) | 1,634 | → Clojure handlers + hiccup |
+| `hooks/` | 499 | → mostly deleted (Datastar) |
+| **Total app TS/TSX** | **10,399** | |
+| CSS (`styles/`) | 3,297 | **kept ~as-is** (carries over) |
+| Tests | 1,274 | pure-logic tests follow the islands; Playwright e2e mostly reusable |
+
+Projected target (hand-written application code):
+
+| New code | Est. LOC | Basis |
+|---|---:|---|
+| Clojure hiccup views + SSE/hypermedia handlers | ~1,800–2,500 | the spike renders the *entire* transactions table + 8 interactions in **~230 lines** of `views.clj`; scale up for modals, setup, CSV wizard |
+| Vanilla-JS islands | ~600 | spike's three islands are ~350; add combobox a11y, split editor, sorting |
+| **Total** | **~2,400–3,100** | vs. **10,399** today |
+
+**Headline: roughly a 70% cut in hand-written frontend application code**
+(~10.4k TS/TSX → ~2.5–3k Clojure+JS), and that *understates* the win because it
+also **removes an entire dependency tree and build pipeline**: React, React-DOM,
+React-Router, `@tanstack/react-table`, downshift, zod, plus the JSON API-client
+and the optimistic-overlay / write-behind / URL-state-codec plumbing that
+hypermedia makes unnecessary. CSS (~3.3k) carries over largely untouched.
+(`react-plaid-link` is the one dependency you likely keep as a small island — the
+Plaid Link SDK is JS-only.) The islands need no bundler — the spike's are
+hand-authored ES modules served as static files.
+
+Caveat: this is an estimate from one (large, representative) view plus a module
+inventory, not a line-by-line port. Treat it as ±15%.
+
+## 8. Answers to your three questions
+
+**Can we really drop downshift without losing combobox functionality?** Yes —
+verified. `combobox.js` (~110 LOC) reproduces downshift's core: type-ahead
+filtering, arrow-key highlight with clamping, Enter-to-select, Escape/click-outside
+to close, and **`position:fixed` portal positioning** so the dropdown escapes the
+table's overflow (downshift's headline concern). The honest caveat: downshift's
+*other* value is exhaustive **ARIA** (`role=combobox`, `aria-activedescendant`,
+`aria-expanded`, live-region announcements) and a pile of battle-tested
+focus/mobile edge cases. The spike didn't build all of that. Reimplementing it is
+maybe ~50 more lines of attributes + care — doable, but it's real work and the one
+place downshift genuinely earns its keep. So: removable, but budget for
+accessibility.
+
+**Keep the JSON API for future mobile/other clients — is that duplicative?**
+Agreed, and no, barely. The spike already runs both: the combobox persists through
+`PUT /tx/:id/category` as plain JSON while the rest of the page is Datastar HTML/SSE
+— same server, same `data` layer. With reitit you'd expose two route trees (or
+content-negotiate on `Accept`) over **one shared service layer**; malli validates
+both. The only duplication is *response shaping* (HTML fragment vs. JSON body),
+which is a few lines per endpoint — never business logic. The hypermedia handlers
+and the JSON API are two thin presentations of the same core.
+
+**TanStack Table — we use header filters, column resize, hiding columns, not just
+rendering. Do those port?** Yes, all three are in the 22/22 run:
+- **Header filters** → Datastar array signal + `data-show` per row. Pure client,
+  instant. (Sorting, not built, is the same shape: a signal, or `@get?sort=` for a
+  server re-render.)
+- **Hiding columns** → `cols.*` boolean signals toggling `hide-<id>` classes on the
+  table via `data-class`. Pure client.
+- **Column resize + auto-fit** → a ~50-line pointer island writing `<col>` widths.
+  In the app these widths would persist to the URL per your URL-view-state rule.
+
+The one place TanStack would still win is **virtualization** for very large tables.
+Yours is monthly transactions (hundreds of rows), so you don't need it — but if a
+future "all transactions, all time" view appears, a virtualized list is the kind
+of thing you'd keep as a dedicated island (or reconsider). Everything you use
+*today* ports.
+
 ## How to run the spike
 
 ```bash
@@ -258,8 +364,11 @@ non-interactive shell. The spike is fully isolated: in-memory data, its own
 - `src/spike/data.clj` — fake transactions shaped like the real ones.
 - `src/spike/views.clj` — Replicant hiccup + Datastar attributes (the `js-str` and
   attribute-quote notes live here).
-- `src/spike/server.clj` — http-kit routing + the two SSE handlers.
+- `src/spike/server.clj` — http-kit routing, the SSE handlers, and the JSON
+  category endpoint (showing the JSON API coexists).
 - `resources/public/grid-nav.js` — the keyboard-nav island (ported reducer).
+- `resources/public/combobox.js` — the category combobox island (downshift replacement).
+- `resources/public/table-tools.js` — the column resize / auto-fit island.
 - `resources/public/spike.css` — the Ledger styling.
 - `resources/public/datastar.js` — vendored Datastar v1.0.2 runtime (34 KB).
-- `verify.mjs` — the Playwright verification.
+- `verify.mjs` — the Playwright verification (22 checks).
