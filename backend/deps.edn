@@ -31,9 +31,13 @@
         ring/ring-json {:mvn/version "0.5.1"}
         ring-cors/ring-cors {:mvn/version "0.1.13"}
 
-        ;; Server-rendered hypermedia (Replicant SSR + Datastar over SSE).
-        ;; Replicant renders hiccup -> HTML strings on the JVM; the Datastar SDK
-        ;; drives client reactivity + SSE-patched fragments over http-kit.
+        ;; Server-rendered hypermedia (hiccup2 SSR + Datastar over SSE). hiccup2
+        ;; renders hiccup -> HTML strings on the JVM, escaping attribute values by
+        ;; default (so Datastar expressions / data-signals JSON need no workaround).
+        ;; The Datastar SDK drives client reactivity + SSE-patched fragments over
+        ;; http-kit. (Replicant is being retired — still on the classpath only for the
+        ;; not-yet-migrated transactions/setup pages; removed in Phase R4.)
+        hiccup/hiccup {:mvn/version "2.0.0"}
         no.cjohansen/replicant {:mvn/version "2025.12.1"}
         dev.data-star.clojure/sdk {:mvn/version "1.0.0-RC11"}
         dev.data-star.clojure/http-kit {:mvn/version "1.0.0-RC11"}
