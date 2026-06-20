@@ -12,8 +12,8 @@ how to continue.** Memory entry: `project_replicant_datastar_spike`.
 
 ## 1. Status at a glance
 
-Phases **0, 1, 2, 3a, 3b done** — 11 commits on `spike/replicant-datastar` since the
-handoff (`cb7371e..HEAD`). Backend suite green throughout (**274 tests / 1197
+Phases **0, 1, 2, 3a, 3b, 3c done** — 13 commits on `spike/replicant-datastar` since
+the handoff (`cb7371e..HEAD`). Backend suite green throughout (**274 tests / 1197
 assertions / 0 failures**). Every UI unit has a real-Chromium `e2e/*.mjs` check.
 
 | Phase | What shipped | Check |
@@ -23,6 +23,7 @@ assertions / 0 failures**). Every UI unit has a real-Chromium `e2e/*.mjs` check.
 | 2 | `/setup` account list (read-only); shared reads → `db/accounts`, `db/stats` | `e2e/setup.mjs` **8/8** |
 | 3a | `/` transactions table (read-only): 9 cols, split rows, signed CAD amounts, transfer ⇄ status, month nav; shared read `db.transactions/list-for-month`+`list-all` | `e2e/transactions.mjs` **12/12** |
 | 3b | optimistic **reviewed toggle** (signal + write-behind); client filters (**search**, **Needs-review/All** scope, **Uncategorized**/**Hide-transfers** chips); server-authoritative counts patched by id | `e2e/reviewed.mjs` **5/5**, `e2e/filters.mjs` **14/14** |
+| 3c | **inline description edit** (class-swap, optimistic via `data-text`/`data-bind`, `@put`→`set-user-description!`, signal reconciled to effective desc); **category combobox** (first **Zag.js vanilla** island, reuses `buildCategoryDropdownModel`, `position:fixed` floating root, `@put`→`update-category!`→counts patch) | `e2e/edit.mjs` **9/9**, `e2e/combobox.mjs` **13/13** |
 
 React still runs on `:5173` (untouched, for before/after comparison). The new app
 is served by the backend at `:8080` (`/`, `/setup`). Flip + delete React at Phase 5.
@@ -60,6 +61,8 @@ BASE_URL=http://localhost:8099 node e2e/setup.mjs         # 8
 BASE_URL=http://localhost:8099 node e2e/transactions.mjs  # 12
 BASE_URL=http://localhost:8099 node e2e/reviewed.mjs      # 5   (mutates + restores)
 BASE_URL=http://localhost:8099 node e2e/filters.mjs       # 14
+BASE_URL=http://localhost:8099 node e2e/edit.mjs          # 9   (mutates + restores)
+BASE_URL=http://localhost:8099 node e2e/combobox.mjs      # 13  (mutates + restores)
 ```
 
 ---
@@ -75,10 +78,13 @@ backend/src/finance_aggregator/
     shell.clj       masthead (wordmark, nav tabs, live stats)
     format.clj      amount (CAD, thread-safe), date (UTC)  — matches React lib/format.ts
     month.clj       parse/serialize/display/prev/next     — matches React monthState.ts
-    routes.clj      html-routes tree + SSE handlers (sync-reviewed, scaffold)
+    routes.clj      html-routes tree + SSE handlers (sync-reviewed, set-description,
+                    set-category, scaffold) + the shared sse-respond helper
     pages/
       setup.clj         /setup account list (read-only)
-      transactions.clj  / transactions table + toolbar + filters + counts
+      transactions.clj  / transactions table + toolbar + filters + counts; inline
+                        description edit + category-combobox cells; category-options
+                        (DOM-carried category model for the island)
   db/
     accounts.clj    list-with-institution          ← shared by JSON API + pages
     stats.clj       entity-counts                  ← shared
@@ -90,6 +96,7 @@ backend/resources/public/
   js/islands/       esbuild output (gitignored)
   css/**            full design-system tree; app.css @imports it
 islands/            TS island toolchain (package.json, build.mjs, tsconfig, src/lib/*)
+  src/combobox.ts   category combobox (Zag.js vanilla; reuses src/lib/categoryHierarchy)
 e2e/                *.mjs Playwright checks + README
 ```
 
@@ -147,8 +154,10 @@ as the relevant unit lands:
    off a *snapshot* signal that only refreshes on a filter/sort/page reset, not the
    live reviewed signal. (Tracked for 3d.)
 2. **Header-filter funnels deferred** (account/institution/category). They need a
-   portal/`position:fixed` dropdown to escape the table's overflow — do this with the
-   **same positioning the category combobox needs** (3c), then reuse it for funnels.
+   portal/`position:fixed` dropdown to escape the table's overflow — **the combobox
+   island (3c) established this**: a floating root with `.category-dropdown.is-floating`
+   (`position:fixed`+`z-index` in CSS) positioned from the cell rect (only left/top/width
+   inline). Reuse that approach for the funnels.
 3. **Uncategorized chip** uses one client predicate (`needs-category?`), not React's
    two by-sign tokens (income vs expense uncategorized). Revisit with the category
    funnel.
@@ -160,7 +169,11 @@ as the relevant unit lands:
    search/scope/filters/cols/sort yet — they're Datastar signals only. Month IS in the
    URL. Decide: reflect signals→URL via a small `data-on-signal-patch` + History API
    helper, and read them back into the initial signals on load.
-7. **Description / category cells are display-only** buttons today (edit = 3c).
+7. **Inline edit deferrals (3d/3e).** Normal-row description + category editing shipped
+   in 3c, but: Enter "save & advance to next row" and type-to-edit (seed-char) wait on
+   the grid-nav focus model (**3d**); **split** memo + category editing is untouched
+   (split-row buttons stay inert) until the split modal (**3e**); the inert split
+   category button has no `aria-disabled` yet (fold in with 3e).
 8. **Actions column empty**; **transfer ⇄ glyphs are inert** (row-actions + transfer
    modals = 3e).
 9. **reviewed checkbox** relies on `data-bind` to set `checked` from the signal on
@@ -170,7 +183,13 @@ as the relevant unit lands:
 
 ## 6. Remaining work (the roadmap)
 
-**3c — inline edit + category combobox (first real island)**
+**3c — inline edit + category combobox (first real island) — ✅ DONE.** Shipped exactly
+as specced below, normal rows only (split editing deferred to 3e). Persistence is
+Datastar `@put` + SSE (not the spike's JSON-API fetch): category patches counts;
+description patches its signal back to the authoritative effective description. The
+combobox reuses `buildCategoryDropdownModel` and renders into the existing
+`.category-dropdown-*` classes; its floating root is the reusable portal-positioning
+approach for 3d/3e funnels. Original spec, for reference:
 - *Inline description edit*: span/input class-swap in the description cell. Bind the
   input to a `desc.tx<id>` signal; the view button click adds an `editing` class +
   focuses the input; Enter → optimistically set the span + `@put('/transactions/:id/
