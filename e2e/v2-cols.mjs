@@ -1,0 +1,68 @@
+// Real-Chromium proof for /v2 column chooser + URL view-state persistence (Phase R3).
+// Column visibility is persistent-but-client-applied: toggling a `cols.<id>` checkbox flips
+// a `hide-<id>` class (pure CSS, no round-trip) and the v2-url island reflects it (+ filters/
+// sort) into the query string, so a reload restores the view.
+//
+//   BASE_URL=http://localhost:8099 node e2e/v2-cols.mjs
+import { createRequire } from 'module';
+import { fileURLToPath } from 'url';
+import { dirname, resolve } from 'path';
+
+const root = resolve(dirname(fileURLToPath(import.meta.url)), '..');
+const require = createRequire(resolve(root, 'frontend') + '/');
+const { chromium } = require('@playwright/test');
+
+const BASE = process.env.BASE_URL || 'http://localhost:8099';
+const results = [];
+const check = (name, ok, detail = '') => results.push({ name, ok: !!ok, detail });
+
+const browser = await chromium.launch();
+const page = await browser.newPage();
+const logs = [];
+page.on('pageerror', (e) => logs.push('PAGEERROR: ' + e.message));
+
+const instHeader = () => page.locator('thead th', { hasText: 'Institution' });
+
+await page.goto(`${BASE}/v2?month=2025-01`, { waitUntil: 'networkidle' });
+await page.waitForTimeout(300);
+check('no page errors', !logs.length, logs.join('; '));
+check('Institution column visible initially', await instHeader().isVisible());
+
+// Open the column picker and hide Institution.
+await page.getByRole('button', { name: 'Columns' }).click();
+await page.locator('.column-picker .filter-dropdown-item', { hasText: 'Institution' }).locator('input').uncheck();
+await page.waitForFunction(() => {
+  const t = document.querySelector('table.table');
+  return t && t.classList.contains('hide-institution');
+}, null, { timeout: 3000 }).catch(() => {});
+check('hiding toggles hide-institution (CSS, no round-trip)', !(await instHeader().isVisible()));
+check('URL reflects hidecols=institution',
+  new URL(page.url()).searchParams.get('hidecols') === 'institution', page.url());
+
+// Reload → the hidden column is restored from the URL (server seeds the signal).
+await page.reload({ waitUntil: 'networkidle' });
+await page.waitForTimeout(300);
+check('reload keeps Institution hidden', !(await instHeader().isVisible()));
+
+// A filter also persists: search then reload restores it.
+await page.locator('.table-search-input').fill('Superstore');
+await page.waitForFunction(() => new URL(location.href).searchParams.get('q') === 'Superstore',
+  null, { timeout: 3000 }).catch(() => {});
+check('URL reflects the search', new URL(page.url()).searchParams.get('q') === 'Superstore');
+await page.reload({ waitUntil: 'networkidle' });
+await page.waitForTimeout(400);
+check('reload restores the search (1 row) + the input value',
+  (await page.locator('#tx-tbody tr').count()) === 1 &&
+  (await page.locator('.table-search-input').inputValue()) === 'Superstore',
+  `rows=${await page.locator('#tx-tbody tr').count()}`);
+
+await browser.close();
+
+let pass = 0;
+for (const r of results) {
+  console.log(`${r.ok ? '✅' : '❌'}  ${r.name}${r.detail ? `  [${r.detail}]` : ''}`);
+  if (r.ok) pass++;
+}
+console.log('-'.repeat(52));
+console.log(`${pass}/${results.length} checks passed`);
+process.exit(pass === results.length ? 0 : 1);

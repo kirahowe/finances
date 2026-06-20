@@ -44,7 +44,17 @@
 
 (def ^:private page-size-options [25 50 100 250])
 
-(declare undo-redo-controls) ; defined with the edit fragments, used by the toolbar
+;; Column visibility is persistent-but-client-applied (Lane A, row 2): the `cols.<id>`
+;; signals toggle `hide-<id>` classes on the table (pure CSS, no round-trip), and persist to
+;; the URL. Only the non-interactive columns are hideable.
+(def ^:private hideable-columns
+  [["date" "Date"] ["account" "Account"] ["institution" "Institution"]
+   ["payee" "Payee"] ["amount" "Amount"]])
+
+(defn- cols-hide-class []
+  (str "{" (str/join ", " (map (fn [[id _]] (str "'hide-" id "': !$cols." id)) hideable-columns)) "}"))
+
+(declare undo-redo-controls column-picker) ; defined later, used by the toolbar/table
 
 ;; ---------------------------------------------------------------------------
 ;; View-state <-> signals/query mapping
@@ -64,17 +74,41 @@
    :page          (or page 0)
    :page-size     (or page-size 25)})
 
+(defn- ->id-set [strs]
+  (into #{} (keep #(some-> % str not-empty parse-long) strs)))
+
+(defn- csv-param [qp k]
+  (let [v (get qp k)] (if (str/blank? v) [] (str/split v #","))))
+
+(defn- with-funnels
+  "Add the header-funnel selections (account/institution/category id sets) to a view-state."
+  [vs accounts institutions categories]
+  (assoc vs
+         :accounts (->id-set accounts)
+         :institutions (->id-set institutions)
+         :categories (->id-set categories)))
+
 (defn- signals->view-state [s]
-  (view-state {:search (:search s) :scope (:scope s) :hide-transfers (:hideTransfers s)
-               :uncat (:uncat s) :sort-col (:sortCol s) :sort-dir (:sortDir s)
-               :page (:page s) :page-size (:pageSize s)}))
+  (with-funnels
+    (view-state {:search (:search s) :scope (:scope s) :hide-transfers (:hideTransfers s)
+                 :uncat (:uncat s) :sort-col (:sortCol s) :sort-dir (:sortDir s)
+                 :page (:page s) :page-size (:pageSize s)})
+    (get-in s [:filter :account]) (get-in s [:filter :institution]) (get-in s [:filter :category])))
 
 (defn- query->view-state [qp]
-  (view-state {:search (get qp "q") :scope (get qp "scope")
-               :hide-transfers (= "1" (get qp "ht")) :uncat (= "1" (get qp "uncat"))
-               :sort-col (get qp "sortCol") :sort-dir (get qp "sortDir")
-               :page (some-> (get qp "page") parse-long)
-               :page-size (some-> (get qp "pageSize") parse-long)}))
+  (with-funnels
+    (view-state {:search (get qp "q") :scope (get qp "scope")
+                 :hide-transfers (= "1" (get qp "ht")) :uncat (= "1" (get qp "uncat"))
+                 :sort-col (get qp "sortCol") :sort-dir (get qp "sortDir")
+                 :page (some-> (get qp "page") parse-long)
+                 :page-size (some-> (get qp "pageSize") parse-long)})
+    (csv-param qp "fa") (csv-param qp "fi") (csv-param qp "fc")))
+
+(defn- parse-cols
+  "The `cols.<id>` visibility signal map (true = visible) from the URL's `hidecols` csv."
+  [qp]
+  (let [hidden (set (csv-param qp "hidecols"))]
+    (into {} (map (fn [[id _]] [(keyword id) (not (contains? hidden id))]) hideable-columns))))
 
 (defn- vs->signals
   "Initial client signals derived from a view-state. page/page-size are taken from the
@@ -91,6 +125,21 @@
    :month         month-str
    :editValue     ""
    :catValue      ""})
+
+(defn- client-signals
+  "Full initial signal set: persistent view-state + column visibility + header-funnel
+   selections (persistent) + ephemeral UI signals (underscore-prefixed → never sent)."
+  [vs month-str result qp]
+  (assoc (vs->signals vs month-str result)
+         :cols (parse-cols qp)
+         :filter {:account (csv-param qp "fa")
+                  :institution (csv-param qp "fi")
+                  :category (csv-param qp "fc")}
+         :_colsOpen false
+         :_openFunnel ""
+         :_funnelX 0
+         :_funnelY 0
+         :_funnelQuery ""))
 
 ;; ---------------------------------------------------------------------------
 ;; Rows (read-only in cp1; editors arrive in cp2)
@@ -247,7 +296,7 @@
 
 (defn- table [rows]
   [:div.transactions-table-scroll {:tabindex "0"}
-   [:table.table.table-dense {:role "grid"}
+   [:table.table.table-dense {:role "grid" "data-class" (cols-hide-class)}
     [:colgroup (for [{:keys [w]} columns] [:col {:style (str "width:" w "px")}])]
     [:thead [:tr (map th columns)]]
     (tbody rows)]])
@@ -301,7 +350,7 @@
     (scope-toggle counts)
     (count-chip "Uncategorized" "uncat" "count-uncategorized" (:uncategorized counts))
     (count-chip "Hide transfers" "hideTransfers" "count-transfers" (:transfers-hidden counts))]
-   [:div.toolbar-actions (undo-redo-controls)]])
+   [:div.toolbar-actions (undo-redo-controls) (column-picker)]])
 
 ;; ---------------------------------------------------------------------------
 ;; Pagination (fully server-rendered each response → disabled states stay correct)
@@ -377,6 +426,27 @@
                 (not redoable) (assoc :disabled true))
       "↷"]]))
 
+(defn- column-picker
+  "Toolbar dropdown toggling which non-interactive columns show. The `cols.<id>` checkboxes
+   flip the table's `hide-<id>` class via data-class (pure CSS, no round-trip); the URL
+   reflector persists them. `__stop` so the open-click isn't also seen as a click-outside."
+  []
+  [:div.filter-button-container.column-picker
+   [:button.button.button-secondary.filter-button
+    {:type "button" :aria-haspopup "true"
+     "data-on:click__stop" "$_colsOpen = !$_colsOpen"
+     "data-attr" "{'aria-expanded': $_colsOpen}"}
+    "Columns"
+    [:span.filter-button-arrow {"data-text" "$_colsOpen ? '▲' : '▼'"} "▼"]]
+   [:div.filter-dropdown
+    {"data-show" "$_colsOpen" "data-on:click__outside" "$_colsOpen = false"}
+    [:ul.filter-dropdown-list
+     (for [[id label] hideable-columns]
+       [:li.filter-dropdown-item
+        [:label.filter-dropdown-checkbox-label
+         [:input.filter-dropdown-checkbox {:type "checkbox" "data-bind" (str "cols." id)}]
+         [:span.filter-dropdown-label-text label]]])]]])
+
 ;; ---------------------------------------------------------------------------
 ;; Routes
 ;; ---------------------------------------------------------------------------
@@ -385,6 +455,20 @@
   [:div.empty-state
    [:div.empty-state-title "No transactions this month"]
    [:p "Use the month controls to browse another period, or import from Setup."]])
+
+(defn- url-sync
+  "Reflect the persistent view-state into the URL on change (the v2-url island owns the
+   serialization). Scoped by the signal-patch filter to the persistent signals so it ignores
+   edit + ephemeral-UI signals. The READ side is server-side (query->view-state on load)."
+  []
+  [:div {:hidden true
+         "data-on-signal-patch-filter"
+         "{include: /^(search|scope|hideTransfers|uncat|sortCol|sortDir|page|pageSize)$|^(cols|filter)\\./}"
+         "data-on-signal-patch"
+         (str "window.__v2syncUrl && window.__v2syncUrl({q: $search, scope: $scope,"
+              " ht: $hideTransfers, uncat: $uncat, sortCol: $sortCol, sortDir: $sortDir,"
+              " page: $page, pageSize: $pageSize, cols: $cols,"
+              " fa: $filter.account, fi: $filter.institution, fc: $filter.category})")}])
 
 (def ^:private undo-key-js
   ;; Cmd/Ctrl+Z = undo, +Shift = redo. Static literal (no server data).
@@ -409,8 +493,8 @@
        :body
        (layout/document
         {:title "Finance Aggregator"
-         :islands ["combobox"]
-         :signals (vs->signals vs month-str result)}
+         :islands ["combobox" "v2-url"]
+         :signals (client-signals vs month-str result (:query-params req))}
         [:div.container.container--workspace {"data-on:keydown__window" undo-key-js}
          (shell/masthead {:active :transactions :stats stats})
          [:div.transactions-layout
@@ -419,7 +503,8 @@
            (if (empty? txs)
              (empty-state)
              (list (table (:rows result)) (pagination-bar result)))]]
-         (category-options categories)])})))
+         (category-options categories)
+         (url-sync)])})))
 
 (defn rows
   "GET /v2/rows — a pure view change: clear lingering, re-run the view, morph the tbody +
