@@ -10,7 +10,8 @@
    [finance-aggregator.db.core :as db]
    [finance-aggregator.dev.seed :as seed]
    [finance-aggregator.http.router :as router]
-   [finance-aggregator.http.server :as server])
+   [finance-aggregator.http.server :as server]
+   [finance-aggregator.web.commands :as commands])
   (:gen-class))
 
 (defn- json-response [status body]
@@ -28,6 +29,7 @@
     (if (= "/e2e/reset" (:uri req))
       (try
         (seed/seed! conn)
+        (commands/clear-all!) ; the in-memory undo log must not outlive the seed
         (json-response 200 "{\"success\":true}")
         (catch Exception e
           (println "E2E reset failed:" (.getMessage e))

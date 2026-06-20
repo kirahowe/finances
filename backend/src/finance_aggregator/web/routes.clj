@@ -155,6 +155,9 @@
    ;; Phase R2 — server-authoritative transactions page (replaces / at R4).
    ["/v2"                    {:get {:handler (transactions2/page deps) :name ::v2}}]
    ["/v2/rows"               {:get {:handler (transactions2/rows deps) :name ::v2-rows}}]
+   ["/v2/tx/:id/reviewed/:v" {:put {:handler (transactions2/toggle-reviewed deps) :name ::v2-reviewed}}]
+   ["/v2/undo"               {:post {:handler (transactions2/undo deps) :name ::v2-undo}}]
+   ["/v2/redo"               {:post {:handler (transactions2/redo deps) :name ::v2-redo}}]
    ;; SPIKE — server-authoritative filtering over SSE (delete after the latency test).
    ["/spike"                 {:get {:handler (rows-spike/page deps) :name ::spike}}]
    ["/spike/rows"            {:get {:handler (rows-spike/rows deps) :name ::spike-rows}}]

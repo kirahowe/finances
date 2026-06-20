@@ -14,9 +14,11 @@
    the URL on load; until R3's URL reflector lands, interacting then reloading resets it."
   (:require
    [clojure.string :as str]
+   [finance-aggregator.auth :as auth]
    [finance-aggregator.db.categories :as db-categories]
    [finance-aggregator.db.stats :as db-stats]
    [finance-aggregator.db.transactions :as db-transactions]
+   [finance-aggregator.web.commands :as commands]
    [finance-aggregator.web.format :as fmt]
    [finance-aggregator.web.layout2 :as layout]
    [finance-aggregator.web.month :as month]
@@ -97,12 +99,22 @@
   (let [negative? (if split? (neg? amt) (not (pos? amt)))]
     [:span {:class (str "numeric " (if negative? "negative" "positive"))} (fmt/amount amt)]))
 
-(defn- ro-checkbox [reviewed?]
-  [:input {:type "checkbox" :class "reviewed-checkbox" :checked (boolean reviewed?) :disabled true}])
+(defn- reviewed-checkbox
+  "Editable rows: a server-confirmed toggle (`change` @put's the new state in the path —
+   `el.checked`, no per-row signal). Split children have a rolled-up flag and stay read-only
+   (split-reviewed editing is later)."
+  [tx-id reviewed? editable?]
+  (if editable?
+    [:input {:type "checkbox" :class "reviewed-checkbox" :checked (boolean reviewed?)
+             "data-on:change" (str "@put('/v2/tx/" tx-id "/reviewed/' + el.checked)")}]
+    [:input {:type "checkbox" :class "reviewed-checkbox" :checked (boolean reviewed?) :disabled true}]))
 
-(defn- normal-row [{:transaction/keys [posted-date account payee effective-description
-                                       amount category reviewed]}]
-  [:tr {:role "row"}
+(defn- row-class [base stale?]
+  (str/trim (str base (when stale? " is-stale"))))
+
+(defn- normal-row [stale? {:transaction/keys [posted-date account payee effective-description
+                                              amount category reviewed] :as tx}]
+  [:tr {:role "row" :class (row-class "" stale?)}
    [:td [:span.numeric (fmt/date posted-date)]]
    [:td (or (:account/external-name account) "—")]
    [:td (or (get-in account [:account/institution :institution/name]) "—")]
@@ -110,10 +122,10 @@
    [:td.description-cell (if (str/blank? effective-description) "—" effective-description)]
    [:td.amount-cell (amount-span amount false)]
    [:td.category-cell (or (:category/name category) "Uncategorized")]
-   [:td.reviewed-cell (ro-checkbox reviewed)]])
+   [:td.reviewed-cell (reviewed-checkbox (:db/id tx) reviewed true)]])
 
-(defn- split-parent-row [{:transaction/keys [posted-date account payee effective-description]}]
-  [:tr {:role "row" :class "is-split-parent"}
+(defn- split-parent-row [stale? {:transaction/keys [posted-date account payee effective-description]}]
+  [:tr {:role "row" :class (row-class "is-split-parent" stale?)}
    [:td [:span.numeric (fmt/date posted-date)]]
    [:td (or (:account/external-name account) "—")]
    [:td (or (get-in account [:account/institution :institution/name]) "—")]
@@ -121,21 +133,24 @@
    [:td.description-cell (if (str/blank? effective-description) "—" effective-description)]
    [:td.amount-cell] [:td.category-cell] [:td.reviewed-cell]])
 
-(defn- split-child-row [{:split/keys [amount memo category reviewed]}]
-  [:tr {:role "row" :class "split-child-row"}
+(defn- split-child-row [stale? {:split/keys [amount memo category reviewed]}]
+  [:tr {:role "row" :class (row-class "split-child-row" stale?)}
    [:td] [:td] [:td] [:td]
    [:td.description-cell (if (str/blank? memo) "—" memo)]
    [:td.amount-cell (amount-span amount true)]
    [:td.category-cell (or (:category/name category) "Uncategorized")]
-   [:td.reviewed-cell (ro-checkbox reviewed)]])
+   [:td.reviewed-cell (reviewed-checkbox nil reviewed false)]])
 
-(defn- tx-rows [tx]
-  (if-let [parts (seq (:transaction/splits tx))]
-    (into [(split-parent-row tx)] (map split-child-row (sort-by :split/order parts)))
-    [(normal-row tx)]))
+(defn- tx-rows [stale-ids tx]
+  (let [stale? (contains? stale-ids (:db/id tx))]
+    (if-let [parts (seq (:transaction/splits tx))]
+      (into [(split-parent-row stale? tx)] (map #(split-child-row stale? %) (sort-by :split/order parts)))
+      [(normal-row stale? tx)])))
 
-(defn- tbody [rows]
-  (into [:tbody {:id "tx-tbody"}] (mapcat tx-rows rows)))
+(defn- tbody
+  ([rows] (tbody rows #{}))
+  ([rows stale-ids]
+   (into [:tbody {:id "tx-tbody"}] (mapcat #(tx-rows stale-ids %) rows))))
 
 ;; ---------------------------------------------------------------------------
 ;; Header (sortable columns; cycle asc → desc → cleared, server-side)
@@ -247,6 +262,39 @@
       (nav-btn {:title "Last page" :disabled? last? :js (str "$page = " (dec page-count) "; @get('/v2/rows')")} "»")]]))
 
 ;; ---------------------------------------------------------------------------
+;; Lingering + edit fragments
+;; ---------------------------------------------------------------------------
+
+(defn- view-with-linger
+  "Compose filter → linger-inject → sort → paginate. Lingered txs (touched since the last
+   view change, no longer matching the filter) are kept in the result and reported as
+   `:stale-ids` so an edit doesn't make a row vanish under you."
+  [txs vs linger-set]
+  (let [matched     (view/filter-txs txs vs)
+        matched-ids (set (map :db/id matched))
+        lingered    (filter #(and (linger-set (:db/id %)) (not (matched-ids (:db/id %)))) txs)
+        combined    (view/sort-txs (concat matched lingered) (:sort vs))]
+    {:result    (view/paginate combined (:page vs) (:page-size vs))
+     :stale-ids (set (map :db/id lingered))}))
+
+(defn- counts-fragment
+  "The toolbar count badges as one HTML string (each morphed by id) — re-patched after an
+   edit, since reviewing/categorizing a row moves these server-authoritative counts."
+  [{:keys [unreviewed total uncategorized transfers-hidden]}]
+  (str (r/render [:span#count-unreviewed.filter-count unreviewed])
+       (r/render [:span#count-total.filter-count total])
+       (r/render [:span#count-uncategorized.filter-count uncategorized])
+       (r/render [:span#count-transfers.filter-count transfers-hidden])))
+
+(defn- toast
+  "The undo affordance. Always rendered (stable #toast morph target); populated with the
+   last action's label + an Undo button when there's something to undo."
+  [label]
+  [:div {:id "toast" :class (str "toast" (when label " is-visible"))}
+   (when label [:span.toast-label label])
+   (when label [:button.toast-undo {:type "button" "data-on:click" "@post('/v2/undo')"} "Undo"])])
+
+;; ---------------------------------------------------------------------------
 ;; Routes
 ;; ---------------------------------------------------------------------------
 
@@ -255,16 +303,22 @@
    [:div.empty-state-title "No transactions this month"]
    [:p "Use the month controls to browse another period, or import from Setup."]])
 
+(def ^:private undo-key-js
+  ;; Cmd/Ctrl+Z = undo, +Shift = redo. Static literal (no server data).
+  (str "(evt.metaKey || evt.ctrlKey) && (evt.key === 'z' || evt.key === 'Z')"
+       " && (evt.preventDefault(), evt.shiftKey ? @post('/v2/redo') : @post('/v2/undo'))"))
+
 (defn page
-  "GET /v2 — full page. Seeds the view-state from the URL, renders the first page."
+  "GET /v2 — full page. Seeds the view-state from the URL; a fresh load clears lingering."
   [{:keys [db-conn]}]
   (fn [req]
+    (commands/clear-linger! auth/user-id)
     (let [m (month/parse (get-in req [:query-params "month"]))
           month-str (month/serialize m)
           txs (db-transactions/list-for-month db-conn month-str)
           counts (db-transactions/month-counts txs)
           stats (db-stats/entity-counts db-conn)
-          _categories (db-categories/list-all db-conn) ; (combobox model — used in cp2)
+          _categories (db-categories/list-all db-conn) ; (combobox model — used later)
           vs (query->view-state (:query-params req))
           result (view/view txs vs)]
       {:status 200
@@ -273,20 +327,22 @@
        (layout/document
         {:title "Finance Aggregator"
          :signals (vs->signals vs month-str result)}
-        [:div.container.container--workspace
+        [:div.container.container--workspace {"data-on:keydown__window" undo-key-js}
          (shell/masthead {:active :transactions :stats stats})
          [:div.transactions-layout
           [:div.card
            (toolbar m counts)
            (if (empty? txs)
              (empty-state)
-             (list (table (:rows result)) (pagination-bar result)))]]])})))
+             (list (table (:rows result)) (pagination-bar result)))]]
+         (toast nil)])})))
 
 (defn rows
-  "GET /v2/rows — re-run the view for the current signals and morph the tbody +
-   pagination bar, patching $page back to the clamped value."
+  "GET /v2/rows — a pure view change: clear lingering, re-run the view, morph the tbody +
+   pagination bar, patch $page back to the clamped value."
   [{:keys [db-conn]}]
   (fn [req]
+    (commands/clear-linger! auth/user-id)
     (let [signals (r/read-signals req)
           month-str (month/serialize (month/parse (:month signals)))
           txs (db-transactions/list-for-month db-conn month-str)
@@ -299,3 +355,48 @@
           (d*/patch-elements! sse (r/render (pagination-bar result)))
           (d*/patch-signals! sse (r/signals {:page (:page result)}))
           (d*/close-sse! sse))}))))
+
+(defn- edit-response
+  "Shared SSE response after any edit/undo/redo: re-render the tbody (lingering the touched
+   rows), the pagination bar, the server-authoritative counts, and the undo toast."
+  [db-conn req signals]
+  (let [user auth/user-id
+        month-str (month/serialize (month/parse (:month signals)))
+        txs (db-transactions/list-for-month db-conn month-str)
+        {:keys [result stale-ids]} (view-with-linger txs (signals->view-state signals) (commands/linger user))
+        counts (db-transactions/month-counts txs)]
+    (hk/->sse-response
+     req
+     {hk/on-open
+      (fn [sse]
+        (d*/patch-elements! sse (r/render (tbody (:rows result) stale-ids)))
+        (d*/patch-elements! sse (r/render (pagination-bar result)))
+        (d*/patch-elements! sse (counts-fragment counts))
+        (d*/patch-elements! sse (r/render (toast (commands/undo-label user))))
+        (d*/patch-signals! sse (r/signals {:page (:page result)}))
+        (d*/close-sse! sse))})))
+
+(defn toggle-reviewed
+  "PUT /v2/tx/:id/reviewed/:v — record + apply a reviewed command, then re-render."
+  [{:keys [db-conn]}]
+  (fn [req]
+    (let [tx-id (-> req :path-params :id parse-long)
+          after (= "true" (-> req :path-params :v))]
+      (commands/apply! db-conn auth/user-id
+                       {:type :set-reviewed :tx-id tx-id :before (not after) :after after
+                        :label (if after "Marked reviewed" "Marked unreviewed")})
+      (edit-response db-conn req (r/read-signals req)))))
+
+(defn undo
+  "POST /v2/undo — reverse the last edit (keeping the row lingering), then re-render."
+  [{:keys [db-conn]}]
+  (fn [req]
+    (commands/undo! db-conn auth/user-id)
+    (edit-response db-conn req (r/read-signals req))))
+
+(defn redo
+  "POST /v2/redo — re-apply the last undone edit, then re-render."
+  [{:keys [db-conn]}]
+  (fn [req]
+    (commands/redo! db-conn auth/user-id)
+    (edit-response db-conn req (r/read-signals req))))

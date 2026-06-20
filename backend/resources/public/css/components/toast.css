@@ -1,0 +1,53 @@
+/* Undo toast for server-authoritative edits (Phase R2 cp2). The #toast region is always
+   present (morph target); the server adds .is-visible + content after an edit. */
+.toast {
+  position: fixed;
+  bottom: 1.5rem;
+  left: 50%;
+  transform: translateX(-50%) translateY(0.75rem);
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+  padding: 0.6rem 0.9rem 0.6rem 1.1rem;
+  background: var(--color-ink);
+  color: var(--color-paper);
+  border-radius: 0.6rem;
+  box-shadow: 0 10px 30px var(--color-black-semi-transparent, rgba(0, 0, 0, 0.25));
+  font-size: 0.875rem;
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity 0.15s ease, transform 0.15s ease;
+  z-index: 1000;
+}
+
+.toast.is-visible {
+  opacity: 1;
+  transform: translateX(-50%) translateY(0);
+  pointer-events: auto;
+}
+
+.toast-label {
+  font-weight: 500;
+}
+
+.toast-undo {
+  background: none;
+  border: none;
+  color: var(--color-accent-soft, #8fc7ae);
+  font: inherit;
+  font-weight: 600;
+  cursor: pointer;
+  padding: 0.15rem 0.4rem;
+  border-radius: 0.3rem;
+}
+
+.toast-undo:hover {
+  text-decoration: underline;
+}
+
+/* Lingering rows on the /v2 table (plain .table, not .table-resizable): an edited row that
+   no longer matches the active filter stays visible but de-emphasised until the next view
+   change, so a fast mistake is noticeable. */
+.table tr.is-stale td {
+  opacity: 0.5;
+}
