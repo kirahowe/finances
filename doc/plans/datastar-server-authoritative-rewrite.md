@@ -1,6 +1,6 @@
 # Datastar server-authoritative rewrite — architecture & plan
 
-**Status:** Phase R0 (renderer foundation) done & browser-verified. **Branch:** `spike/replicant-datastar`.
+**Status:** Phases R0 (renderer foundation) + R1 (pure view engine) done. **Branch:** `spike/replicant-datastar`. Next: R2.
 Supersedes the client-heavy approach in `replicant-datastar-progress.md` for the
 transactions workspace. Memory: `project_replicant_datastar_spike`.
 
@@ -97,8 +97,8 @@ Decide the exact UX in R2.
 - **R0 — Renderer foundation. ✅ DONE.** hiccup2 dep; `web/render.clj`; spike converted to
   it (Replicant-free) and browser-verified (`e2e/spike-hiccup2.mjs` 5/5). Replicant stays
   on the classpath only for the not-yet-migrated `/` + `/setup`.
-- **R1 — Server view engine.** Pure `view` fn (filter/sort/paginate) + kaocha tests that
-  port each rule from the current baked expressions. No UI yet.
+- **R1 — Server view engine. ✅ DONE.** `web/view.clj`: pure `view` (filter → sort →
+  paginate) porting every baked rule; `web/view_test.clj` 8 tests / 32 assertions. No UI yet.
 - **R2 — New server-authoritative `/`.** Toolbar (search/scope/chips/funnels) + sort +
   paginate via `GET /transactions/rows` morph; edits (reviewed/desc/category) re-render
   fragments; ephemeral state `_`-signalled; reuse grid-nav/combobox/col-resize islands.
