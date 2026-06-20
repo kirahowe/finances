@@ -109,11 +109,25 @@
        "el.closest('.description-cell').classList.add('editing'), "
        "el.nextElementSibling.focus(), el.nextElementSibling.select()"))
 
-(defn- desc-keydown-js [tx-id]
+(defn- grid-edit-js
+  "Fire a `gridedit` DOM event the grid-nav island listens for (bubbling up to the
+   table). `advance` moves down + re-opens the editor (the Enter-walks-the-column
+   flow); `cancel` returns focus to the cell."
+  [action]
+  (str "el.dispatchEvent(new CustomEvent('gridedit', {detail: {action: '" action "'}, bubbles: true}))"))
+
+(defn- desc-keydown-js
+  "Inline description editor keys, integrated with the grid-nav island. Enter persists
+   then fires gridedit:advance; Escape reverts then fires gridedit:cancel. Both remove
+   `editing` first so the trailing blur (focus leaving the input) is a no-op."
+  [tx-id]
+  ;; stopPropagation so the grid-nav island's container keydown doesn't re-handle the
+  ;; key after the editor closes + refocuses the cell (Escape would otherwise clear the
+  ;; active cell). Tab is NOT handled here, so it still bubbles to grid-nav (commit+move).
   (let [put   (str "@put('/transactions/" tx-id "/description')")
-        close "el.closest('.description-cell').classList.remove('editing'), el.previousElementSibling.focus()"]
-    (str "evt.key === 'Enter' && (" put ", " close "); "
-         "evt.key === 'Escape' && ($desc.tx" tx-id " = $descOrig, " close ")")))
+        close "el.closest('.description-cell').classList.remove('editing')"]
+    (str "evt.key === 'Enter' && (evt.stopPropagation(), " put ", " close ", " (grid-edit-js "advance") "); "
+         "evt.key === 'Escape' && (evt.stopPropagation(), $desc.tx" tx-id " = $descOrig, " close ", " (grid-edit-js "cancel") ")")))
 
 (defn- desc-blur-js
   "A genuine click-away commits. Enter/Escape already cleared `editing`, so their

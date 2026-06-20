@@ -74,10 +74,15 @@ const collectionOf = (items: Item[]) =>
   });
 
 let current: { root: HTMLElement; machine: VanillaMachine<any>; cell: HTMLElement } | null = null;
+// Whether the in-flight selection was made by keyboard (Enter) rather than a click —
+// keyboard select advances down the column (like the description editor), a click just
+// closes. Set by a capture-phase keydown listener (before Zag selects).
+let committedViaKeyboard = false;
 
-function open(cell: HTMLElement) {
+function open(cell: HTMLElement, seed?: string | null) {
   close();
-  let items = itemsForFilter('');
+  committedViaKeyboard = false;
+  let items = itemsForFilter(seed ?? '');
 
   // The current category name leads as the placeholder (the input opens empty so the
   // first keystroke filters), mirroring the React dropdown.
@@ -110,7 +115,7 @@ function open(cell: HTMLElement) {
     openOnClick: true,
     inputBehavior: 'autohighlight',
     onOpenChange(d: any) {
-      if (!d.open) close(true);
+      if (!d.open) close('cancel');
     },
     onInputValueChange({ inputValue }: any) {
       items = itemsForFilter(inputValue ?? '');
@@ -145,18 +150,28 @@ function open(cell: HTMLElement) {
   machine.start();
   render();
 
-  const input = get('.category-dropdown-input');
-  // Tab hands focus back to the cell (the grid-nav island in 3d takes it from there).
+  const input = root.querySelector<HTMLInputElement>('.category-dropdown-input')!;
+  // Capture phase (before Zag) so the flag is set before a selection fires, and Tab is
+  // claimed before Zag acts on it.
   input.addEventListener(
     'keydown',
     (e) => {
+      if (e.key === 'Enter') committedViaKeyboard = true;
       if (e.key === 'Tab') {
+        // Close and let the grid-nav island move from the cell (it handles the Tab).
         e.preventDefault();
-        close(true);
+        const c = cell;
+        close(null);
+        c.dispatchEvent(new KeyboardEvent('keydown', { key: 'Tab', shiftKey: e.shiftKey, bubbles: true }));
       }
     },
     true
   );
+  // A typed seed (type-to-edit from the grid) opens the list already filtered.
+  if (seed != null) {
+    input.value = seed;
+    input.dispatchEvent(new Event('input', { bubbles: true }));
+  }
   input.focus();
   current = { root, machine, cell };
 }
@@ -176,19 +191,34 @@ function commit(cell: HTMLElement, code: string, items: Item[]) {
     hidden.dispatchEvent(new Event('input', { bubbles: true }));
     hidden.dispatchEvent(new Event('change', { bubbles: true }));
   }
-  close(true);
+  // Keyboard select walks down the column (re-opens the next combobox); a click select
+  // just returns focus to the cell.
+  close(committedViaKeyboard ? 'advance' : 'cancel');
 }
 
-function close(refocus?: boolean) {
+// action: tell the grid-nav island what to do once the combobox is gone — 'advance'
+// (walk down the column), 'cancel' (refocus the cell), or null (no hand-off, e.g. the
+// Tab path dispatches its own synthetic key).
+function close(action?: 'advance' | 'cancel' | null) {
   if (!current) return;
   const { root, machine, cell } = current;
   machine.stop();
   root.remove();
   current = null;
-  if (refocus) cell.focus();
+  // Defer the hand-off: close() runs from inside Zag's onValueChange/onOpenChange, and
+  // `advance` makes grid-nav start the NEXT combobox — a microtask lets this machine's
+  // transition finish first so the new machine isn't started re-entrantly.
+  if (action) queueMicrotask(() => cell.dispatchEvent(new CustomEvent('gridedit', { detail: { action }, bubbles: true })));
 }
 
 document.addEventListener('click', (e) => {
   const btn = (e.target as HTMLElement).closest<HTMLElement>('.category-button.combo-cell');
   if (btn) open(btn);
+});
+
+// The grid-nav island opens the combobox by keyboard (Enter / type-to-edit on a
+// category cell), passing the category button and any typed seed.
+document.addEventListener('open-combobox', (e) => {
+  const { cell, seed } = (e as CustomEvent).detail;
+  open(cell, seed);
 });
