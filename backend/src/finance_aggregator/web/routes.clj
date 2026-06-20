@@ -15,6 +15,7 @@
    [finance-aggregator.web.pages.rows-spike :as rows-spike]
    [finance-aggregator.web.pages.setup :as setup]
    [finance-aggregator.web.pages.transactions :as transactions]
+   [finance-aggregator.web.pages.transactions2 :as transactions2]
    [starfederation.datastar.clojure.api :as d*]
    [starfederation.datastar.clojure.adapter.http-kit :as hk]))
 
@@ -151,6 +152,9 @@
    ["/transactions/:id/description" {:put {:handler (set-description-handler deps) :name ::set-description}}]
    ["/transactions/:id/category"    {:put {:handler (set-category-handler deps) :name ::set-category}}]
    ["/setup"                 {:get {:handler (setup/page deps) :name ::setup}}]
+   ;; Phase R2 — server-authoritative transactions page (replaces / at R4).
+   ["/v2"                    {:get {:handler (transactions2/page deps) :name ::v2}}]
+   ["/v2/rows"               {:get {:handler (transactions2/rows deps) :name ::v2-rows}}]
    ;; SPIKE — server-authoritative filtering over SSE (delete after the latency test).
    ["/spike"                 {:get {:handler (rows-spike/page deps) :name ::spike}}]
    ["/spike/rows"            {:get {:handler (rows-spike/rows deps) :name ::spike-rows}}]
