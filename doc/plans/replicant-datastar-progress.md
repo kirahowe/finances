@@ -5,8 +5,11 @@
 This is the **living status + resume document** for the React→Replicant/Datastar
 migration. The *design/decision* is in `replicant-datastar-migration.md` (read it
 for the why, the deps, the full gotchas list, and the phased plan); the *research*
-is in `../spikes/replicant-datastar/FINDINGS.md`. **This doc says where we are and
-how to continue.** Memory entry: `project_replicant_datastar_spike`.
+is in `../spikes/replicant-datastar/FINDINGS.md`; the **deep record of the 3c–3d
+session** (every pattern built, the new gotchas + fixes, the file map, per-unit resume
+notes) is in **`replicant-datastar-3c-3d-handoff.md`** — read that before continuing
+3d/3e. **This doc says where we are and how to continue.** Memory entry:
+`project_replicant_datastar_spike`.
 
 ---
 
