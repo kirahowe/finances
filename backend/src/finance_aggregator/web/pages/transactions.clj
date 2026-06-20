@@ -589,7 +589,7 @@
     [:a.button.button-secondary.month-nav-button
      (h/a {"href" (str "/?month=" m-str) "title" title
            "data-on:click" (str "evt.preventDefault(); const u = new URL(location.href); "
-                                 "u.searchParams.set('month', '" m-str "'); "
+                                 "u.searchParams.set('month', '" m-str "'); u.searchParams.delete('page'); "
                                  "location.assign(u.pathname + '?' + u.searchParams.toString())")})
      label]))
 
@@ -703,17 +703,18 @@
    (funnel-popover "category" category-opts)))
 
 (defn- linger-reset
-  "Clears all lingering-row pins whenever a filter changes. The signal-patch filter scopes
-   it to the filter signals (search / scope / chips / funnels) so an edit (which patches
-   reviewed / cat / linger) never clears the pins — only a genuine filter change does. The
-   pins are reset to the all-false map (not {}) so each $linger.tx<id> keeps existing — a
-   removed key would lose its reactive binding for the next edit (Datastar tracks signals
-   that exist when an expression first runs)."
+  "On any filter change (search / scope / chips / funnels), clears the lingering-row pins
+   AND jumps back to the first page (matching React's setPage(0) on filter changes). The
+   signal-patch filter scopes it to the filter signals so an edit (which patches
+   reviewed / cat / linger) never triggers it — only a genuine filter change does. Pins are
+   reset to the all-false map (not {}) so each $linger.tx<id> keeps existing — a removed key
+   would lose its reactive binding for the next edit (Datastar tracks signals that exist
+   when an expression first runs)."
   [empty-literal]
   [:div.linger-reset
    (h/a {"hidden" "true"
          "data-on-signal-patch-filter" "{include: /^(search|scope|hideTransfers|uncat|filter\\.)/}"
-         "data-on-signal-patch" (str "$linger = " empty-literal)})])
+         "data-on-signal-patch" (str "$linger = " empty-literal "; $page = 0")})])
 
 (defn- url-sync
   "Write side of URL view-state: reflect the persisted filter/visibility signals into the
@@ -723,11 +724,61 @@
   []
   [:div.url-sync
    (h/a {"hidden" "true"
-         "data-on-signal-patch-filter" "{include: /^(search|scope|hideTransfers|uncat|filter\\.|cols\\.)/}"
+         "data-on-signal-patch-filter" "{include: /^(search|scope|hideTransfers|uncat|page|pageSize)$|^(filter|cols)\\./}"
          "data-on-signal-patch"
          (str "window.__syncUrl && window.__syncUrl({month: $month, q: $search, scope: $scope,"
               " ht: $hideTransfers, uncat: $uncat, fa: $filter.account, fi: $filter.institution,"
-              " fc: $filter.category, cols: $cols})")})])
+              " fc: $filter.category, cols: $cols, page: $page, pageSize: $pageSize})")})])
+
+;; ---------------------------------------------------------------------------
+;; Pagination
+;; ---------------------------------------------------------------------------
+;; Client-side, downstream of filtering (filter → paginate, matching React): the pagination
+;; island slices the filter-visible row-groups to the current page via a `.page-hidden`
+;; class. These controls only drive $page / $pageSize; the island computes $pageCount and
+;; clamps an out-of-range $page (paginate-clamp event). $page is 0-indexed in the signal,
+;; 1-indexed in the URL.
+
+(def ^:private page-size-options [25 50 100 250])
+
+(defn- pagination-bar []
+  [:div.pagination
+   [:div.pagination-size-controls
+    (for [n page-size-options]
+      [:button.button.pagination-size-button
+       (h/a {"type" "button"
+             "data-on:click" (str "$pageSize = " n "; $page = 0")
+             "data-class" (str "{'button-primary': $pageSize === " n ", 'button-secondary': $pageSize !== " n "}")})
+       (str n)])]
+   [:div.pagination-navigation
+    [:button.button.button-secondary.pagination-nav-button
+     (h/a {"type" "button" "title" "First page" "aria-label" "First page"
+           "data-on:click" "$page = 0" "data-attr" "{disabled: $page === 0}"}) "«"]
+    [:button.button.button-secondary.pagination-nav-button
+     (h/a {"type" "button" "title" "Previous page" "aria-label" "Previous page"
+           "data-on:click" "$page = Math.max(0, $page - 1)" "data-attr" "{disabled: $page === 0}"}) "‹"]
+    [:span.pagination-status (h/a {"data-text" "'Page ' + ($page + 1) + ' of ' + $pageCount"}) "Page 1 of 1"]
+    [:button.button.button-secondary.pagination-nav-button
+     (h/a {"type" "button" "title" "Next page" "aria-label" "Next page"
+           "data-on:click" "$page = Math.min($pageCount - 1, $page + 1)"
+           "data-attr" "{disabled: $page >= $pageCount - 1}"}) "›"]
+    [:button.button.button-secondary.pagination-nav-button
+     (h/a {"type" "button" "title" "Last page" "aria-label" "Last page"
+           "data-on:click" "$page = $pageCount - 1" "data-attr" "{disabled: $page >= $pageCount - 1}"}) "»"]]])
+
+(defn- pagination-bridges
+  "Hidden elements bridging the pagination island and Datastar: one recomputes the page
+   slice when a paginating signal changes (scoped so it ignores pageCount + edit signals);
+   the other receives the island's clamped page + computed count as numbers."
+  []
+  (list
+   [:div.pagination-sync
+    (h/a {"hidden" "true"
+          "data-on-signal-patch-filter" "{include: /^(page|pageSize|search|scope|hideTransfers|uncat)$|^(filter|linger)\\./}"
+          "data-on-signal-patch" "window.__paginate && window.__paginate($page, $pageSize)"})]
+   [:div.pagination-clamp
+    (h/a {"hidden" "true"
+          "data-on:paginate-clamp__window" "$page = evt.detail.page; $pageCount = evt.detail.count"})]))
 
 (defn- toolbar [m counts]
   [:div.toolbar
@@ -806,7 +857,9 @@
     (if (str/blank? v) [] (str/split v #","))))
 
 (defn- parse-view-state [qp]
-  (let [hidden (set (csv-param qp "hidecols"))]
+  (let [hidden  (set (csv-param qp "hidecols"))
+        page-raw (some-> (get qp "page") parse-long)
+        ps-raw   (some-> (get qp "pageSize") parse-long)]
     {:search        (or (get qp "q") "")
      :scope         (if (= "needs-review" (get qp "scope")) "needs-review" "all")
      :hideTransfers (= "1" (get qp "ht"))
@@ -815,7 +868,11 @@
                      :institution (csv-param qp "fi")
                      :category    (csv-param qp "fc")}
      :cols          (into {} (map (fn [[id _]] [(keyword id) (not (contains? hidden id))])
-                                   hideable-columns))}))
+                                   hideable-columns))
+     ;; URL page is 1-indexed; the signal is 0-indexed. pageSize accepts any positive int
+     ;; (the buttons offer 25/50/100/250, but an arbitrary URL value still slices fine).
+     :page          (if (and page-raw (> page-raw 1)) (dec page-raw) 0)
+     :pageSize      (if (and ps-raw (pos? ps-raw)) ps-raw 25)}))
 
 ;; ---------------------------------------------------------------------------
 ;; Page
@@ -834,13 +891,18 @@
           account-opts (account-options txs)
           institution-opts (institution-options txs)
           category-opts (category-funnel-options txs)
-          vs (parse-view-state (:query-params req))]
+          vs (parse-view-state (:query-params req))
+          ;; Seed pagination so the controls are correct on load without waiting for the
+          ;; island (no-filter load = all txs visible). The island recomputes the count for
+          ;; a filtered view on first interaction. Counts whole transactions (a split = 1).
+          total-pages (max 1 (long (Math/ceil (/ (count txs) (double (:pageSize vs))))))
+          page-clamped (min (:page vs) (dec total-pages))]
       {:status 200
        :headers {"Content-Type" "text/html"}
        :body
        (layout/base-page
         {:title "Finance Aggregator"
-         :islands ["combobox" "grid-nav" "sort" "col-resize" "url-state"]
+         :islands ["combobox" "grid-nav" "sort" "col-resize" "url-state" "pagination"]
          :signals {:reviewed (reviewed-signals txs)
                    :desc (description-signals txs)
                    :descOrig ""
@@ -857,7 +919,10 @@
                    :search (:search vs)
                    :scope (:scope vs)
                    :hideTransfers (:hideTransfers vs)
-                   :uncat (:uncat vs)}}
+                   :uncat (:uncat vs)
+                   :page page-clamped
+                   :pageSize (:pageSize vs)
+                   :pageCount total-pages}}
         [:div.container.container--workspace
          (shell/masthead {:active :transactions :stats stats})
          [:div.transactions-layout
@@ -865,10 +930,11 @@
            (toolbar m counts)
            (if (empty? txs)
              (empty-state)
-             (transactions-table txs))]]
+             (list (transactions-table txs) (pagination-bar)))]]
          (when (seq txs)
            (list
             (funnel-popovers account-opts institution-opts category-opts)
             (linger-reset (h/signals (linger-signals txs)))
-            (url-sync)))
+            (url-sync)
+            (pagination-bridges)))
          (category-options categories)])})))

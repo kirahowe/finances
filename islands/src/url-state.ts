@@ -24,6 +24,8 @@ interface ViewState {
   fi?: unknown[];
   fc?: unknown[];
   cols?: Record<string, boolean>;
+  page?: number;
+  pageSize?: number;
 }
 
 const csv = (a: unknown[] | undefined): string => (a ?? []).filter(Boolean).join(',');
@@ -46,6 +48,11 @@ const csv = (a: unknown[] | undefined): string => (a ?? []).filter(Boolean).join
     .filter(([, visible]) => !visible)
     .map(([id]) => id);
   setOrDel('hidecols', hidden.join(','));
+
+  // Pagination: page is 1-indexed in the URL (omit page 1); pageSize omits the 25 default.
+  const page = Number(s.page) || 0;
+  setOrDel('page', page > 0 ? String(page + 1) : '');
+  setOrDel('pageSize', Number(s.pageSize) === 25 ? '' : String(s.pageSize ?? ''));
 
   history.replaceState(null, '', `${u.pathname}?${p.toString()}`);
 };

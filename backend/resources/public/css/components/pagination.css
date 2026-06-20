@@ -40,3 +40,18 @@
   font-family: var(--font-mono);
   font-size: var(--text-sm);
 }
+
+/* "Page X of Y" between the nav arrows. */
+.pagination-status {
+  font-size: var(--text-sm);
+  color: var(--color-text-muted);
+  font-variant-numeric: tabular-nums;
+  padding: 0 var(--spacing-xs);
+  white-space: nowrap;
+}
+
+/* A row sliced out of the current page. data-show removes the inline display when a row
+   matches the filters, so this class layers on top to hide the off-page rows. */
+.page-hidden {
+  display: none;
+}
