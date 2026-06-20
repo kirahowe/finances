@@ -78,6 +78,16 @@ if (scroll && table && tbody && thead) {
 
     // Let grid-nav rebuild its navigable order from the new DOM order.
     scroll!.dispatchEvent(new CustomEvent('grid-refresh'));
+    writeSortUrl();
+  }
+
+  // Persist the active sort in the URL (preserving the other view-state params, which the
+  // url-state island owns) so a reload / shared link / month nav restores the order.
+  function writeSortUrl() {
+    const u = new URL(location.href);
+    if (sortCol) u.searchParams.set('sort', `${sortCol}:${sortDir}`);
+    else u.searchParams.delete('sort');
+    history.replaceState(null, '', `${u.pathname}?${u.searchParams.toString()}`);
   }
 
   // Click cycles a column asc → desc → cleared (back to the original order).
@@ -96,6 +106,17 @@ if (scroll && table && tbody && thead) {
     }
     apply();
   });
+
+  // Restore a sort from the URL on load (set by a prior session / shared link / month nav).
+  const fromUrl = new URL(location.href).searchParams.get('sort');
+  if (fromUrl) {
+    const [col, dir] = fromUrl.split(':');
+    if (thead.querySelector(`[data-sort-col="${col}"]`)) {
+      sortCol = col;
+      sortDir = dir === 'desc' ? 'desc' : 'asc';
+      apply();
+    }
+  }
 
   console.log('sort island ready');
 }

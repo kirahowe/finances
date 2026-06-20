@@ -18,6 +18,7 @@ const ISLANDS = [
   'src/grid-nav.ts',
   'src/sort.ts',
   'src/col-resize.ts',
+  'src/url-state.ts',
 ];
 
 await build({

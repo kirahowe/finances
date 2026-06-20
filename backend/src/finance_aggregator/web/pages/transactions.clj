@@ -579,14 +579,25 @@
       [:th.table-spacer-cell {:aria-hidden "true"}]]]
     [:tbody (mapcat tx-rows txs)]]])
 
+(defn- month-nav-link
+  "A prev/next month anchor. The href is the plain `/?month=` (no-JS fallback); with JS, the
+   click instead swaps only the `month` param on the current URL, so the active view-state
+   (which the url-state island keeps in the query string) carries across the month change."
+  [target label title]
+  (let [m-str (month/serialize target)]
+    [:a.button.button-secondary.month-nav-button
+     (h/a {"href" (str "/?month=" m-str) "title" title
+           "data-on:click" (str "evt.preventDefault(); const u = new URL(location.href); "
+                                 "u.searchParams.set('month', '" m-str "'); "
+                                 "location.assign(u.pathname + '?' + u.searchParams.toString())")})
+     label]))
+
 (defn- month-navigator [m]
   [:div.month-navigator
    [:div.month-navigator-controls
-    [:a.button.button-secondary.month-nav-button
-     {:href (str "/?month=" (month/serialize (month/prev-month m))) :title "Previous month"} "‹"]
+    (month-nav-link (month/prev-month m) "‹" "Previous month")
     [:span.month-navigator-display (month/display m)]
-    [:a.button.button-secondary.month-nav-button
-     {:href (str "/?month=" (month/serialize (month/next-month m))) :title "Next month"} "›"]]])
+    (month-nav-link (month/next-month m) "›" "Next month")]])
 
 (defn- search-box []
   [:div.table-search
@@ -703,6 +714,20 @@
          "data-on-signal-patch-filter" "{include: /^(search|scope|hideTransfers|uncat|filter\\.)/}"
          "data-on-signal-patch" (str "$linger = " empty-literal)})])
 
+(defn- url-sync
+  "Write side of URL view-state: reflect the persisted filter/visibility signals into the
+   query string on change (the url-state island's window.__syncUrl owns the serialization;
+   sort.ts owns the `sort` param). Scoped by the signal-patch filter to the persisted
+   signals so it ignores edit + ephemeral-UI signals."
+  []
+  [:div.url-sync
+   (h/a {"hidden" "true"
+         "data-on-signal-patch-filter" "{include: /^(search|scope|hideTransfers|uncat|filter\\.|cols\\.)/}"
+         "data-on-signal-patch"
+         (str "window.__syncUrl && window.__syncUrl({month: $month, q: $search, scope: $scope,"
+              " ht: $hideTransfers, uncat: $uncat, fa: $filter.account, fi: $filter.institution,"
+              " fc: $filter.category, cols: $cols})")})])
+
 (defn- toolbar [m counts]
   [:div.toolbar
    [:div.toolbar-controls
@@ -773,6 +798,30 @@
   (str "{" (str/join "," (for [tx txs] (str "tx" (:db/id tx) ": false"))) "}"))
 
 ;; ---------------------------------------------------------------------------
+;; URL view-state (read side)
+;; ---------------------------------------------------------------------------
+;; The query string carries the view (search / scope / chips / funnels / column
+;; visibility) so a reload or shared link restores it ([[feedback_url_view_state]]).
+;; This parses those params into the initial signal values; the url-state + sort islands
+;; write them back as the user interacts. Sort is applied client-side by sort.ts.
+
+(defn- csv-param [qp k]
+  (let [v (get qp k)]
+    (if (str/blank? v) [] (str/split v #","))))
+
+(defn- parse-view-state [qp]
+  (let [hidden (set (csv-param qp "hidecols"))]
+    {:search        (or (get qp "q") "")
+     :scope         (if (= "needs-review" (get qp "scope")) "needs-review" "all")
+     :hideTransfers (= "1" (get qp "ht"))
+     :uncat         (= "1" (get qp "uncat"))
+     :filter        {:account     (csv-param qp "fa")
+                     :institution (csv-param qp "fi")
+                     :category    (csv-param qp "fc")}
+     :cols          (into {} (map (fn [[id _]] [(keyword id) (not (contains? hidden id))])
+                                   hideable-columns))}))
+
+;; ---------------------------------------------------------------------------
 ;; Page
 ;; ---------------------------------------------------------------------------
 
@@ -788,30 +837,31 @@
           categories (db-categories/list-all db-conn)
           account-opts (account-options txs)
           institution-opts (institution-options txs)
-          category-opts (category-options-list txs)]
+          category-opts (category-options-list txs)
+          vs (parse-view-state (:query-params req))]
       {:status 200
        :headers {"Content-Type" "text/html"}
        :body
        (layout/base-page
         {:title "Finance Aggregator"
-         :islands ["combobox" "grid-nav" "sort" "col-resize"]
+         :islands ["combobox" "grid-nav" "sort" "col-resize" "url-state"]
          :signals {:reviewed (reviewed-signals txs)
                    :desc (description-signals txs)
                    :descOrig ""
                    :cat (category-signals txs)
-                   :cols (into {} (map (fn [[id _]] [(keyword id) true]) hideable-columns))
+                   :cols (:cols vs)
                    :colsOpen false
-                   :filter {:account [] :institution [] :category []}
+                   :filter (:filter vs)
                    :openFunnel ""
                    :funnelX 0
                    :funnelY 0
                    :funnelQuery ""
                    :linger (linger-signals txs)
                    :month month-str
-                   :search ""
-                   :scope "all"
-                   :hideTransfers false
-                   :uncat false}}
+                   :search (:search vs)
+                   :scope (:scope vs)
+                   :hideTransfers (:hideTransfers vs)
+                   :uncat (:uncat vs)}}
         [:div.container.container--workspace
          (shell/masthead {:active :transactions :stats stats})
          [:div.transactions-layout
@@ -823,5 +873,6 @@
          (when (seq txs)
            (list
             (funnel-popovers account-opts institution-opts category-opts)
-            (linger-reset (linger-empty-literal txs))))
+            (linger-reset (linger-empty-literal txs))
+            (url-sync)))
          (category-options categories)])})))
