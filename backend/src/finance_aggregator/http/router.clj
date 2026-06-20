@@ -13,6 +13,7 @@
    [finance-aggregator.http.routes.static :as static]
    [finance-aggregator.http.middleware :as middleware]
    [finance-aggregator.http.errors :as errors]
+   [finance-aggregator.web.routes :as web]
    [finance-aggregator.ws.handler :as ws]))
 
 (defn- ws-routes
@@ -33,6 +34,9 @@
   (ring/router
    [(ws-routes)
     (api/api-routes deps)
+    ;; Server-rendered hypermedia pages. Listed before static so a hypermedia
+    ;; route (e.g. "/") wins over the static catch-all when both match.
+    (web/html-routes deps)
     (static/static-routes)]
    {;; Middleware is applied in create-handler, not here
     ;; Allow specific routes before parameterized routes

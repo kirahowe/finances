@@ -1,27 +1,39 @@
 (ns finance-aggregator.http.routes.static
-  "Static file serving routes"
+  "Static file serving routes.
+
+   Serves vendored/built assets from the classpath under public/ (resources is on
+   the classpath via deps.edn :paths). Content type is inferred from the file
+   extension — notably JS is served as text/javascript so ES-module island
+   bundles and the Datastar runtime load correctly."
   (:require
    [clojure.java.io :as io]
+   [clojure.string :as str]
    [charred.api :as json]))
 
-(defn- serve-static-file
-  "Serve a static file from resources/public directory.
+(def ^:private content-types
+  {"html" "text/html; charset=utf-8"
+   "js"   "text/javascript; charset=utf-8"
+   "mjs"  "text/javascript; charset=utf-8"
+   "css"  "text/css; charset=utf-8"
+   "json" "application/json; charset=utf-8"
+   "map"  "application/json; charset=utf-8"
+   "svg"  "image/svg+xml"
+   "ico"  "image/x-icon"})
 
-   Args:
-     file-path - Path relative to resources/public
+(defn- ext [path]
+  (when-let [i (str/last-index-of path ".")]
+    (subs path (inc i))))
 
-   Returns:
-     Ring response map"
-  [file-path content-type]
-  (let [resource-path (str "resources/public" file-path)]
-    (if-let [file (io/file resource-path)]
-      (if (.exists file)
-        {:status 200
-         :headers {"Content-Type" content-type}
-         :body (slurp file)}
-        {:status 404
-         :headers {"Content-Type" "application/json"}
-         :body (json/write-json-str {:error "File not found"})})
+(defn- serve
+  "Serve a file from the classpath under public/, inferring content type from the
+   extension. Refuses path traversal; 404s when the resource is missing."
+  [rel-path]
+  (let [res (when-not (str/includes? rel-path "..")
+              (io/resource (str "public/" rel-path)))]
+    (if res
+      {:status 200
+       :headers {"Content-Type" (get content-types (ext rel-path) "application/octet-stream")}
+       :body (slurp res)}
       {:status 404
        :headers {"Content-Type" "application/json"}
        :body (json/write-json-str {:error "File not found"})})))
@@ -33,15 +45,17 @@
      Reitit route data"
   []
   [""
-   ;; Serve index.html for root path
-   ["/" {:get {:handler (fn [_]
-                          (serve-static-file "/index.html" "text/html"))
+   ;; Serve index.html for root path (fallback; hypermedia routes take precedence)
+   ["/" {:get {:handler (fn [_] (serve "index.html"))
                :name ::index}}]
-   ;; Serve ClojureScript files
-   ["/js/*path" {:get {:handler (fn [request]
-                                  (let [path (get-in request [:path-params :path])]
-                                    (serve-static-file (str "/js/" path) "text/plain; charset=utf-8")))
+   ;; JavaScript: vendored runtime (/js/datastar.js) + island bundles (/js/islands/*)
+   ["/js/*path" {:get {:handler (fn [req]
+                                  (serve (str "js/" (get-in req [:path-params :path]))))
                        :name ::js-files}}]
+   ;; Stylesheets
+   ["/css/*path" {:get {:handler (fn [req]
+                                   (serve (str "css/" (get-in req [:path-params :path]))))
+                        :name ::css-files}}]
    ;; Serve favicon (or return 204 No Content to suppress error)
    ["/favicon.ico" {:get {:handler (fn [_] {:status 204})
                           :name ::favicon}}]])
