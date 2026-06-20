@@ -255,25 +255,37 @@
 ;; Rows
 ;; ---------------------------------------------------------------------------
 
+(defn- grid-cell
+  "Attributes marking a <td> as a keyboard-navigable grid cell: its stable data-cell
+   key (txId:splitId|tx:col, matching gridNavigation/cellKey), the gridcell role, and
+   the roving tabindex (-1 until the grid-nav island makes it the active cell). Merge
+   into the cell's own attrs. (Split rows aren't navigable until split editing — 3e.)"
+  [tx-id split-id col]
+  {:data-cell (str tx-id ":" (or split-id "tx") ":" col)
+   :role "gridcell"
+   :tabindex "-1"})
+
 (defn- normal-row [show {:transaction/keys [posted-date account payee effective-description
                                             amount category] :as tx}]
-  [:tr show
+  [:tr (merge show {:role "row"})
    [:td [:span.numeric (fmt/date posted-date)]]
    [:td (or (:account/external-name account) "—")]
    [:td (or (get-in account [:account/institution :institution/name]) "—")]
    [:td payee]
-   [:td.description-cell.editable (editable-description (:db/id tx) effective-description)]
+   [:td.description-cell.editable (grid-cell (:db/id tx) nil "description")
+    (editable-description (:db/id tx) effective-description)]
    [:td.amount-cell (amount-span amount false)]
-   [:td.category-cell
+   [:td.category-cell (grid-cell (:db/id tx) nil "category")
     [:div.category-cell-row
      (editable-category (:db/id tx) category)
      (transfer-status tx)]]
-   [:td.reviewed-cell (reviewed-checkbox (str "reviewed.tx" (:db/id tx)))]
+   [:td.reviewed-cell (grid-cell (:db/id tx) nil "reviewed")
+    (reviewed-checkbox (str "reviewed.tx" (:db/id tx)))]
    [:td.actions-cell]
    [:td.table-spacer-cell {:aria-hidden "true"}]])
 
 (defn- split-parent-row [show {:transaction/keys [posted-date account payee effective-description]}]
-  [:tr (merge show {:class "is-split-parent"})
+  [:tr (merge show {:role "row" :class "is-split-parent"})
    [:td [:span.numeric (fmt/date posted-date)]]
    [:td (or (:account/external-name account) "—")]
    [:td (or (get-in account [:account/institution :institution/name]) "—")]
@@ -286,7 +298,7 @@
    [:td.table-spacer-cell {:aria-hidden "true"}]])
 
 (defn- split-child-row [show drift? last? {:split/keys [amount memo category] :as part}]
-  [:tr (merge show {:class (str "split-child-row" (when last? " is-last"))})
+  [:tr (merge show {:role "row" :class (str "split-child-row" (when last? " is-last"))})
    [:td] [:td] [:td] [:td]
    [:td.description-cell
     [:span.split-description (split-icon drift?) (description-button memo)]]
@@ -461,7 +473,7 @@
        :body
        (layout/base-page
         {:title "Finance Aggregator"
-         :islands ["combobox"]
+         :islands ["combobox" "grid-nav"]
          :signals {:reviewed (reviewed-signals txs)
                    :desc (description-signals txs)
                    :descOrig ""

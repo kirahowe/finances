@@ -15,6 +15,7 @@ const outdir = resolve(root, '../backend/resources/public/js/islands');
 const ISLANDS = [
   'src/hello.ts',
   'src/combobox.ts',
+  'src/grid-nav.ts',
 ];
 
 await build({

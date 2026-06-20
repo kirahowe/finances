@@ -10,12 +10,12 @@
   outline: none;
 }
 
-.table.table-resizable td.grid-cell-active {
+.table td.grid-cell-active {
   box-shadow: inset 0 0 0 2px color-mix(in srgb, var(--color-pine) 55%, var(--color-pine-soft));
   border-radius: var(--radius-sm);
 }
 
-.table.table-resizable td.grid-cell-active:focus {
+.table td.grid-cell-active:focus {
   outline: none;
 }
 
@@ -23,8 +23,8 @@
    (no second border, fill, or focus shadow), so the only change from a selected
    cell is a blinking caret. Scoped to the active grid cell so the same inputs keep
    their bordered look elsewhere (e.g. the category combobox in the split modal). */
-.table.table-resizable td.grid-cell-active .description-input,
-.table.table-resizable td.grid-cell-active .category-dropdown-input {
+.table td.grid-cell-active .description-input,
+.table td.grid-cell-active .category-dropdown-input {
   border-color: transparent;
   background: transparent;
   box-shadow: none;
@@ -33,14 +33,14 @@
 /* Hovering an editable cell (that isn't already selected) hints at selection with
    a faint ring, in the same language as the active cell — replacing the old filled
    "editable area" box, which read as a competing inner box. */
-.table.table-resizable td:has(.description-button):hover:not(.grid-cell-active),
-.table.table-resizable td:has(.category-button):hover:not(.grid-cell-active) {
+.table td:has(.description-button):hover:not(.grid-cell-active),
+.table td:has(.category-button):hover:not(.grid-cell-active) {
   box-shadow: inset 0 0 0 1px var(--color-pine-soft-border);
   border-radius: var(--radius-sm);
 }
 
-.table.table-resizable .description-button:hover,
-.table.table-resizable .category-button:hover {
+.table .description-button:hover,
+.table .category-button:hover {
   background-color: transparent;
   border-color: transparent;
 }
