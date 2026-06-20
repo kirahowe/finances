@@ -39,3 +39,7 @@ backend/test-results/
 frontend/package-lock.json
 frontend/yarn.lock
 
+# Islands (TS island toolchain + esbuild output)
+islands/node_modules/
+backend/resources/public/js/islands/
+
