@@ -1,6 +1,12 @@
 # Datastar server-authoritative rewrite — architecture & plan
 
-**Status:** R0 (renderer) + R1 (view engine) + R2 cp1 (read-only `/v2`) + **R2 cp2 (all edits: reviewed/description/category, undo + lingering)** done. **Branch:** `spike/replicant-datastar`. Next: cp1b funnels, then R3 (column chooser + URL write-back).
+**Status:** R0–R3 + cp1b + cp2(+tail) **all done** — `/v2` is feature-complete vs the old `/`
+except split-row editing. **Branch:** `spike/replicant-datastar`. Next: **R4** (delete Replicant
++ the old page/islands, flip `/v2` → `/`). A review/cleanup pass is expected before R4.
+
+`/v2` now has: server-side filter/scope/chips/funnels/sort/paginate; undoable reviewed /
+description / category edits with lingering; column chooser; keyboard grid-nav (morph-aware);
+column auto-size + resize; URL view-state persistence. 8 browser specs (`e2e/v2*.mjs`), all green.
 Supersedes the client-heavy approach in `replicant-datastar-progress.md` for the
 transactions workspace. Memory: `project_replicant_datastar_spike`.
 
@@ -85,6 +91,24 @@ New seam = `web/render.clj`: `render`, `render-page`, `signals` (JSON), `raw`,
 - Fragment renderers (`tbody`, `counts`, active toolbar states) + `GET /transactions/rows`;
   existing mutation PUTs re-render the affected fragments.
 
+## Review / cleanup checklist (before/at R4)
+
+- **Delete the old stack** (R4): the client-heavy `/` page (`web/pages/transactions.clj`), the
+  old islands (`sort`, `pagination`, `url-state`, `hello`, the old `col-resize` + `grid-nav`
+  usage on `/`), the Replicant seam (`web/hiccup.clj`, `web/layout.clj`), and the Replicant dep.
+  Convert `/setup` to the hiccup2 seam. Then flip `/v2` → `/`.
+- **Delete the spike**: `/spike`, `web/pages/rows_spike.clj`, `e2e/spike-hiccup2.mjs`. And the
+  Phase-1 scaffold (`/_scaffold` route + atom).
+- **Unused CSS**: the `.table-dense` rule (generalized in cp1) is now unused — `/v2` uses
+  `.table-resizable`. Remove (or keep if a non-resizable dense table reappears).
+- **grid-nav island** is shared with the old page; once `/` is gone, the MutationObserver-repaint
+  is the only consumer — consider folding `v2-resize`/`grid-nav` naming back to canonical.
+- **Known small gaps**: column widths aren't URL-persisted (auto-fit on load only — matches old
+  page); the description editor opens via grid-nav but doesn't Enter-walk-the-column (no auto-
+  advance); page index is 0-based in the URL (old page was 1-based). Split-row editing unbuilt.
+- **SSE multi-patch ordering**: edit responses patch tbody → pagination → counts → undo-redo as
+  separate events (applied in order; imperceptible). e2e gates on the last patch where it matters.
+
 ## cp2 design: edits + command-log undo + lingering
 
 **Edits are commands.** Every user mutation (reviewed / category / description / split) is a
@@ -156,8 +180,9 @@ noticeable; undo lets you *reverse* a spotted mistake (ideally surfaced inline, 
     `GET /v2/rows` → `view` → morph `#tx-tbody` + `#pagination-bar`, `$page` patched back.
     `web/layout2.clj` = hiccup2 shell. Browser-verified `e2e/v2.mjs` 7/7. Search debounced
     300 ms (the one latency-sensitive control — measure on the VPS).
-  - **cp1b** — header-filter funnels (account/institution/category). `view.clj` already
-    filters them; needs the popover UI with `_`-prefixed ephemeral open/query state.
+  - **cp1b ✅ DONE.** Header-filter funnels (account/institution/category): floating popovers
+    (outside the table), checkbox-arrays → `filter.<col>` → `@get` (server filters), in-funnel
+    search (label JSON-encoded), Clear. URL-persisted. `e2e/v2-funnels.mjs` 10/10.
   - **cp2 core ✅ DONE.** `web/commands.clj` (per-user undo/redo/linger log) + the
     server-confirmed **reviewed** edit on `/v2`: `@put('/v2/tx/:id/reviewed/:v')` applies a
     command, morphs `#tx-tbody` (lingering just-edited rows `is-stale`) + count badges +
@@ -175,8 +200,14 @@ noticeable; undo lets you *reverse* a spotted mistake (ideally surfaced inline, 
   - **Note:** edit responses patch fragments as separate SSE events (tbody → pagination →
     counts → undo-redo), applied in order — imperceptible to a user, but e2e gates on the
     last (undo-redo) to avoid reading counts mid-stream.
-  - Still deferred to cp2-tail: **grid-nav** (keyboard cell navigation) + **col-resize**
-    islands against the /v2 markup; **split-row** editing.
+  - **cp2-tail ✅ DONE.** **grid-nav** (`e2e/v2-grid.mjs` 9/9): keyboard cell nav + Space-toggle
+    + Enter-edit; a guarded MutationObserver rebuilds+repaints so the active cell survives edit
+    morphs (the key server-morph-vs-DOM-state bridge). **col-resize** (`e2e/v2-resize.mjs` 5/5):
+    new DOM-driven `v2-resize` island (reads column metadata from headers, reuses columnAutoSizing);
+    `/v2` switched to `.table-resizable` fixed layout. Still deferred: **split-row** editing.
+
+- **R3 ✅ DONE** (column chooser + URL view-state persistence): see the cp1 block above for
+  the URL plumbing; `e2e/v2-cols.mjs` 7/7.
 - **R3 — Column vis/width persistence** via URL + client CSS; thin `replaceState` reflector.
 - **R4 — Delete the old.** Replicant dep, `web/hiccup.clj`, `web/layout.clj`, the old
   transactions page, dead islands, the scaffold. Convert `/setup` to the hiccup2 seam.
