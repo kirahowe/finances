@@ -5,6 +5,14 @@
   width: 100%;
 }
 
+/* The combobox island floats this container at the clicked cell — fixed so it escapes
+   the table's horizontal-scroll overflow. Only the rect coordinates (left/top/width)
+   are set inline; the static positioning lives here. */
+.category-dropdown.is-floating {
+  position: fixed;
+  z-index: 1000;
+}
+
 .category-dropdown-input {
   width: 100%;
   /* Shares .category-button's box so opening the editor never shifts the row;

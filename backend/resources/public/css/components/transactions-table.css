@@ -162,6 +162,21 @@
   outline: none;
 }
 
+/* The view button and the edit input share the cell; an `editing` class on the cell
+   swaps which is shown (toggled by the inline-edit Datastar handlers) so opening the
+   editor never shifts the row. */
+.description-cell .description-input {
+  display: none;
+}
+
+.description-cell.editing .description-button {
+  display: none;
+}
+
+.description-cell.editing .description-input {
+  display: block;
+}
+
 /* A split part's description cell: the branch marker followed by its own editable memo,
    which flexes to fill the remaining width (the marker stays fixed). */
 .split-description {

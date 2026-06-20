@@ -6,6 +6,7 @@
    pagination, splits, transfers, rollup) are added in later phases."
   (:require
    [clojure.string :as str]
+   [finance-aggregator.db.categories :as db-categories]
    [finance-aggregator.db.stats :as db-stats]
    [finance-aggregator.db.transactions :as db-transactions]
    [finance-aggregator.web.format :as fmt]
@@ -91,6 +92,83 @@
   [:button.description-button
    {:type "button" :tabindex "-1" :aria-label (when (str/blank? text) "Add description")}
    (if (str/blank? text) "—" text)])
+
+;; --- Inline description edit (Datastar class-swap) -------------------------
+;; A normal row's description cell renders both a view button and a bound input;
+;; an `editing` class on the cell swaps which is shown (CSS), so opening the editor
+;; never shifts the row. Both the button (data-text) and the input (data-bind) read
+;; the same desc.tx<id> signal, so the optimistic value stands instantly. $descOrig
+;; snapshots the pre-edit value so Escape can revert. Enter/blur persist via @put;
+;; the server reconciles the signal to the authoritative effective description (a
+;; cleared override falls back to the imported text). Split memos edit in 3e.
+
+(defn- desc-open-js
+  "Button click: snapshot the current value, open the editor, focus + select input."
+  [tx-id]
+  (str "$descOrig = $desc.tx" tx-id ", "
+       "el.closest('.description-cell').classList.add('editing'), "
+       "el.nextElementSibling.focus(), el.nextElementSibling.select()"))
+
+(defn- desc-keydown-js [tx-id]
+  (let [put   (str "@put('/transactions/" tx-id "/description')")
+        close "el.closest('.description-cell').classList.remove('editing'), el.previousElementSibling.focus()"]
+    (str "evt.key === 'Enter' && (" put ", " close "); "
+         "evt.key === 'Escape' && ($desc.tx" tx-id " = $descOrig, " close ")")))
+
+(defn- desc-blur-js
+  "A genuine click-away commits. Enter/Escape already cleared `editing`, so their
+   trailing blur is a no-op — this guards the double-commit React latched against."
+  [tx-id]
+  (str "el.closest('.description-cell').classList.contains('editing') && "
+       "(@put('/transactions/" tx-id "/description'), "
+       "el.closest('.description-cell').classList.remove('editing'))"))
+
+(defn- editable-description
+  "View button + bound input for a normal row's editable description."
+  [tx-id text]
+  (list
+   [:button.description-button
+    (h/a {"type" "button" "tabindex" "-1"
+          "data-text" (str "$desc.tx" tx-id " ? $desc.tx" tx-id " : '—'")
+          "data-on:click" (desc-open-js tx-id)
+          "aria-label" (when (str/blank? text) "Add description")})
+    (if (str/blank? text) "—" text)]
+   [:input.description-input
+    (h/a {"type" "text" "data-bind" (str "desc.tx" tx-id)
+          "aria-label" "Edit description"
+          "data-on:keydown" (desc-keydown-js tx-id)
+          "data-on:blur" (desc-blur-js tx-id)})]))
+
+;; --- Category combobox (Zag island + Datastar persistence) -----------------
+;; A normal row's category cell keeps the .category-button as the view (the island
+;; opens the combobox on click) plus a hidden input bound to cat.tx<id>: the island
+;; writes the chosen id there and dispatches change, which @put-persists the change.
+;; The server runs update-category! and patches the toolbar counts (a category change
+;; moves the uncategorized count). Split-row categories open the split modal in 3e.
+
+(defn- editable-category [tx-id category]
+  (list
+   [:button.category-button.combo-cell
+    (h/a {"type" "button" "tabindex" "-1"
+          "id" (str "cat-view-tx" tx-id)
+          "aria-haspopup" "listbox"})
+    (or (:category/name category) "Uncategorized")]
+   [:input
+    (h/a {"type" "hidden" "data-bind" (str "cat.tx" tx-id)
+          "data-on:change" (str "@put('/transactions/" tx-id "/category')")})]))
+
+(defn- category-options
+  "Hidden source-of-truth list the combobox island reconstructs its Category[] from
+   (id/parent/sort-order as data-attrs) — Replicant escapes JSON in a <script>, so the
+   model is carried in the DOM instead (migration gotcha §2)."
+  [categories]
+  [:ul#category-options {:hidden true :aria-hidden "true"}
+   (for [c categories]
+     [:li (cond-> {:data-id (:db/id c)}
+            (:category/type c)                   (assoc :data-type (name (:category/type c)))
+            (get-in c [:category/parent :db/id]) (assoc :data-parent (get-in c [:category/parent :db/id]))
+            (:category/sort-order c)             (assoc :data-sort (:category/sort-order c)))
+      (:category/name c)])])
 
 (defn- transfer-status
   "The inline ⇄ marker beside a category: a quiet matched glyph, or an ochre 'Match'
@@ -184,12 +262,11 @@
    [:td (or (:account/external-name account) "—")]
    [:td (or (get-in account [:account/institution :institution/name]) "—")]
    [:td payee]
-   [:td.description-cell (description-button effective-description)]
+   [:td.description-cell.editable (editable-description (:db/id tx) effective-description)]
    [:td.amount-cell (amount-span amount false)]
    [:td.category-cell
     [:div.category-cell-row
-     [:button.category-button {:type "button" :tabindex "-1"}
-      (or (:category/name category) "Uncategorized")]
+     (editable-category (:db/id tx) category)
      (transfer-status tx)]]
    [:td.reviewed-cell (reviewed-checkbox (str "reviewed.tx" (:db/id tx)))]
    [:td.actions-cell]
@@ -341,6 +418,30 @@
                       (boolean (:transaction/reviewed tx))]]))
                 txs)))
 
+(defn- unsplit [txs] (remove #(seq (:transaction/splits %)) txs))
+
+(defn- unsplit-signal-map
+  "Build a {tx<id> (value-fn tx)} signal map over the month's normal (unsplit) rows —
+   the shape the per-row desc/cat signal namespaces share. (reviewed differs: it keys
+   split parts individually, so it builds its own map.)"
+  [txs value-fn]
+  (into {} (for [tx (unsplit txs)]
+             [(keyword (str "tx" (:db/id tx))) (value-fn tx)])))
+
+(defn- description-signals
+  "Initial `desc` signal map {tx<id> effective-description} — what the inline
+   description editor binds to. Split memos edit in 3e."
+  [txs]
+  (unsplit-signal-map txs #(or (not-empty (:transaction/effective-description %)) "")))
+
+(defn- category-signals
+  "Initial `cat` signal map {tx<id> category-id-or-\"\"} — the hidden bound input the
+   combobox island writes to persist a category change. Ids are stringified so Datastar
+   types the signal as a string: a numeric seed would make `data-bind` coerce a cleared
+   value to 0 (truthy server-side) instead of \"\"."
+  [txs]
+  (unsplit-signal-map txs #(if-let [cid (get-in % [:transaction/category :db/id])] (str cid) "")))
+
 ;; ---------------------------------------------------------------------------
 ;; Page
 ;; ---------------------------------------------------------------------------
@@ -353,13 +454,18 @@
           month-str (month/serialize m)
           txs (db-transactions/list-for-month db-conn month-str)
           counts (db-transactions/month-counts txs)
-          stats (db-stats/entity-counts db-conn)]
+          stats (db-stats/entity-counts db-conn)
+          categories (db-categories/list-all db-conn)]
       {:status 200
        :headers {"Content-Type" "text/html"}
        :body
        (layout/base-page
         {:title "Finance Aggregator"
+         :islands ["combobox"]
          :signals {:reviewed (reviewed-signals txs)
+                   :desc (description-signals txs)
+                   :descOrig ""
+                   :cat (category-signals txs)
                    :month month-str
                    :search ""
                    :scope "all"
@@ -372,4 +478,5 @@
            (toolbar m counts)
            (if (empty? txs)
              (empty-state)
-             (transactions-table txs))]]])})))
+             (transactions-table txs))]]
+         (category-options categories)])})))

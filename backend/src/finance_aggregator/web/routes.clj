@@ -7,6 +7,7 @@
    a server-authoritative SSE round-trip, and an esbuild island. Real pages land
    here (and under finance-aggregator.web.pages.*) as the migration proceeds."
   (:require
+   [charred.api :as json]
    [finance-aggregator.db.transactions :as db-transactions]
    [finance-aggregator.web.hiccup :as h]
    [finance-aggregator.web.layout :as layout]
@@ -15,6 +16,21 @@
    [finance-aggregator.web.pages.transactions :as transactions]
    [starfederation.datastar.clojure.api :as d*]
    [starfederation.datastar.clojure.adapter.http-kit :as hk]))
+
+;; ---------------------------------------------------------------------------
+;; SSE helper
+;; ---------------------------------------------------------------------------
+
+(defn- sse-respond
+  "Open an SSE response, run each patch fn (each given the sse generator) on open,
+   then close. The shared shape of every hypermedia write-behind handler."
+  [req & patch-fns]
+  (hk/->sse-response
+   req
+   {hk/on-open
+    (fn [sse]
+      (run! #(% sse) patch-fns)
+      (d*/close-sse! sse))}))
 
 ;; ---------------------------------------------------------------------------
 ;; Phase-1 scaffold — delete once a real page owns these patterns.
@@ -68,12 +84,7 @@
   [req]
   (let [signals (h/read-signals req)]
     (swap! scaffold-state assoc :last-synced (:count signals))
-    (hk/->sse-response
-     req
-     {hk/on-open
-      (fn [sse]
-        (d*/patch-elements! sse (h/render (sync-fragment)))
-        (d*/close-sse! sse))})))
+    (sse-respond req #(d*/patch-elements! % (h/render (sync-fragment))))))
 
 ;; ---------------------------------------------------------------------------
 ;; Transactions hypermedia handlers
@@ -89,12 +100,40 @@
           month   (month/serialize (month/parse (:month signals)))]
       (db-transactions/sync-reviewed! db-conn (:reviewed signals))
       (let [counts (db-transactions/month-counts (db-transactions/list-for-month db-conn month))]
-        (hk/->sse-response
-         req
-         {hk/on-open
-          (fn [sse]
-            (d*/patch-elements! sse (transactions/counts-fragment counts))
-            (d*/close-sse! sse))})))))
+        (sse-respond req #(d*/patch-elements! % (transactions/counts-fragment counts)))))))
+
+(defn- set-description-handler
+  "Write-behind sink for the inline description editor. Persists the row's `desc`
+   signal as a user-description override, then patches the signal back to the
+   authoritative effective description — so clearing the override reconciles to the
+   imported description (which the optimistic blank can't know)."
+  [{:keys [db-conn]}]
+  (fn [req]
+    (let [signals   (h/read-signals req)
+          tx-id     (-> req :path-params :id parse-long)
+          sig-key   (keyword (str "tx" tx-id))
+          updated   (db-transactions/set-user-description! db-conn tx-id (get-in signals [:desc sig-key]))
+          effective (or (not-empty (:transaction/effective-description updated)) "")]
+      (sse-respond req #(d*/patch-signals! % (json/write-json-str {:desc {sig-key effective}}))))))
+
+(defn- set-category-handler
+  "Write-behind sink for the category combobox. Reads the row's `cat` signal (empty
+   string clears the category), persists via update-category!, and patches the
+   server-authoritative toolbar counts (a category change moves the uncategorized
+   count). The combobox island already updated the cell optimistically."
+  [{:keys [db-conn]}]
+  (fn [req]
+    (let [signals (h/read-signals req)
+          tx-id   (-> req :path-params :id parse-long)
+          month   (month/serialize (month/parse (:month signals)))
+          cat-raw (get-in signals [:cat (keyword (str "tx" tx-id))])
+          cat-id  (cond
+                    (number? cat-raw) (long cat-raw)
+                    (string? cat-raw) (some-> cat-raw not-empty parse-long)
+                    :else nil)]
+      (db-transactions/update-category! db-conn tx-id cat-id)
+      (let [counts (db-transactions/month-counts (db-transactions/list-for-month db-conn month))]
+        (sse-respond req #(d*/patch-elements! % (transactions/counts-fragment counts)))))))
 
 ;; ---------------------------------------------------------------------------
 ;; Route tree
@@ -108,6 +147,8 @@
   [""
    ["/"                      {:get {:handler (transactions/page deps) :name ::transactions}}]
    ["/transactions/reviewed" {:put {:handler (sync-reviewed-handler deps) :name ::sync-reviewed}}]
+   ["/transactions/:id/description" {:put {:handler (set-description-handler deps) :name ::set-description}}]
+   ["/transactions/:id/category"    {:put {:handler (set-category-handler deps) :name ::set-category}}]
    ["/setup"                 {:get {:handler (setup/page deps) :name ::setup}}]
    ["/_scaffold"      {:get  {:handler scaffold-page :name ::scaffold}}]
    ["/_scaffold/sync" {:post {:handler scaffold-sync :name ::scaffold-sync}}]])
