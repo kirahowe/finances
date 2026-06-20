@@ -16,11 +16,11 @@ notes) is in **`replicant-datastar-3c-3d-handoff.md`** — read that before cont
 ## 1. Status at a glance
 
 Phases **0–3c done; 3d DONE** (grid-nav, keyboard editing, column visibility, sorting,
-header-filter funnels, column resize/auto-fit, lingering rows, URL view-state) — on
-`spike/replicant-datastar`. Backend suite green throughout (**274 tests / 1197 assertions /
-0 failures**); islands `tsc` clean + **64** vitest. Every UI unit has a real-Chromium
-`e2e/*.mjs` check — **15 specs / 183 checks** green. Next up: **Phase 3e** (split editor +
-transfer modals + rollup + row actions).
+header-filter funnels, column resize/auto-fit, lingering rows, URL view-state, pagination)
+— on `spike/replicant-datastar`. Backend suite green throughout (**274 tests / 1197
+assertions / 0 failures**); islands `tsc` clean + **64** vitest. Every UI unit has a
+real-Chromium `e2e/*.mjs` check — **16 specs / 200 checks** green. Next up: **Phase 3e**
+(split editor + transfer modals + rollup + row actions).
 
 | Phase | What shipped | Check |
 |---|---|---|
@@ -38,6 +38,7 @@ transfer modals + rollup + row actions).
 | 3d-5 | **column resize/auto-fit island** (`col-resize.ts`): table switched to `.table-resizable` (fixed layout); auto-fit on load + ResizeObserver/visibility-change; drag handles (min/max clamp) + double-click re-fit; sort-collision guard; hides hidden columns' `<col>` so widths map 1:1 | `e2e/resize.mjs` **11/11** |
 | 3d-6 | **lingering rows**: pin-on-edit (`$linger.tx<id>`) so reviewing/categorizing a row keeps it in place (`.is-stale` + "→" breadcrumb) until a filter change clears the pins (centralized `data-on-signal-patch` reset); category clause now reads the live `$cat` signal | `e2e/lingering.mjs` **12/12** |
 | 3d-7 | **URL view-state**: server seeds signals from query params; `url-state` island (`__syncUrl`) + sort island write search/scope/chips/funnels/cols/sort back; month nav preserves the params | `e2e/url-state.mjs` **16/16** |
+| 3d-8 | **pagination** (client-side, filter→paginate): `pagination` island slices filter-visible row-groups via `.page-hidden` (composes with data-show); page-size buttons (25/50/100/250) + First/Prev/"Page X of Y"/Next/Last; URL-persisted (`page` 1-indexed, `pageSize`); server seeds + clamps the initial page; page resets on filter/month change | `e2e/pagination.mjs` **17/17** |
 
 React still runs on `:5173` (untouched, for before/after comparison). The new app
 is served by the backend at `:8080` (`/`, `/setup`). Flip + delete React at Phase 5.
@@ -85,6 +86,7 @@ BASE_URL=http://localhost:8099 node e2e/funnels.mjs       # 22
 BASE_URL=http://localhost:8099 node e2e/resize.mjs        # 11
 BASE_URL=http://localhost:8099 node e2e/lingering.mjs     # 12  (mutates + resets seed)
 BASE_URL=http://localhost:8099 node e2e/url-state.mjs     # 16
+BASE_URL=http://localhost:8099 node e2e/pagination.mjs    # 17  (forces pages via ?pageSize=3)
 ```
 
 ---
@@ -182,15 +184,23 @@ Resolved during the rest of 3d (kept here for history):
 - ~~URL view-state~~ — **done (3d-7)**: server seeds signals from query params; the
   `url-state` island + the sort island write them back; month nav preserves them.
 
+- ~~Pagination~~ — **done (3d-8)**: client-side (filter→paginate) via the `pagination`
+  island + URL-persisted page/pageSize. Page-size from the URL accepts any positive int
+  (buttons offer 25/50/100/250); the e2e forces multi-page over the 10-row seed with
+  `?pageSize=3`.
+
 Still open:
-1. **Pagination deferred** (seed month < 25 rows). `page`/`pageSize` URL state not yet —
-   confirm it's even needed before building.
-2. **Column WIDTHS not persisted to the URL.** Visibility + sort persist (3d-7); the
-   resize island's manual `userWidths` don't yet (gap #6's list was visibility, not
-   widths). Fold in via a `colw=id:width,…` param the col-resize island reads/writes.
-3. **Sort doesn't clear lingering rows.** React resets lingering on sort too; our sort is
-   a client island with no signal, so the `data-on-signal-patch` reset doesn't see it.
-   Benign (stale rows just stay, reordered) — wire a signal if it ever matters.
+1. **Column WIDTHS not persisted to the URL.** Visibility + sort + page persist; the
+   resize island's manual `userWidths` don't yet. Fold in via a `colw=id:width,…` param
+   the col-resize island reads/writes.
+2. **Sort doesn't clear lingering rows / reset page.** React resets both on sort too; our
+   sort is a client island with no signal, so the `data-on-signal-patch` reset doesn't see
+   it (the pagination island DOES re-slice on `grid-refresh`, so the page stays valid).
+   Benign — wire a signal if it ever matters.
+3. **Pagination edge: filtered-on-load page count.** The server seeds the initial page
+   count from the TOTAL tx count; a URL that loads with a filter AND a high page can briefly
+   over-count until the first interaction (the island re-slices correctly throughout; only
+   the count badge is briefly high). No-filter load is exact.
 4. **Inline edit / split deferrals (3e).** **Split** memo + category editing is untouched
    (split-row buttons stay inert; no `data-cell` on split cells; the inert split category
    button has no `aria-disabled` yet). Split rows aren't keyboard-navigable or resizable-
@@ -235,10 +245,13 @@ Shipped as units 3d-1…3d-7 (see the status table §1 for each + its e2e spec):
   (fixed layout); auto-fit + drag + double-click re-fit; hides hidden columns' `<col>`.
 - **lingering rows** (3d-6): pin-on-edit `$linger` + centralized signal-patch reset.
 - **URL view-state** (3d-7): server seeds from params; `url-state`/sort islands write back.
+- **pagination** (3d-8): client-side filter→paginate via the `pagination` island
+  (`.page-hidden` over filter-visible groups); page-size buttons; URL-persisted page/pageSize;
+  server seeds + clamps the initial page; resets on filter/month change.
 
-Remaining 3d-adjacent items are deferred (see §5): *pagination* (likely unneeded — confirm),
-*column-width URL persistence*, and the *split-row* editing paths (3e). Split-row
-navigation/editing stays in 3e (no `data-cell` on split cells; baked category tokens).
+Remaining 3d-adjacent items are deferred (see §5): *column-width URL persistence* and the
+*split-row* editing paths (3e). Split-row navigation/editing stays in 3e (no `data-cell` on
+split cells; baked category tokens).
 
 **3e — modals + rollup + row actions**
 - *Split editor*: port `splitMath.ts`; live balance; `@put('/transactions/:id/splits')`
