@@ -231,6 +231,12 @@
             (:category/sort-order c)             (assoc :data-sort (:category/sort-order c)))
       (:category/name c)])])
 
+(defn- grid-cell
+  "Attrs marking a <td> as a keyboard-navigable grid cell (txId:tx:col, matching the ported
+   gridNavigation reducer). Normal rows only; split cells aren't navigable yet."
+  [tx-id col]
+  {:data-cell (str tx-id ":tx:" col) :role "gridcell" :tabindex "-1"})
+
 (defn- normal-row [stale? {:transaction/keys [posted-date account payee effective-description
                                               amount category reviewed] :as tx}]
   [:tr {:role "row" :class (row-class "" stale?)}
@@ -238,10 +244,10 @@
    [:td (or (:account/external-name account) "—")]
    [:td (or (get-in account [:account/institution :institution/name]) "—")]
    [:td payee]
-   [:td.description-cell (editable-description (:db/id tx) effective-description)]
+   [:td.description-cell (grid-cell (:db/id tx) "description") (editable-description (:db/id tx) effective-description)]
    [:td.amount-cell (amount-span amount false)]
-   [:td.category-cell (editable-category (:db/id tx) category)]
-   [:td.reviewed-cell (reviewed-checkbox (:db/id tx) reviewed true)]])
+   [:td.category-cell (grid-cell (:db/id tx) "category") (editable-category (:db/id tx) category)]
+   [:td.reviewed-cell (grid-cell (:db/id tx) "reviewed") (reviewed-checkbox (:db/id tx) reviewed true)]])
 
 (defn- split-parent-row [stale? {:transaction/keys [posted-date account payee effective-description]}]
   [:tr {:role "row" :class (row-class "is-split-parent" stale?)}
@@ -591,7 +597,7 @@
        :body
        (layout/document
         {:title "Finance Aggregator"
-         :islands ["combobox" "v2-url"]
+         :islands ["combobox" "v2-url" "grid-nav"]
          :signals (client-signals vs month-str result (:query-params req))}
         [:div.container.container--workspace {"data-on:keydown__window" undo-key-js}
          (shell/masthead {:active :transactions :stats stats})

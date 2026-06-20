@@ -86,8 +86,11 @@ if (scroll && table) {
     document.activeElement.classList.contains('description-input');
 
   // paint() reflects the active cell (highlight + roving tabindex + ARIA); focus is
-  // moved explicitly so opening an editor (which takes focus) isn't fought.
+  // moved explicitly so opening an editor (which takes focus) isn't fought. `painting`
+  // guards the morph observer below from reacting to paint()'s own class writes.
+  let painting = false;
   function paint() {
+    painting = true;
     for (const td of cellEls.values()) {
       td.classList.remove('grid-cell-active');
       td.setAttribute('tabindex', '-1');
@@ -102,8 +105,20 @@ if (scroll && table) {
     } else {
       scroll!.setAttribute('tabindex', '0');
     }
+    queueMicrotask(() => { painting = false; });
   }
   const focusActive = () => elFor(state.active)?.focus();
+
+  // A server-authoritative edit/filter/sort/paginate morphs #tx-tbody, which makes idiomorph
+  // reset the cells' attributes (wiping the active highlight). state.active is keyed by the
+  // stable RowKey, so on any tbody mutation we rebuild the cell map and repaint — restoring the
+  // active cell (or clearing it if its row is gone). Guarded so paint()'s own writes don't loop.
+  const morphObserver = new MutationObserver(() => {
+    if (painting) return;
+    buildModel();
+    paint();
+  });
+  morphObserver.observe(table, { childList: true, subtree: true, attributes: true, attributeFilter: ['class'] });
 
   function toggleReviewed() {
     elFor(state.active)?.querySelector<HTMLInputElement>('.reviewed-checkbox')?.click();
