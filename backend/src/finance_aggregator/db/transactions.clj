@@ -100,6 +100,12 @@
   [conn tx-id]
   (or (:transaction/user-description (d/pull (d/db conn) [:transaction/user-description] tx-id)) ""))
 
+(defn category-id
+  "The transaction's current category id (nil when uncategorized) — for capturing the
+   before-value of a recategorize command so undo can restore it."
+  [conn tx-id]
+  (get-in (d/pull (d/db conn) [{:transaction/category [:db/id]}] tx-id) [:transaction/category :db/id]))
+
 (defn needs-category?
   "True when a transaction still needs a category: a split needs work when any part
    lacks a category; an unsplit row needs a category ref. (Mirrors React needsCategory.)"

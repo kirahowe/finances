@@ -157,6 +157,7 @@
    ["/v2/rows"               {:get {:handler (transactions2/rows deps) :name ::v2-rows}}]
    ["/v2/tx/:id/reviewed/:v" {:put {:handler (transactions2/toggle-reviewed deps) :name ::v2-reviewed}}]
    ["/v2/tx/:id/description" {:put {:handler (transactions2/set-description deps) :name ::v2-description}}]
+   ["/v2/tx/:id/category"    {:put {:handler (transactions2/set-category deps) :name ::v2-category}}]
    ["/v2/undo"               {:post {:handler (transactions2/undo deps) :name ::v2-undo}}]
    ["/v2/redo"               {:post {:handler (transactions2/redo deps) :name ::v2-redo}}]
    ;; SPIKE — server-authoritative filtering over SSE (delete after the latency test).

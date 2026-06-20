@@ -89,7 +89,8 @@
    :page          (:page result)
    :pageSize      (:page-size result)
    :month         month-str
-   :editValue     ""})
+   :editValue     ""
+   :catValue      ""})
 
 ;; ---------------------------------------------------------------------------
 ;; Rows (read-only in cp1; editors arrive in cp2)
@@ -152,6 +153,35 @@
      "data-on:keydown" (desc-keydown-js tx-id)
      "data-on:blur" (desc-blur-js tx-id)}]))
 
+;; --- Inline category edit (Zag combobox island + server-confirmed command) -------------
+;; The category cell keeps a .category-button.combo-cell (the combobox island opens it on
+;; click) plus a hidden input courier: the island writes the chosen id there and dispatches
+;; change, which copies it into the single $catValue signal and @put's. The server records an
+;; :update-category command (capturing the prior category id for undo) and morphs the row +
+;; counts (a category change moves the uncategorized count). The category model travels in a
+;; hidden #category-options DOM list (the island reconstructs Category[] from data-attrs).
+
+(defn- editable-category [tx-id category]
+  (list
+   [:button.category-button.combo-cell
+    {:type "button" :tabindex "-1" :id (str "cat-view-tx" tx-id) :aria-haspopup "listbox"}
+    (or (:category/name category) "Uncategorized")]
+   [:input {:type "hidden"
+            "data-on:change" (str "$catValue = el.value; @put('/v2/tx/" tx-id "/category')")}]))
+
+(defn- category-options
+  "Hidden source-of-truth list the combobox island reconstructs its Category[] from
+   (id/parent/sort-order as data-attrs — Replicant escaped JSON in a <script>; the DOM-carried
+   model is renderer-agnostic and we keep it)."
+  [categories]
+  [:ul#category-options {:hidden true :aria-hidden "true"}
+   (for [c categories]
+     [:li (cond-> {:data-id (:db/id c)}
+            (:category/type c)                   (assoc :data-type (name (:category/type c)))
+            (get-in c [:category/parent :db/id]) (assoc :data-parent (get-in c [:category/parent :db/id]))
+            (:category/sort-order c)             (assoc :data-sort (:category/sort-order c)))
+      (:category/name c)])])
+
 (defn- normal-row [stale? {:transaction/keys [posted-date account payee effective-description
                                               amount category reviewed] :as tx}]
   [:tr {:role "row" :class (row-class "" stale?)}
@@ -161,7 +191,7 @@
    [:td payee]
    [:td.description-cell (editable-description (:db/id tx) effective-description)]
    [:td.amount-cell (amount-span amount false)]
-   [:td.category-cell (or (:category/name category) "Uncategorized")]
+   [:td.category-cell (editable-category (:db/id tx) category)]
    [:td.reviewed-cell (reviewed-checkbox (:db/id tx) reviewed true)]])
 
 (defn- split-parent-row [stale? {:transaction/keys [posted-date account payee effective-description]}]
@@ -371,7 +401,7 @@
           txs (db-transactions/list-for-month db-conn month-str)
           counts (db-transactions/month-counts txs)
           stats (db-stats/entity-counts db-conn)
-          _categories (db-categories/list-all db-conn) ; (combobox model — used later)
+          categories (db-categories/list-all db-conn)
           vs (query->view-state (:query-params req))
           result (view/view txs vs)]
       {:status 200
@@ -379,6 +409,7 @@
        :body
        (layout/document
         {:title "Finance Aggregator"
+         :islands ["combobox"]
          :signals (vs->signals vs month-str result)}
         [:div.container.container--workspace {"data-on:keydown__window" undo-key-js}
          (shell/masthead {:active :transactions :stats stats})
@@ -387,7 +418,8 @@
            (toolbar m counts)
            (if (empty? txs)
              (empty-state)
-             (list (table (:rows result)) (pagination-bar result)))]]])})))
+             (list (table (:rows result)) (pagination-bar result)))]]
+         (category-options categories)])})))
 
 (defn rows
   "GET /v2/rows — a pure view change: clear lingering, re-run the view, morph the tbody +
@@ -451,6 +483,23 @@
       (commands/apply! db-conn auth/user-id
                        {:type :set-description :tx-id tx-id :before before :after after
                         :label "Edited description"})
+      (edit-response db-conn req signals))))
+
+(defn set-category
+  "PUT /v2/tx/:id/category — record + apply an :update-category command (the chosen id rides
+   in the $catValue courier; empty = clear), then re-render (counts move)."
+  [{:keys [db-conn]}]
+  (fn [req]
+    (let [tx-id (-> req :path-params :id parse-long)
+          signals (r/read-signals req)
+          before (db-transactions/category-id db-conn tx-id)
+          raw (:catValue signals)
+          after (cond (number? raw) (long raw)
+                      (string? raw) (some-> raw not-empty parse-long)
+                      :else nil)]
+      (commands/apply! db-conn auth/user-id
+                       {:type :set-category :tx-id tx-id :before before :after after
+                        :label "Recategorized"})
       (edit-response db-conn req signals))))
 
 (defn undo
