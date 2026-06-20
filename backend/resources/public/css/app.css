@@ -1,17 +1,39 @@
 /* Entry stylesheet for the server-rendered (Replicant + Datastar) frontend.
-   Composes the carried-over "Ledger" design system in the same order the React
-   root loaded it, so server-rendered pages inherit the exact visual language.
-   Dark mode is driven by prefers-color-scheme only (no toggle).
-   @import rules must precede all other rules. */
+   Composes the carried-over "Ledger" design system: base tokens first, then
+   shared components, layouts, and page styles. Dark mode is driven by
+   prefers-color-scheme only (no toggle). @import rules must precede all other
+   rules. */
 
+/* Base */
 @import "base/variables.css";
 @import "base/reset.css";
 @import "base/typography.css";
+
+/* Shared components */
 @import "components/common.css";
+@import "components/category-button.css";
+@import "components/category-dropdown.css";
+@import "components/category-rollup.css";
+@import "components/category-table.css";
+@import "components/csv-import.css";
+@import "components/filter.css";
+@import "components/grid-navigation.css";
+@import "components/month-navigator.css";
+@import "components/pagination.css";
+@import "components/provider-connection.css";
+@import "components/row-actions.css";
+@import "components/split-modal.css";
+@import "components/split-rows.css";
+@import "components/transactions-table.css";
+@import "components/transfer-modal.css";
+
+/* Layouts */
 @import "layouts/container.css";
 @import "layouts/app-shell.css";
+
+/* Pages */
 @import "pages/dashboard.css";
-@import "components/provider-connection.css";
+@import "pages/plaid-test.css";
 
 /* --- Phase 1 scaffold only (remove with the /_scaffold route) --------------- */
 .scaffold { max-width: 48rem; margin: 2rem auto; padding: 0 1.5rem; }

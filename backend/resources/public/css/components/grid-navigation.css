@@ -1,0 +1,46 @@
+/* Spreadsheet-style keyboard navigation.
+
+   The active cell is the focusable unit (roving tabindex lives on the <td>, not
+   the inner button/checkbox), so Enter/Space never trigger a native control's own
+   keyboard activation — the table's single keydown handler owns every key. The
+   active <td> draws a 2px inset ring in a softened pine (the full-strength accent
+   reads too dark as a cell outline); its own focus outline is suppressed. */
+
+.transactions-table-scroll:focus {
+  outline: none;
+}
+
+.table.table-resizable td.grid-cell-active {
+  box-shadow: inset 0 0 0 2px color-mix(in srgb, var(--color-pine) 55%, var(--color-pine-soft));
+  border-radius: var(--radius-sm);
+}
+
+.table.table-resizable td.grid-cell-active:focus {
+  outline: none;
+}
+
+/* Edit mode wears the same cell ring as navigation: the editor itself is flush
+   (no second border, fill, or focus shadow), so the only change from a selected
+   cell is a blinking caret. Scoped to the active grid cell so the same inputs keep
+   their bordered look elsewhere (e.g. the category combobox in the split modal). */
+.table.table-resizable td.grid-cell-active .description-input,
+.table.table-resizable td.grid-cell-active .category-dropdown-input {
+  border-color: transparent;
+  background: transparent;
+  box-shadow: none;
+}
+
+/* Hovering an editable cell (that isn't already selected) hints at selection with
+   a faint ring, in the same language as the active cell — replacing the old filled
+   "editable area" box, which read as a competing inner box. */
+.table.table-resizable td:has(.description-button):hover:not(.grid-cell-active),
+.table.table-resizable td:has(.category-button):hover:not(.grid-cell-active) {
+  box-shadow: inset 0 0 0 1px var(--color-pine-soft-border);
+  border-radius: var(--radius-sm);
+}
+
+.table.table-resizable .description-button:hover,
+.table.table-resizable .category-button:hover {
+  background-color: transparent;
+  border-color: transparent;
+}

@@ -1,0 +1,90 @@
+.category-dropdown {
+  position: relative;
+  /* Fill the category cell rather than forcing a wider box that would spill
+     past the table edge; the absolutely-positioned list inherits this width. */
+  width: 100%;
+}
+
+.category-dropdown-input {
+  width: 100%;
+  /* Shares .category-button's box so opening the editor never shifts the row;
+     the active state adds only the pine border + focus ring on top. */
+  padding: var(--category-field-padding-y) var(--category-field-padding-x);
+  margin: calc(-1 * var(--category-field-padding-y))
+    calc(-1 * var(--category-field-padding-x));
+  border: 1px solid var(--color-primary);
+  border-radius: var(--radius-sm);
+  font-family: inherit;
+  font-size: inherit;
+  line-height: inherit;
+  color: var(--color-ink);
+  background: var(--color-surface);
+  box-shadow: var(--focus-ring);
+}
+
+.category-dropdown-input:focus {
+  outline: none;
+}
+
+.category-dropdown-list {
+  position: absolute;
+  top: 100%;
+  left: 0;
+  right: 0;
+  max-height: 300px;
+  overflow-y: auto;
+  background: var(--color-surface);
+  border: 1px solid var(--color-border);
+  border-radius: var(--border-radius);
+  margin-top: 5px;
+  padding: var(--spacing-xs);
+  list-style: none;
+  box-shadow: var(--shadow-lg);
+  z-index: 1000;
+}
+
+/* Portaled to <body> when the table scrolls horizontally; coordinates are set
+   inline from the input's rect, so the absolute top/left/right are overridden. */
+.category-dropdown-list-portal {
+  position: fixed;
+  left: auto;
+  right: auto;
+  margin-top: 0;
+}
+
+/* Hidden for the first paint, before the input's rect has been measured and the
+   fixed coordinates applied — avoids a flash at the wrong position. */
+.category-dropdown-list-portal--measuring {
+  visibility: hidden;
+}
+
+.category-dropdown-item {
+  padding: 0.4rem 0.6rem;
+  border-radius: var(--radius-sm);
+  cursor: pointer;
+  text-align: left;
+  white-space: normal;
+  word-wrap: break-word;
+  font-size: var(--text-sm);
+}
+
+/* A parent category: selectable in its own right, emphasized as a group label. */
+.category-dropdown-item--parent {
+  font-weight: 600;
+}
+
+/* Children sit under their parent, indented to read as nested. */
+.category-dropdown-item--child {
+  padding-left: 1.4rem;
+}
+
+.category-dropdown-item:hover {
+  background-color: var(--color-paper-deep);
+}
+
+.category-dropdown-item.highlighted {
+  background-color: var(--color-accent-soft);
+  color: var(--color-pine-hover);
+  font-weight: 500;
+  box-shadow: inset 2px 0 0 var(--color-primary);
+}

@@ -1,0 +1,431 @@
+/* The command bar: a single rule carrying the month dateline, the work-queue
+   toggles, the search box, and the right-aligned actions. It used to sit below a
+   separate month row; folding both into one bar is what frees the screen for table. */
+.toolbar {
+  display: flex;
+  align-items: center;
+  gap: var(--spacing-sm);
+  margin-bottom: var(--spacing-md);
+  flex-wrap: wrap;
+}
+
+/* Hairline between the period (dateline + month arrows) and the filter cluster, so
+   "where am I" reads as distinct from "what am I looking at" within the one bar. */
+.toolbar-divider {
+  align-self: stretch;
+  width: 1px;
+  min-height: 1.4rem;
+  margin: 0 var(--spacing-xs);
+  background: var(--color-border);
+}
+
+.toolbar-controls {
+  display: flex;
+  align-items: center;
+  gap: var(--spacing-sm);
+  flex-wrap: wrap;
+  flex: 1;
+}
+
+.toolbar-actions {
+  margin-left: auto;
+  display: flex;
+  align-items: center;
+  gap: var(--spacing-sm);
+  flex-wrap: wrap;
+}
+
+/* Review-scope segmented toggle (Needs review / All) */
+.scope-toggle {
+  display: inline-flex;
+  border: 1px solid var(--color-border-strong);
+  border-radius: var(--border-radius);
+  overflow: hidden;
+  background: var(--color-surface);
+}
+
+.scope-toggle-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--spacing-xs);
+  padding: var(--control-pad-y-sm) var(--control-pad-x-sm);
+  background: none;
+  border: none;
+  cursor: pointer;
+  font-size: var(--text-sm);
+  font-weight: 500;
+  color: var(--color-ink-soft);
+  white-space: nowrap;
+  transition: background-color 0.15s var(--ease-out), color 0.15s var(--ease-out);
+}
+
+.scope-toggle-btn + .scope-toggle-btn {
+  border-left: 1px solid var(--color-border);
+}
+
+.scope-toggle-btn:hover:not(.is-active) {
+  background: var(--color-hover-neutral);
+  color: var(--color-ink);
+}
+
+.scope-toggle-btn.is-active {
+  background: var(--color-primary);
+  color: var(--color-on-accent);
+}
+
+/* Binary filter chips (uncategorized, hide transfers) — rectilinear to match the
+   rest of the bar; the design system uses tight corners (no pills). */
+.count-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--spacing-xs);
+  padding: var(--control-pad-y-sm) var(--control-pad-x-sm);
+  border: 1px solid var(--color-border-strong);
+  border-radius: var(--border-radius);
+  background: var(--color-surface);
+  color: var(--color-ink-soft);
+  font-size: var(--text-sm);
+  font-weight: 500;
+  cursor: pointer;
+  white-space: nowrap;
+  transition: background-color 0.15s var(--ease-out), color 0.15s var(--ease-out),
+    border-color 0.15s var(--ease-out);
+}
+
+.count-chip:hover {
+  background: var(--color-paper-deep);
+  color: var(--color-ink);
+}
+
+.count-chip.is-active {
+  background: var(--color-primary);
+  color: var(--color-on-accent);
+  border-color: transparent;
+}
+
+/* One shared count badge for every filter control — the scope toggle, the binary
+   chips, and the selected-count on the dropdown buttons — so a number always reads
+   the same. */
+.filter-count {
+  font-family: var(--font-mono);
+  font-variant-numeric: tabular-nums;
+  font-size: var(--text-xs);
+  padding: 0 0.3rem;
+  border-radius: var(--radius-sm);
+  background: var(--color-paper-deep);
+  color: var(--color-text-muted);
+}
+
+/* Inverted when its control is active (solid pine fill). */
+.scope-toggle-btn.is-active .filter-count,
+.count-chip.is-active .filter-count {
+  background: rgba(255, 255, 255, 0.22);
+  color: var(--color-on-accent);
+}
+
+/* Dropdown-trigger button — the secondary button + arrow used by the ColumnPicker (and
+   any other menu trigger styled to match the rest of the toolbar). */
+.filter-button-container {
+  position: relative;
+  display: inline-flex;
+  gap: var(--spacing-xs);
+  align-items: center;
+}
+
+.filter-button {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--spacing-sm);
+  padding: var(--control-pad-y-sm) var(--control-pad-x-sm);
+  font-size: var(--text-sm);
+  white-space: nowrap;
+}
+
+.filter-button-arrow {
+  font-size: var(--text-2xs);
+  opacity: 0.7;
+}
+
+/* Filter Dropdown */
+.filter-dropdown {
+  position: absolute;
+  top: calc(100% + 6px);
+  left: 0;
+  z-index: 1000;
+  background: var(--color-surface);
+  border: 1px solid var(--color-border);
+  border-radius: var(--border-radius);
+  box-shadow: var(--shadow-lg);
+  min-width: 280px;
+  max-width: 400px;
+  overflow: hidden;
+}
+
+.filter-dropdown-header {
+  padding: var(--spacing-sm);
+  border-bottom: 1px solid var(--color-border);
+}
+
+.filter-dropdown-search {
+  width: 100%;
+  padding: var(--control-pad-y-sm) 0.6rem;
+  border: 1px solid var(--color-border-strong);
+  border-radius: var(--border-radius);
+  font-size: var(--text-sm);
+  color: var(--color-ink);
+  background: var(--color-surface);
+}
+
+.filter-dropdown-search:focus {
+  outline: none;
+  border-color: var(--color-primary);
+  box-shadow: var(--focus-ring);
+}
+
+.filter-dropdown-list {
+  list-style: none;
+  padding: var(--spacing-xs);
+  margin: 0;
+  max-height: 300px;
+  overflow-y: auto;
+}
+
+.filter-dropdown-item {
+  padding: 0;
+  margin: 0;
+  cursor: pointer;
+  border-radius: var(--radius-sm);
+  transition: background-color 0.12s var(--ease-out);
+}
+
+.filter-dropdown-item:hover,
+.filter-dropdown-item.highlighted {
+  background-color: var(--color-paper-deep);
+}
+
+.filter-dropdown-item.empty {
+  padding: var(--spacing-md);
+  color: var(--color-text-muted);
+  cursor: default;
+}
+
+.filter-dropdown-item.empty:hover {
+  background-color: transparent;
+}
+
+.filter-dropdown-checkbox-label {
+  display: flex;
+  align-items: center;
+  gap: var(--spacing-sm);
+  padding: 0.4rem 0.6rem;
+  width: 100%;
+  font-size: var(--text-sm);
+}
+
+.filter-dropdown-checkbox {
+  cursor: pointer;
+  flex-shrink: 0;
+  accent-color: var(--color-primary);
+}
+
+.filter-dropdown-label-text {
+  flex: 1;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.filter-dropdown-count {
+  color: var(--color-text-muted);
+  font-family: var(--font-mono);
+  font-size: var(--text-xs);
+  flex-shrink: 0;
+}
+
+.filter-dropdown-footer {
+  padding: var(--spacing-sm);
+  border-top: 1px solid var(--color-border);
+  display: flex;
+  justify-content: flex-end;
+}
+
+.filter-dropdown-clear {
+  font-size: var(--text-sm);
+  padding: var(--control-pad-y-sm) var(--control-pad-x-sm);
+}
+
+/* When the dropdown is rendered inside the portaled header-filter popover, the wrapper
+   owns placement, so drop the dropdown's own absolute positioning. */
+.filter-dropdown--bare {
+  position: static;
+  top: auto;
+  left: auto;
+}
+
+/* The portaled container for an in-header column filter. Only top/left are set inline
+   (runtime rect coordinates); the dropdown inside keeps its own border/shadow/box. */
+.header-filter-popover {
+  position: fixed;
+  z-index: 1000;
+}
+
+/* ============================================================
+   In-header (Excel-style) column filter funnel
+   ============================================================ */
+.th-filter-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.15rem;
+  margin-left: var(--spacing-xs);
+  padding: 0.1rem 0.2rem;
+  border: none;
+  background: none;
+  color: var(--color-text-muted);
+  cursor: pointer;
+  border-radius: var(--radius-sm);
+  vertical-align: middle;
+  /* Quiet until the column is hovered or the filter is active, so the header stays clean. */
+  opacity: 0.4;
+  transition: opacity 0.12s var(--ease-out), color 0.12s var(--ease-out),
+    background-color 0.12s var(--ease-out);
+}
+
+.table.table-resizable th:hover .th-filter-btn {
+  opacity: 1;
+}
+
+.th-filter-btn:hover {
+  color: var(--color-ink);
+  background: var(--color-hover-neutral);
+}
+
+/* Keyboard focus must surface the funnel even without a hover (it's otherwise quiet at
+   0.4 opacity), so tabbing across headers lands on a visible control. */
+.th-filter-btn:focus-visible {
+  opacity: 1;
+}
+
+.th-filter-btn.is-active {
+  opacity: 1;
+  color: var(--color-primary);
+}
+
+.th-filter-icon {
+  display: block;
+}
+
+.th-filter-count {
+  font-family: var(--font-mono);
+  font-variant-numeric: tabular-nums;
+  font-size: var(--text-2xs);
+}
+
+/* ============================================================
+   Free-text search box
+   ============================================================ */
+.table-search {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--spacing-xs);
+  padding: 0 0.5rem;
+  border: 1px solid var(--color-border-strong);
+  border-radius: var(--border-radius);
+  background: var(--color-surface);
+  color: var(--color-text-muted);
+}
+
+.table-search:focus-within {
+  border-color: var(--color-primary);
+  box-shadow: var(--focus-ring);
+}
+
+.table-search-icon {
+  flex-shrink: 0;
+}
+
+.table-search-input {
+  border: none;
+  background: none;
+  padding: var(--control-pad-y-sm) 0;
+  font-size: var(--text-sm);
+  color: var(--color-ink);
+  min-width: 13rem;
+}
+
+.table-search-input:focus {
+  outline: none;
+}
+
+/* ============================================================
+   Applied-filter chips (the single active-filter summary)
+   ============================================================ */
+.active-chips {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: var(--spacing-xs);
+  /* Pull up under the filter bar (which carries a large bottom margin) and sit close to
+     the table it narrows. */
+  margin-top: calc(-1 * var(--spacing-sm));
+  margin-bottom: var(--spacing-md);
+}
+
+.active-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--spacing-xs);
+  padding: 0.15rem 0.2rem 0.15rem 0.5rem;
+  border: 1px solid var(--color-border-strong);
+  border-radius: var(--border-radius);
+  background: var(--color-surface);
+  font-size: var(--text-sm);
+  color: var(--color-ink);
+  white-space: nowrap;
+}
+
+.active-chip-field {
+  color: var(--color-text-muted);
+  font-size: var(--text-2xs);
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+}
+
+.active-chip-value {
+  font-weight: 500;
+}
+
+.active-chip-remove {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 1.15rem;
+  height: 1.15rem;
+  border: none;
+  background: none;
+  color: var(--color-text-muted);
+  cursor: pointer;
+  border-radius: var(--radius-sm);
+  font-size: var(--glyph);
+  line-height: 1;
+}
+
+.active-chip-remove:hover {
+  background: var(--color-hover-neutral);
+  color: var(--color-ink);
+}
+
+.active-chips-clear {
+  border: none;
+  background: none;
+  color: var(--color-text-muted);
+  font-size: var(--text-sm);
+  cursor: pointer;
+  padding: var(--control-pad-y-sm) var(--control-pad-x-sm);
+  border-radius: var(--radius-sm);
+}
+
+.active-chips-clear:hover {
+  color: var(--color-ink);
+  text-decoration: underline;
+}

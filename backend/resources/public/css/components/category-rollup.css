@@ -1,0 +1,197 @@
+/* Category rollup pane: a summary column beside the transactions table.
+
+   The table card and this pane sit in a flex row; the pane is sticky and owns its
+   own vertical scroll (`.rollup-scroll`), so a short table never forces a long
+   page scroll to reach the Net line, and a long table never pushes the pane out of
+   view. Below a breakpoint the pane drops beneath the table and scrolls with the
+   page. */
+:root {
+  /* Clears the sticky masthead with a small gap. */
+  --rollup-sticky-top: 5rem;
+}
+
+.transactions-layout {
+  display: flex;
+  align-items: flex-start;
+  gap: var(--spacing-lg);
+}
+
+/* The card holds the wide, horizontally-scrolling table; min-width:0 lets it
+   shrink within the flex row instead of overflowing the pane off-screen. */
+.transactions-layout > .card {
+  flex: 1 1 0;
+  min-width: 0;
+}
+
+.rollup-pane {
+  flex: 0 0 300px;
+  align-self: flex-start;
+  position: sticky;
+  top: var(--rollup-sticky-top);
+  background: var(--color-surface);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-lg);
+  box-shadow: var(--shadow-sm);
+  overflow: hidden; /* clip the inner scroll to the rounded corners */
+  margin-bottom: var(--spacing-lg);
+}
+
+.rollup-scroll {
+  max-height: calc(100vh - var(--rollup-sticky-top) - var(--spacing-lg));
+  overflow-y: auto;
+  padding: var(--spacing-lg);
+}
+
+.rollup-empty {
+  margin: 0;
+  color: var(--color-text-muted);
+  font-size: var(--text-base);
+}
+
+.rollup-section {
+  margin-bottom: var(--spacing-lg);
+}
+
+.rollup-section-title {
+  margin: 0 0 var(--spacing-sm);
+  font-family: var(--font-body);
+  font-size: var(--text-2xs);
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.14em;
+  color: var(--color-text-muted);
+}
+
+.rollup-rows {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+
+.rollup-row-button,
+.rollup-row-static {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: var(--spacing-sm);
+  width: 100%;
+  padding: 0.25rem 0.4rem;
+  border-radius: var(--radius-sm);
+  font: inherit;
+  color: var(--color-ink);
+  text-align: left;
+}
+
+.rollup-row-button {
+  background: none;
+  border: 1px solid transparent;
+  cursor: pointer;
+  transition: background-color 0.15s var(--ease-out),
+    border-color 0.15s var(--ease-out), color 0.15s var(--ease-out);
+}
+
+.rollup-row-button:hover {
+  background: var(--color-accent-soft);
+}
+
+.rollup-row.is-active > .rollup-row-button {
+  background: var(--color-accent-soft);
+  border-color: var(--color-pine-soft-border);
+  color: var(--color-pine-hover);
+}
+
+.rollup-row-name {
+  flex: 1 1 auto;
+  min-width: 0;
+  display: inline-flex;
+  align-items: baseline;
+  gap: 0.35rem;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: var(--color-ink-soft);
+}
+
+.rollup-row--group .rollup-row-name {
+  font-weight: 600;
+  color: var(--color-ink);
+}
+
+.rollup-branch {
+  flex: 0 0 auto;
+  color: var(--color-medium-gray);
+  font-family: var(--font-mono);
+}
+
+.rollup-amount {
+  flex: 0 0 auto;
+  font-family: var(--font-mono);
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+  color: var(--color-ink);
+}
+
+.rollup-amount.positive {
+  color: var(--color-positive);
+}
+
+.rollup-amount.negative {
+  color: var(--color-negative);
+}
+
+.rollup-subtotal {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: var(--spacing-sm);
+  margin-top: var(--spacing-xs);
+  padding: var(--spacing-xs) 0.4rem 0;
+  border-top: 1px solid var(--color-border);
+  font-weight: 600;
+}
+
+.rollup-subtotal .rollup-row-name {
+  flex: 1 1 auto;
+  color: var(--color-ink);
+}
+
+.rollup-net {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: var(--spacing-sm);
+  margin-top: var(--spacing-md);
+  padding-top: var(--spacing-sm);
+  border-top: 2px solid var(--color-border-strong);
+}
+
+.rollup-net-label {
+  font-family: var(--font-body);
+  font-size: var(--text-2xs);
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.14em;
+  color: var(--color-ink);
+}
+
+.rollup-net .rollup-amount {
+  font-size: var(--text-md);
+  font-weight: 600;
+}
+
+@media (max-width: 1100px) {
+  .transactions-layout {
+    flex-direction: column;
+  }
+
+  .rollup-pane {
+    flex: none;
+    width: 100%;
+    position: static;
+    overflow: visible;
+  }
+
+  .rollup-scroll {
+    max-height: none;
+  }
+}

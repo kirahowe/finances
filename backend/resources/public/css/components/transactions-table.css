@@ -1,0 +1,250 @@
+/* Transactions table: resizable columns.
+
+   Column widths are authoritative (set via a <colgroup> from TanStack's sizing
+   state) and the table's own width is their exact sum, so the table uses a fixed
+   layout and resizing a column changes only that column (no proportional reflow).
+   The table can therefore exceed the card, so it lives in a horizontal-scroll
+   container. That container forces overflow-y:auto, which would clip the in-cell
+   category dropdown — so that dropdown is portaled to <body> (see CategoryDropdown
+   portalMenu); the row-actions menu already portals. */
+.transactions-table-scroll {
+  overflow-x: auto;
+  /* Cap the height so a long month scrolls inside the table region with the column
+     header pinned (below), instead of forcing a long whole-page scroll. */
+  overflow-y: auto;
+  max-height: calc(100vh - 18rem);
+}
+
+.table.table-resizable {
+  table-layout: fixed;
+}
+
+/* Pin the column header while the rows scroll, so the labels never leave view.
+   A sticky cell's own border detaches on scroll, so the head rule is drawn with an
+   inset shadow and an opaque background keeps rows from showing through. */
+.table.table-resizable thead th {
+  position: sticky;
+  top: 0;
+  z-index: 2;
+  background: var(--color-surface);
+  border-bottom: none;
+  box-shadow: inset 0 -1px 0 var(--color-border-strong);
+}
+
+/* Denser rows: trim the vertical padding so more of the month fits at a glance
+   (horizontal padding from the shared .table rules is preserved). */
+.table.table-resizable th,
+.table.table-resizable td {
+  padding-top: 0.32rem;
+  padding-bottom: 0.32rem;
+}
+
+/* Cells center vertically so a row's text sits midline against its taller controls
+   (the row-actions caret, the reviewed checkbox). The exception is a row carrying
+   real stacked content — a split group — where top-align keeps the date/amount on
+   the category's first line instead of floating to the middle of the taller cell.
+   (Transfer markers now sit inline beside the category, so those rows stay midline.) */
+.table.table-resizable td {
+  vertical-align: middle;
+}
+
+.table.table-resizable tr.is-split-parent td,
+.table.table-resizable tr.split-child-row td {
+  vertical-align: top;
+}
+
+/* In fixed layout the colgroup owns the widths, so the ellipsis max-width:0 trick
+   from the shared .table rules is both unnecessary and confusing here. */
+.table.table-resizable td {
+  max-width: none;
+}
+
+.table.table-resizable .category-cell {
+  width: auto;
+  max-width: none;
+}
+
+/* The caret column hugs its button; overflow:visible + no left padding keeps the
+   caret from being clipped. */
+.table.table-resizable .actions-cell {
+  width: auto;
+  max-width: none;
+  overflow: visible;
+  padding-left: 0;
+}
+
+/* The reviewed checkbox sits centered in its fixed-width column (header included). */
+.table.table-resizable .reviewed-cell {
+  text-align: center;
+}
+
+.reviewed-checkbox {
+  width: 16px;
+  height: 16px;
+  cursor: pointer;
+  accent-color: var(--color-primary);
+}
+
+.table.table-resizable th {
+  position: relative;
+  user-select: none;
+}
+
+/* Trailing column with no width: in fixed layout it soaks up any width beyond the
+   real columns so the table fills the card, collapsing to 0 once they overflow. */
+.table-spacer-cell {
+  padding: 0;
+}
+
+/* Category is a protected (never-clipped) column, so its label stays on one line —
+   it clips with an ellipsis rather than wrapping, and measures correctly when
+   auto-sizing. (Other CategoryDropdown usages keep the default wrapping.) */
+.table.table-resizable .category-button {
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  word-wrap: normal;
+}
+
+/* Description is editable in place. The resting state is a quiet, full-width button
+   (so the whole cell is a click target, including an empty "—"); editing swaps in an
+   input that shares the same box, so opening the editor never shifts the row. */
+.description-cell {
+  width: auto;
+  max-width: none;
+}
+
+.description-button {
+  background: none;
+  border: 1px solid transparent;
+  color: inherit;
+  cursor: text;
+  padding: var(--category-field-padding-y) var(--category-field-padding-x);
+  margin: calc(-1 * var(--category-field-padding-y))
+    calc(-1 * var(--category-field-padding-x));
+  border-radius: var(--radius-sm);
+  font-family: inherit;
+  font-size: inherit;
+  text-align: left;
+  width: 100%;
+  /* Description is a flexible column that clips first, so keep it on one line with an
+     ellipsis (and so it measures correctly when auto-sizing). */
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  transition: background-color 0.15s var(--ease-out),
+    border-color 0.15s var(--ease-out);
+}
+
+.description-button:hover {
+  background-color: var(--color-accent-soft);
+  border-color: var(--color-pine-soft-border);
+}
+
+.description-input {
+  width: 100%;
+  /* Shares .description-button's box so opening the editor never shifts the row; the
+     active state adds only the pine border + focus ring on top. */
+  padding: var(--category-field-padding-y) var(--category-field-padding-x);
+  margin: calc(-1 * var(--category-field-padding-y))
+    calc(-1 * var(--category-field-padding-x));
+  border: 1px solid var(--color-primary);
+  border-radius: var(--radius-sm);
+  font-family: inherit;
+  font-size: inherit;
+  line-height: inherit;
+  color: var(--color-ink);
+  background: var(--color-surface);
+  box-shadow: var(--focus-ring);
+}
+
+.description-input:focus {
+  outline: none;
+}
+
+/* A split part's description cell: the branch marker followed by its own editable memo,
+   which flexes to fill the remaining width (the marker stays fixed). */
+.split-description {
+  display: flex;
+  align-items: center;
+  gap: var(--spacing-xs);
+}
+
+.split-description .description-button,
+.split-description .description-input {
+  flex: 1 1 auto;
+  width: auto;
+  min-width: 0;
+}
+
+.th-sortable {
+  cursor: pointer;
+}
+
+.th-static {
+  cursor: default;
+}
+
+/* A "stale" row was categorized out of the active filter but kept in view (lingering) so
+   the edit doesn't yank it away mid-task. It reads as de-emphasized — a faint tint and
+   muted text — until the next filter/sort/page reset clears it. */
+.table.table-resizable tr.is-stale td {
+  /* A gentle tint, halfway between the deep paper and the page background, so the
+     lingering row reads as set-aside without the heavier full-strength fill. */
+  background: color-mix(in srgb, var(--color-paper-deep) 50%, var(--color-paper));
+  color: var(--color-text-muted);
+}
+
+.table.table-resizable tr.is-stale .description-button,
+.table.table-resizable tr.is-stale .category-button {
+  color: var(--color-text-muted);
+  font-style: italic;
+}
+
+/* The "→ <new category>" marker on a stale row's category cell stays in the accent color
+   so it's legible against the muted row — it's the cue for where the row just moved. */
+.category-moved-mark {
+  color: var(--color-primary);
+  font-style: normal;
+  font-weight: 600;
+}
+
+/* Drag affordance on the right edge of each resizable header. */
+.col-resize-handle {
+  position: absolute;
+  top: 0;
+  right: 0;
+  height: 100%;
+  width: 7px;
+  cursor: col-resize;
+  user-select: none;
+  touch-action: none;
+  /* Hairline sits at the cell's right border; widen the hit area around it. */
+  background: linear-gradient(
+    to right,
+    transparent 0,
+    transparent 3px,
+    var(--color-border) 3px,
+    var(--color-border) 4px,
+    transparent 4px
+  );
+  opacity: 0;
+  transition: opacity 0.12s var(--ease-out);
+}
+
+.table.table-resizable th:hover .col-resize-handle {
+  opacity: 1;
+}
+
+.col-resize-handle:hover,
+.col-resize-handle.is-resizing {
+  opacity: 1;
+  background: linear-gradient(
+    to right,
+    transparent 0,
+    transparent 3px,
+    var(--color-primary) 3px,
+    var(--color-primary) 4px,
+    transparent 4px
+  );
+}
