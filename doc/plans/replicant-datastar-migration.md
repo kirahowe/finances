@@ -1,11 +1,12 @@
 # Replicant + Datastar migration — implementation handoff
 
-**Status:** DECIDED (2026-06-19), ready to implement. This is the start-here brief
-for the implementation fleet. The *research* (with measurements, screenshots, and a
-working prototype of every hard interaction) lives in
-`doc/spikes/replicant-datastar/FINDINGS.md` and the spike code beside it on branch
-`spike/replicant-datastar`. Read this doc first, then mine the spike for canonical
-examples — every pattern below has a runnable reference there.
+**Status:** IN PROGRESS (decided 2026-06-19). This is the *design/decision* brief.
+For **where the implementation actually is and how to resume**, see the living
+status doc **`replicant-datastar-progress.md`** (Phases 0–2 + 3a/3b done). The
+*research* (measurements, screenshots, a working prototype of every hard
+interaction) lives in `doc/spikes/replicant-datastar/FINDINGS.md` and the spike code
+beside it on branch `spike/replicant-datastar`. Read this doc for the why, then the
+progress doc for the where, then mine the spike for canonical examples.
 
 ---
 

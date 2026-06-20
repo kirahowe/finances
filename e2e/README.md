@@ -24,8 +24,14 @@ JAVA_HOME=/opt/homebrew/Cellar/jabba/0.15.0/jdk/zulu@25.0.3/Contents/Home \
   E2E_PORT=8099 clojure -M:e2e -m finance-aggregator.dev.e2e-server &
 cd ..
 
-# 3. a check (defaults to http://localhost:8099)
-BASE_URL=http://localhost:8099 node e2e/scaffold.mjs
+# 3. run the checks (each defaults to http://localhost:8099)
+BASE_URL=http://localhost:8099 node e2e/scaffold.mjs      # Phase 1 pipeline (6)
+BASE_URL=http://localhost:8099 node e2e/setup.mjs         # /setup account list (8)
+BASE_URL=http://localhost:8099 node e2e/transactions.mjs  # / table read-only (12)
+BASE_URL=http://localhost:8099 node e2e/reviewed.mjs      # optimistic toggle (5; mutates + restores)
+BASE_URL=http://localhost:8099 node e2e/filters.mjs       # search/scope/chips (14)
 ```
 
-Each `*.mjs` exits non-zero if any check fails, printing a PASS/FAIL report.
+Each `*.mjs` exits non-zero if any check fails, printing a PASS/FAIL report. The
+seed (2025-01) has 1 institution, 4 accounts, 10 transactions; the checks assert
+against those fixed values, so run them with `?month=2025-01`.
