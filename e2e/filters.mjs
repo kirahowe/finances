@@ -56,17 +56,19 @@ check('uncategorized → 6 rows', (await visible()) === 6, `${await visible()}`)
 await uncatBtn.click();
 await page.waitForTimeout(100);
 
-// Review-scope: needs-review shows all 10 (all unreviewed); flipping a checkbox
-// drops it from the needs-review view (data-show keyed on the reviewed signal).
+// Review-scope: needs-review shows all 10 (all unreviewed). Reviewing a row now lets it
+// LINGER (stale) in place rather than dropping mid-task — it clears on the next filter
+// reset (the full linger cycle is covered by lingering.mjs).
 const needsBtn = page.locator('.scope-toggle-btn', { hasText: 'Needs review' });
 await needsBtn.click();
 await page.waitForTimeout(100);
 check('needs-review → 10 (all unreviewed)', (await visible()) === 10, `${await visible()}`);
-const acmeBox = page.locator('tr', { hasText: 'Acme Payroll' }).locator('.reviewed-checkbox');
-await acmeBox.click(); // flip signal only (write-behind persists, restored below)
+const acmeRow = page.locator('table.table tbody tr', { hasText: 'Acme Payroll' });
+await acmeRow.locator('.reviewed-checkbox').click(); // flip signal only (write-behind not awaited)
 await page.waitForTimeout(100);
-check('reviewing a row drops it from needs-review', (await visible()) === 9, `${await visible()}`);
-await acmeBox.scrollIntoViewIfNeeded().catch(() => {});
+check('reviewing a row lets it linger (stays, marked stale)',
+  (await visible()) === 10 && (await acmeRow.getAttribute('class')).includes('is-stale'),
+  `${await visible()}`);
 
 check('no page errors', !logs.length, logs.join('; '));
 

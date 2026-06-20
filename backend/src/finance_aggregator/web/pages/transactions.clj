@@ -169,7 +169,11 @@
     (or (:category/name category) "Uncategorized")]
    [:input
     (h/a {"type" "hidden" "data-bind" (str "cat.tx" tx-id)
-          "data-on:change" (str "@put('/transactions/" tx-id "/category')")})]))
+          ;; Pin the row when categorizing it under an active category filter (uncat chip
+          ;; or funnel) so it lingers in place; then persist. Cleared on the next filter change.
+          "data-on:change" (str "($uncat || $filter.category.filter(x=>x).length > 0)"
+                                 " && ($linger.tx" tx-id " = true); "
+                                 "@put('/transactions/" tx-id "/category')")})]))
 
 (defn- category-options
   "Hidden source-of-truth list the combobox island reconstructs its Category[] from
@@ -208,10 +212,13 @@
    signal instantly (no round-trip), and a per-checkbox debounced write-behind
    persists via @put. The server never echoes the checkbox back (the optimistic
    state stands); it only persists. `signal` is e.g. \"reviewed.tx12\"."
-  [signal]
+  [signal tx-id]
   [:input.reviewed-checkbox
    (h/a {"type" "checkbox"
          "data-bind" signal
+         ;; Pin the row when reviewing it in the needs-review queue so it lingers (stale)
+         ;; in place rather than vanishing mid-task; the next filter change clears all pins.
+         "data-on:click" (str "$scope === 'needs-review' && ($linger.tx" tx-id " = true)")
          "data-on:change__debounce.700ms" "@put('/transactions/reviewed')"})])
 
 (defn- split-icon [drift?]
@@ -323,33 +330,66 @@
   (when value
     (str " && ($" signal ".filter(x=>x).length === 0 || $" signal ".includes('" value "'))")))
 
+(def ^:private funnel-active-expr "$filter.category.filter(x=>x).length > 0")
+
 (defn- category-show-clause
   "Category-funnel ∪ Uncategorized-chip clause, split-aware. Composes the multi-select
    category funnel with the Uncategorized chip as a union (matching React's single
    category-filter array): a row shows when neither is active, OR it touches a selected
-   category, OR (it is uncategorized AND the chip is on). The chip term is baked in only
-   for rows that are actually uncategorized."
+   category, OR (it is uncategorized AND the chip is on). Normal rows read the LIVE
+   category signal ($cat.tx<id>) so categorizing immediately re-filters (and lingering
+   keeps the row in view) — split parts aren't editable yet, so they use baked tokens."
   [tx]
-  (let [tokens  (tx-category-ids tx)
-        literal (str "[" (str/join "," (map #(str "'" % "'") tokens)) "]")
-        active  "$filter.category.filter(x=>x).length > 0"]
-    (str " && ((!(" active ") && !$uncat)"
-         " || (" active " && " literal ".some(t => $filter.category.includes(t)))"
-         (when (db-transactions/needs-category? tx) " || $uncat")
-         ")")))
+  (if (seq (:transaction/splits tx))
+    (let [tokens  (tx-category-ids tx)
+          literal (str "[" (str/join "," (map #(str "'" % "'") tokens)) "]")]
+      (str " && ((!(" funnel-active-expr ") && !$uncat)"
+           " || (" funnel-active-expr " && " literal ".some(t => $filter.category.includes(t)))"
+           (when (db-transactions/needs-category? tx) " || $uncat")
+           ")"))
+    (let [cat (str "$cat.tx" (:db/id tx))]
+      (str " && ((!(" funnel-active-expr ") && !$uncat)"
+           " || (" funnel-active-expr " && " cat " !== '' && $filter.category.includes(" cat "))"
+           " || ($uncat && " cat " === ''))"))))
 
-(defn- row-show-attrs
-  "data-show attribute map combining the active toolbar filters and header funnels for a
-   transaction's row(s). Clauses that can't ever hide this row (it isn't a hidden transfer,
-   it has no account/institution) are omitted so the expression stays minimal."
+(defn- match-expr
+  "JS expression true when a transaction's row matches every active toolbar filter +
+   header funnel. The lingering layer ORs $linger on top of this (see row-attrs)."
   [tx]
-  (h/a {"data-show"
-        (str "($search === '' || " (h/js-str (search-haystack tx)) ".includes($search.toLowerCase()))"
-             " && ($scope === 'all' || !(" (reviewed-expr tx) "))"
-             (when (:transaction/transfer-hidden tx) " && !$hideTransfers")
-             (column-filter-clause "filter.account" (tx-account-id tx))
-             (column-filter-clause "filter.institution" (tx-institution-id tx))
-             (category-show-clause tx))}))
+  (str "($search === '' || " (h/js-str (search-haystack tx)) ".includes($search.toLowerCase()))"
+       " && ($scope === 'all' || !(" (reviewed-expr tx) "))"
+       (when (:transaction/transfer-hidden tx) " && !$hideTransfers")
+       (column-filter-clause "filter.account" (tx-account-id tx))
+       (column-filter-clause "filter.institution" (tx-institution-id tx))
+       (category-show-clause tx)))
+
+(defn- linger-key
+  "The $linger signal pinning a transaction in view after an edit moves it out of an
+   active filter (split parts share their parent transaction's pin)."
+  [tx]
+  (str "$linger.tx" (:db/id tx)))
+
+(defn- row-attrs
+  "data-show + is-stale for a transaction's row(s). A row shows if it matches the live
+   filters OR it's pinned ($linger) — an edit (review / categorize) pins the row under an
+   active edit-prone filter so it lingers in place instead of vanishing, until the next
+   filter change clears all pins. It reads as `is-stale` (de-emphasized) while pinned but
+   no longer matching."
+  [tx]
+  (let [m (match-expr tx) l (linger-key tx)]
+    (h/a {"data-show" (str "(" m ") || " l)
+          "data-class" (str "{'is-stale': " l " && !(" m ")}")})))
+
+(defn- category-moved-mark
+  "The '→' breadcrumb on a stale row's category cell: shown when the row is pinned, no
+   longer matches, AND a category filter is active (it was categorized out of view). The
+   category cell already shows the new category, so the arrow reads as 'moved to …'."
+  [tx]
+  (let [m (match-expr tx) l (linger-key tx)]
+    [:span.category-moved-mark
+     (h/a {"data-show" (str l " && !(" m ") && ($uncat || " funnel-active-expr ")")
+           "aria-hidden" "true"})
+     "→ "]))
 
 ;; ---------------------------------------------------------------------------
 ;; Rows
@@ -374,9 +414,9 @@
   {:data-sort-date (str (if posted-date (.getTime ^java.util.Date posted-date) 0))
    :data-sort-amount (str (or amount 0))})
 
-(defn- normal-row [show {:transaction/keys [posted-date account payee effective-description
-                                            amount category] :as tx}]
-  [:tr (merge show {:role "row"} (sort-keys tx))
+(defn- normal-row [attrs {:transaction/keys [posted-date account payee effective-description
+                                             amount category] :as tx}]
+  [:tr (merge attrs {:role "row"} (sort-keys tx))
    [:td [:span.numeric (fmt/date posted-date)]]
    [:td (or (:account/external-name account) "—")]
    [:td (or (get-in account [:account/institution :institution/name]) "—")]
@@ -386,15 +426,16 @@
    [:td.amount-cell (amount-span amount false)]
    [:td.category-cell (grid-cell (:db/id tx) nil "category")
     [:div.category-cell-row
+     (category-moved-mark tx)
      (editable-category (:db/id tx) category)
      (transfer-status tx)]]
    [:td.reviewed-cell (grid-cell (:db/id tx) nil "reviewed")
-    (reviewed-checkbox (str "reviewed.tx" (:db/id tx)))]
+    (reviewed-checkbox (str "reviewed.tx" (:db/id tx)) (:db/id tx))]
    [:td.actions-cell]
    [:td.table-spacer-cell {:aria-hidden "true"}]])
 
-(defn- split-parent-row [show {:transaction/keys [posted-date account payee effective-description] :as tx}]
-  [:tr (merge show {:role "row" :class "is-split-parent"} (sort-keys tx))
+(defn- split-parent-row [attrs {:transaction/keys [posted-date account payee effective-description] :as tx}]
+  [:tr (merge attrs {:role "row" :class "is-split-parent"} (sort-keys tx))
    [:td [:span.numeric (fmt/date posted-date)]]
    [:td (or (:account/external-name account) "—")]
    [:td (or (get-in account [:account/institution :institution/name]) "—")]
@@ -406,8 +447,8 @@
    [:td.actions-cell]
    [:td.table-spacer-cell {:aria-hidden "true"}]])
 
-(defn- split-child-row [show drift? last? {:split/keys [amount memo category] :as part}]
-  [:tr (merge show {:role "row" :class (str "split-child-row" (when last? " is-last"))})
+(defn- split-child-row [attrs parent-tx-id drift? last? {:split/keys [amount memo category] :as part}]
+  [:tr (merge attrs {:role "row" :class (str "split-child-row" (when last? " is-last"))})
    [:td] [:td] [:td] [:td]
    [:td.description-cell
     [:span.split-description (split-icon drift?) (description-button memo)]]
@@ -416,23 +457,23 @@
     [:div.category-cell-content
      [:button.category-button {:type "button" :tabindex "-1" :title "Edit split"}
       (or (:category/name category) "Uncategorized")]]]
-   [:td.reviewed-cell (reviewed-checkbox (str "reviewed.sp" (:db/id part)))]
+   [:td.reviewed-cell (reviewed-checkbox (str "reviewed.sp" (:db/id part)) parent-tx-id)]
    [:td]
    [:td.table-spacer-cell {:aria-hidden "true"}]])
 
 (defn- tx-rows
   "Expand a transaction into its table row(s): one normal row, or a split parent +
-   one row per ordered part. All rows of a split share the same data-show so they
-   filter together."
+   one row per ordered part. All rows of a split share the same data-show + linger pin so
+   they filter and linger together."
   [tx]
-  (let [show (row-show-attrs tx)]
+  (let [attrs (row-attrs tx)]
     (if-let [parts (seq (:transaction/splits tx))]
       (let [sorted (sort-by :split/order parts)
             drift? (false? (:transaction/splits-balanced tx))
             last-idx (dec (count sorted))]
-        (into [(split-parent-row show tx)]
-              (map-indexed (fn [i p] (split-child-row show drift? (= i last-idx) p)) sorted)))
-      [(normal-row show tx)])))
+        (into [(split-parent-row attrs tx)]
+              (map-indexed (fn [i p] (split-child-row attrs (:db/id tx) drift? (= i last-idx) p)) sorted)))
+      [(normal-row attrs tx)])))
 
 ;; ---------------------------------------------------------------------------
 ;; Table + chrome
@@ -649,6 +690,19 @@
    (funnel-popover "institution" institution-opts)
    (funnel-popover "category" category-opts)))
 
+(defn- linger-reset
+  "Clears all lingering-row pins whenever a filter changes. The signal-patch filter scopes
+   it to the filter signals (search / scope / chips / funnels) so an edit (which patches
+   reviewed / cat / linger) never clears the pins — only a genuine filter change does. The
+   pins are reset to the all-false map (not {}) so each $linger.tx<id> keeps existing — a
+   removed key would lose its reactive binding for the next edit (Datastar tracks signals
+   that exist when an expression first runs)."
+  [empty-literal]
+  [:div.linger-reset
+   (h/a {"hidden" "true"
+         "data-on-signal-patch-filter" "{include: /^(search|scope|hideTransfers|uncat|filter\\.)/}"
+         "data-on-signal-patch" (str "$linger = " empty-literal)})])
+
 (defn- toolbar [m counts]
   [:div.toolbar
    [:div.toolbar-controls
@@ -704,6 +758,20 @@
   [txs]
   (unsplit-signal-map txs #(if-let [cid (get-in % [:transaction/category :db/id])] (str cid) "")))
 
+(defn- linger-signals
+  "Initial `linger` signal map {tx<id> false} over every transaction. Pre-declaring each
+   key (rather than starting from {}) is what makes the per-row is-stale / data-show
+   expressions reactive to a later pin: Datastar only tracks signals that exist when an
+   expression first runs, so a key created on the fly wouldn't notify the row."
+  [txs]
+  (into {} (for [tx txs] [(keyword (str "tx" (:db/id tx))) false])))
+
+(defn- linger-empty-literal
+  "The all-false `linger` map as a JS object literal, for the reset handler (so it clears
+   pins without dropping the keys — see linger-reset)."
+  [txs]
+  (str "{" (str/join "," (for [tx txs] (str "tx" (:db/id tx) ": false"))) "}"))
+
 ;; ---------------------------------------------------------------------------
 ;; Page
 ;; ---------------------------------------------------------------------------
@@ -738,6 +806,7 @@
                    :funnelX 0
                    :funnelY 0
                    :funnelQuery ""
+                   :linger (linger-signals txs)
                    :month month-str
                    :search ""
                    :scope "all"
@@ -752,5 +821,7 @@
              (empty-state)
              (transactions-table txs))]]
          (when (seq txs)
-           (funnel-popovers account-opts institution-opts category-opts))
+           (list
+            (funnel-popovers account-opts institution-opts category-opts)
+            (linger-reset (linger-empty-literal txs))))
          (category-options categories)])})))
