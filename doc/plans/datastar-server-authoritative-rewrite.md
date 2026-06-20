@@ -105,13 +105,13 @@ injection: `matched = filter-txs`; `lingered = month txs whose id ∈ linger-set
 render `sort(matched ∪ lingered)` with the lingered rows tagged `is-stale`. Any pure view
 change (`/v2/rows`) clears the linger set. No per-row `$linger` signals, no signal-patch reset.
 
-**Undo affordance** = a server-rendered `#toast` ("Marked reviewed · Undo"), patched on every
-edit; the Undo button `@post('/v2/undo')`. Plus a global `Cmd/Ctrl+Z` (`data-on:keydown__window`).
-Lingering keeps the mistake *visible*; undo *reverses* it — both, per the user's "going too
-fast" concern.
+**Undo affordance** = `#undo-redo` toolbar buttons (↶/↷, `@post('/v2/undo'|'/v2/redo')`),
+re-rendered on every edit so their enabled state + tooltip track the log, plus a global
+`Cmd/Ctrl+Z` (`data-on:keydown__window`). No toast (the user finds them obtrusive). Lingering
+keeps the mistake *visible*; undo *reverses* it — both, per the "going too fast" concern.
 
 **Edit round-trip** patches three fragments: `#tx-tbody` (with lingering), the count badges
-(reviewing a row drops the unreviewed count), and `#toast`. Reviewed is the first slice
+(reviewing a row drops the unreviewed count), and `#undo-redo`. Reviewed is the first slice
 (checkbox → `@put('/v2/tx/:id/reviewed/:v')`); description (input) and category (combobox
 island) follow the same `apply!` path.
 
@@ -161,8 +161,9 @@ noticeable; undo lets you *reverse* a spotted mistake (ideally surfaced inline, 
   - **cp2 core ✅ DONE.** `web/commands.clj` (per-user undo/redo/linger log) + the
     server-confirmed **reviewed** edit on `/v2`: `@put('/v2/tx/:id/reviewed/:v')` applies a
     command, morphs `#tx-tbody` (lingering just-edited rows `is-stale`) + count badges +
-    `#toast`. Undo via toast button or Cmd/Ctrl+Z (Shift = redo). `/e2e/reset` clears the
-    log. Browser-verified `e2e/v2-edit.mjs` 9/9; `commands_test` 3 tests.
+    `#undo-redo`. Undo/redo are **toolbar buttons** (↶/↷, enabled-state tracks the log) +
+    Cmd/Ctrl+Z (Shift = redo) — no toast (obtrusive). `/e2e/reset` clears the log.
+    Browser-verified `e2e/v2-edit.mjs` 10/10; `commands_test` 3 tests.
   - **cp2 rest** — **description** edit (input → `set-user-description!` command) and
     **category** edit (combobox island → `update-category!` command) via the same `apply!`
     path; wire grid-nav/combobox/col-resize islands against the new markup.
