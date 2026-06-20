@@ -10,6 +10,7 @@
    [finance-aggregator.web.hiccup :as h]
    [finance-aggregator.web.layout :as layout]
    [finance-aggregator.web.pages.setup :as setup]
+   [finance-aggregator.web.pages.transactions :as transactions]
    [starfederation.datastar.clojure.api :as d*]
    [starfederation.datastar.clojure.adapter.http-kit :as hk]))
 
@@ -82,6 +83,7 @@
    is closed over by page handlers as real pages are added."
   [deps]
   [""
+   ["/"               {:get  {:handler (transactions/page deps) :name ::transactions}}]
    ["/setup"          {:get  {:handler (setup/page deps) :name ::setup}}]
    ["/_scaffold"      {:get  {:handler scaffold-page :name ::scaffold}}]
    ["/_scaffold/sync" {:post {:handler scaffold-sync :name ::scaffold-sync}}]])
