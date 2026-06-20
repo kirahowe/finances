@@ -346,11 +346,24 @@
 (defn- th-class [id]
   (->> [(cell-class id) "th-static"] (remove nil?) (str/join " ")))
 
+;; --- Column visibility -----------------------------------------------------
+;; The read-only columns are hideable via the toolbar picker: a `cols.<id>` signal per
+;; column, a `hide-<id>` class toggled on the table by data-class, and a CSS rule that
+;; collapses that column by position. Only read-only columns are hideable, so this never
+;; touches the grid-nav island (which navigates description/category/reviewed).
+
+(def ^:private hideable-columns
+  [["date" "Date"] ["account" "Account"] ["institution" "Institution"]
+   ["payee" "Payee"] ["amount" "Amount"]])
+
+(defn- cols-hide-class []
+  (str "{" (str/join ", " (map (fn [[id _]] (str "'hide-" id "': !$cols." id)) hideable-columns)) "}"))
+
 (defn- transactions-table [txs]
   ;; Plain .table (table-layout:auto, content-fit) for now; Phase 3d switches to
   ;; .table-resizable (fixed layout) once the resize/auto-size island sets <col> widths.
   [:div.transactions-table-scroll {:tabindex "0"}
-   [:table.table {:role "grid"}
+   [:table.table (h/a {"role" "grid" "data-class" (cols-hide-class)})
     [:colgroup
      (concat
       (for [{:keys [id label]} columns]
@@ -414,6 +427,27 @@
          [:span#count-uncategorized.filter-count (:uncategorized counts)]
          [:span#count-transfers.filter-count (:transfers-hidden counts)]])))
 
+(defn- column-picker
+  "Toolbar dropdown toggling which read-only columns are shown — checkboxes bound to the
+   `cols.<id>` signals (reusing the carried-over filter-dropdown styling). `__stop` on the
+   toggle so its open-click isn't also seen as a click outside the menu (Datastar trap)."
+  []
+  [:div.filter-button-container.column-picker
+   [:button.button.button-secondary.filter-button
+    (h/a {"type" "button" "aria-haspopup" "true"
+          "data-on:click__stop" "$colsOpen = !$colsOpen"
+          "data-attr" "{'aria-expanded': $colsOpen}"})
+    "Columns"
+    [:span.filter-button-arrow (h/a {"data-text" "$colsOpen ? '▲' : '▼'"}) "▼"]]
+   [:div.filter-dropdown
+    (h/a {"data-show" "$colsOpen" "data-on:click__outside" "$colsOpen = false"})
+    [:ul.filter-dropdown-list
+     (for [[id label] hideable-columns]
+       [:li.filter-dropdown-item
+        [:label.filter-dropdown-checkbox-label
+         [:input.filter-dropdown-checkbox (h/a {"type" "checkbox" "data-bind" (str "cols." id)})]
+         [:span.filter-dropdown-label-text label]]])]]])
+
 (defn- toolbar [m counts]
   [:div.toolbar
    [:div.toolbar-controls
@@ -422,7 +456,8 @@
     (search-box)
     (scope-toggle counts)
     (count-chip "Uncategorized" "uncat" "count-uncategorized" (:uncategorized counts))
-    (count-chip "Hide transfers" "hideTransfers" "count-transfers" (:transfers-hidden counts))]])
+    (count-chip "Hide transfers" "hideTransfers" "count-transfers" (:transfers-hidden counts))]
+   [:div.toolbar-actions (column-picker)]])
 
 (defn- empty-state []
   [:div.empty-state
@@ -492,6 +527,8 @@
                    :desc (description-signals txs)
                    :descOrig ""
                    :cat (category-signals txs)
+                   :cols (into {} (map (fn [[id _]] [(keyword id) true]) hideable-columns))
+                   :colsOpen false
                    :month month-str
                    :search ""
                    :scope "all"

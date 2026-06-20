@@ -200,6 +200,29 @@
   cursor: default;
 }
 
+/* The current sort direction indicator on a sorted header (the client sort island
+   fills in the arrow + toggles is-sorted). */
+.th-sort-indicator {
+  margin-left: 0.3em;
+  color: var(--color-text-muted);
+  font-size: 0.85em;
+}
+
+.th-sortable.is-sorted .th-sort-indicator {
+  color: var(--color-primary);
+}
+
+/* Column visibility: the toolbar picker toggles a hide-<id> class on the table; each
+   read-only column is collapsed by its fixed position (nth-child counts source order,
+   so hiding one column never shifts the others). */
+.table.hide-date th:nth-child(1), .table.hide-date td:nth-child(1),
+.table.hide-account th:nth-child(2), .table.hide-account td:nth-child(2),
+.table.hide-institution th:nth-child(3), .table.hide-institution td:nth-child(3),
+.table.hide-payee th:nth-child(4), .table.hide-payee td:nth-child(4),
+.table.hide-amount th:nth-child(6), .table.hide-amount td:nth-child(6) {
+  display: none;
+}
+
 /* A "stale" row was categorized out of the active filter but kept in view (lingering) so
    the edit doesn't yank it away mid-task. It reads as de-emphasized — a faint tint and
    muted text — until the next filter/sort/page reset clears it. */
