@@ -1,0 +1,24 @@
+/* Undo/redo controls (in the toolbar) + lingering-row styling for the server-authoritative
+   workspace. No toast — undo/redo live in the control panel, plus Cmd/Ctrl+Z(/+Shift). */
+.undo-redo {
+  display: inline-flex;
+  gap: 0.25rem;
+}
+
+.undo-redo-btn {
+  min-width: 2rem;
+  padding-inline: 0.5rem;
+  font-size: 1rem;
+  line-height: 1;
+}
+
+.undo-redo-btn:disabled {
+  opacity: 0.4;
+  cursor: default;
+}
+
+/* A row edited out of the active filter lingers (visible but de-emphasised) until the next
+   view change, so a fast mistake is noticeable rather than vanishing under you. */
+.table tr.is-stale td {
+  opacity: 0.5;
+}

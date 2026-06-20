@@ -16,6 +16,7 @@
 @import "components/category-rollup.css";
 @import "components/category-table.css";
 @import "components/csv-import.css";
+@import "components/edit-controls.css";
 @import "components/filter.css";
 @import "components/grid-navigation.css";
 @import "components/month-navigator.css";
@@ -24,7 +25,6 @@
 @import "components/row-actions.css";
 @import "components/split-modal.css";
 @import "components/split-rows.css";
-@import "components/toast.css";
 @import "components/transactions-table.css";
 @import "components/transfer-modal.css";
 

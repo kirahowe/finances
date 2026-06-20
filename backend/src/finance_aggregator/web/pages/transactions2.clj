@@ -44,6 +44,8 @@
 
 (def ^:private page-size-options [25 50 100 250])
 
+(declare undo-redo-controls) ; defined with the edit fragments, used by the toolbar
+
 ;; ---------------------------------------------------------------------------
 ;; View-state <-> signals/query mapping
 ;; ---------------------------------------------------------------------------
@@ -230,7 +232,8 @@
     (search-box)
     (scope-toggle counts)
     (count-chip "Uncategorized" "uncat" "count-uncategorized" (:uncategorized counts))
-    (count-chip "Hide transfers" "hideTransfers" "count-transfers" (:transfers-hidden counts))]])
+    (count-chip "Hide transfers" "hideTransfers" "count-transfers" (:transfers-hidden counts))]
+   [:div.toolbar-actions (undo-redo-controls)]])
 
 ;; ---------------------------------------------------------------------------
 ;; Pagination (fully server-rendered each response → disabled states stay correct)
@@ -286,13 +289,25 @@
        (r/render [:span#count-uncategorized.filter-count uncategorized])
        (r/render [:span#count-transfers.filter-count transfers-hidden])))
 
-(defn- toast
-  "The undo affordance. Always rendered (stable #toast morph target); populated with the
-   last action's label + an Undo button when there's something to undo."
-  [label]
-  [:div {:id "toast" :class (str "toast" (when label " is-visible"))}
-   (when label [:span.toast-label label])
-   (when label [:button.toast-undo {:type "button" "data-on:click" "@post('/v2/undo')"} "Undo"])])
+(defn- undo-redo-controls
+  "Undo/redo buttons for the toolbar (stable #undo-redo morph target, re-rendered after every
+   edit so the enabled state + tooltip track the command log). The keyboard shortcuts
+   (Cmd/Ctrl+Z / +Shift) do the same thing."
+  []
+  (let [user auth/user-id
+        undoable (commands/undo-label user)
+        redoable (commands/redo-label user)]
+    [:div.undo-redo {:id "undo-redo" :role "group" :aria-label "Undo and redo"}
+     [:button (cond-> {:class "button button-secondary undo-redo-btn" :type "button"
+                       :aria-label "Undo" :title (if undoable (str "Undo: " undoable) "Nothing to undo")
+                       "data-on:click" "@post('/v2/undo')"}
+                (not undoable) (assoc :disabled true))
+      "↶"]
+     [:button (cond-> {:class "button button-secondary undo-redo-btn" :type "button"
+                       :aria-label "Redo" :title (if redoable (str "Redo: " redoable) "Nothing to redo")
+                       "data-on:click" "@post('/v2/redo')"}
+                (not redoable) (assoc :disabled true))
+      "↷"]]))
 
 ;; ---------------------------------------------------------------------------
 ;; Routes
@@ -334,8 +349,7 @@
            (toolbar m counts)
            (if (empty? txs)
              (empty-state)
-             (list (table (:rows result)) (pagination-bar result)))]]
-         (toast nil)])})))
+             (list (table (:rows result)) (pagination-bar result)))]]])})))
 
 (defn rows
   "GET /v2/rows — a pure view change: clear lingering, re-run the view, morph the tbody +
@@ -372,7 +386,7 @@
         (d*/patch-elements! sse (r/render (tbody (:rows result) stale-ids)))
         (d*/patch-elements! sse (r/render (pagination-bar result)))
         (d*/patch-elements! sse (counts-fragment counts))
-        (d*/patch-elements! sse (r/render (toast (commands/undo-label user))))
+        (d*/patch-elements! sse (r/render (undo-redo-controls)))
         (d*/patch-signals! sse (r/signals {:page (:page result)}))
         (d*/close-sse! sse))})))
 

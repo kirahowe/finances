@@ -77,9 +77,15 @@
   (swap! log update user #(assoc (or % empty-state) :linger #{})))
 
 (defn undo-label
-  "Label of the action a press of Undo would reverse (for the toast), or nil."
+  "Label of the action a press of Undo would reverse (drives the undo button's enabled
+   state + tooltip), or nil when there's nothing to undo."
   [user]
   (:label (peek (:undo (state user)))))
+
+(defn redo-label
+  "Label of the action a press of Redo would re-apply, or nil when there's nothing to redo."
+  [user]
+  (:label (peek (:redo (state user)))))
 
 (defn clear-all!
   "Drop the entire log (every user's undo/redo/linger). For test isolation — the e2e
