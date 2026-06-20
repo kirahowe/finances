@@ -1,6 +1,6 @@
 # Datastar server-authoritative rewrite — architecture & plan
 
-**Status:** Phases R0 (renderer foundation) + R1 (pure view engine) done. **Branch:** `spike/replicant-datastar`. Next: R2.
+**Status:** R0 (renderer) + R1 (view engine) + **R2 cp1 (read-only `/v2` page)** done. **Branch:** `spike/replicant-datastar`. Next: R2 cp1b (funnels) / cp2 (edits + lingering + undo).
 Supersedes the client-heavy approach in `replicant-datastar-progress.md` for the
 transactions workspace. Memory: `project_replicant_datastar_spike`.
 
@@ -85,12 +85,34 @@ New seam = `web/render.clj`: `render`, `render-page`, `signals` (JSON), `raw`,
 - Fragment renderers (`tbody`, `counts`, active toolbar states) + `GET /transactions/rows`;
   existing mutation PUTs re-render the affected fragments.
 
+## Considered & deferred: server-owns-all streaming CQRS (core.async.flow)
+
+Evaluated an architecture where the server owns all UI state through a core.async.flow
+CQRS backbone, streaming the UI down one persistent SSE connection. Verdict: **over-engineered
+for this workspace's CRUD, but two ingredients are worth adopting selectively.**
+- **Persistent SSE stream** — adopt for *server-initiated* updates (account sync, import
+  progress, webhooks); already the Phase-4 plan. NOT the transport for table clicks:
+  request/response keeps state in the URL (shareable, back-button-correct, no per-connection
+  session to rehydrate).
+- **core.async.flow + CQRS** — over-engineering for human-rate writes + a "load a month"
+  read model. Where it *would* pay off is the provider-sync ingestion pipeline (the
+  provider-seam debt), not the UI.
+- **Event-sourced command log → undo/redo** — the genuinely valuable part, and it needs
+  *only* a reversible command stack, not the streaming/flow machinery. Fits the existing
+  append-only-overlay edit model ([[feedback_append_only_overlays]]). Adopt as a backend
+  feature in cp2.
+
 ## Lingering, reconsidered
 
 Server-side it gets simpler: when a mutation would filter a row out (review it while in
 Needs-review scope), the server can render that row with an `is-stale` tag and keep it
 until the next view change — no per-row `$linger` signals, no signal-patch reset regex.
-Decide the exact UX in R2.
+Decide the exact UX in cp2.
+
+**Lingering and undo are complementary, not substitutes** (the user's concern is going too
+fast and not *spotting* mistakes): lingering keeps the edited row *visible* so the change is
+noticeable; undo lets you *reverse* a spotted mistake (ideally surfaced inline, Gmail-style:
+"Categorized as Groceries · Undo"). Do both in cp2; neither needs the streaming-CQRS stack.
 
 ## Phases (e2e specs are the behavior contract — refactor against them)
 
@@ -99,11 +121,16 @@ Decide the exact UX in R2.
   on the classpath only for the not-yet-migrated `/` + `/setup`.
 - **R1 — Server view engine. ✅ DONE.** `web/view.clj`: pure `view` (filter → sort →
   paginate) porting every baked rule; `web/view_test.clj` 8 tests / 32 assertions. No UI yet.
-- **R2 — New server-authoritative `/`.** Toolbar (search/scope/chips/funnels) + sort +
-  paginate via `GET /transactions/rows` morph; edits (reviewed/desc/category) re-render
-  fragments; ephemeral state `_`-signalled; reuse grid-nav/combobox/col-resize islands.
-  Settle lingering here. Search is the one latency-sensitive control — debounce + measure
-  on the VPS; keep client-side only if needed.
+- **R2 — New server-authoritative page (`/v2`, becomes `/` at R4).**
+  - **cp1 ✅ DONE.** Read-only table + toolbar; search/scope/chips/sort/paginate via
+    `GET /v2/rows` → `view` → morph `#tx-tbody` + `#pagination-bar`, `$page` patched back.
+    `web/layout2.clj` = hiccup2 shell. Browser-verified `e2e/v2.mjs` 7/7. Search debounced
+    300 ms (the one latency-sensitive control — measure on the VPS).
+  - **cp1b** — header-filter funnels (account/institution/category). `view.clj` already
+    filters them; needs the popover UI with `_`-prefixed ephemeral open/query state.
+  - **cp2** — edits: reviewed/description/category re-render fragments (server-confirmed);
+    **lingering** (server tags just-edited rows `is-stale` and keeps them) + **undo**
+    (command log; see decision below); reuse grid-nav/combobox/col-resize islands.
 - **R3 — Column vis/width persistence** via URL + client CSS; thin `replaceState` reflector.
 - **R4 — Delete the old.** Replicant dep, `web/hiccup.clj`, `web/layout.clj`, the old
   transactions page, dead islands, the scaffold. Convert `/setup` to the hiccup2 seam.
