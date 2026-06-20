@@ -3,7 +3,7 @@
 
    GET /api/stats - Returns counts of institutions, accounts, transactions"
   (:require
-   [datalevin.core :as d]
+   [finance-aggregator.db.stats :as db-stats]
    [finance-aggregator.http.responses :as responses]))
 
 (defn stats-handler
@@ -21,17 +21,4 @@
      Ring handler function"
   [{:keys [db-conn]}]
   (fn [_request]
-    (let [db (d/db db-conn)
-          institution-count (count (d/q '[:find ?e
-                                          :where [?e :institution/id _]]
-                                        db))
-          account-count (count (d/q '[:find ?e
-                                      :where [?e :account/external-id _]]
-                                    db))
-          transaction-count (count (d/q '[:find ?e
-                                          :where [?e :transaction/external-id _]]
-                                        db))]
-      (responses/success-response
-       {:institutions institution-count
-        :accounts account-count
-        :transactions transaction-count}))))
+    (responses/success-response (db-stats/entity-counts db-conn))))

@@ -12,6 +12,7 @@
    - POST /api/query - Execute custom Datalog query"
   (:require
    [datalevin.core :as d]
+   [finance-aggregator.db.accounts :as db-accounts]
    [finance-aggregator.db.transactions :as db-transactions]
    [finance-aggregator.http.responses :as responses]
    [finance-aggregator.manual.service :as manual-service]
@@ -45,11 +46,7 @@
      Ring handler function"
   [{:keys [db-conn]}]
   (fn [_request]
-    (let [db (d/db db-conn)
-          query '[:find [(pull ?e [* {:account/institution [:db/id :institution/name]}]) ...]
-                  :where [?e :account/external-id _]]
-          results (d/q query db)]
-      (responses/success-response results))))
+    (responses/success-response (db-accounts/list-with-institution db-conn))))
 
 (defn create-account-handler
   "Factory: creates handler for POST /api/accounts.
