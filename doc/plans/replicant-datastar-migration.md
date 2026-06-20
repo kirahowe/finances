@@ -116,6 +116,12 @@ broken keyboard path in the CLJS spike.
 2. It **DOES escape `<script>` body text** (`&quot;`). Don't embed JSON in a
    `<script>`. Rebuild client model from the DOM (e.g. `[data-cell]` order) or fetch
    from an endpoint.
+2a. **It also escapes any pre-rendered HTML string you embed as a hiccup child**
+   (same mechanism as the script-body case). Keep fragments as **hiccup** and embed
+   them directly; render to a string (`h/render`) **only at the SSE boundary**
+   (`patch-elements!`). A page that does `[:div (rs/render frag)]` ships
+   `&lt;div…&gt;` text, not an element — and a curl text-grep won't catch it (the
+   escaped text still contains the substring); the browser check will. (Phase 1.)
 3. Datastar's colon attrs (`data-on:click`, `data-bind:x`) can't be Clojure keyword
    literals — build attr maps from string keys → `(keyword "...")` (the `a` helper).
 
@@ -123,6 +129,12 @@ broken keyboard path in the CLJS spike.
 4. **http-kit ≥ 2.9.0-beta2** required for SSE.
 5. `get-signals` returns a raw **String** (GET/DELETE, in query) or **InputStream**
    (POST/PUT, body) — parse JSON yourself (`json/read-str (slurp …)`).
+5a. **But the app's global `wrap-json-request` already consumes the POST/PUT body**
+   (it parses `application/json` into `:body-params`), so `get-signals`' body path
+   comes back empty. And the v1.0.2 runtime sends **no `datastar-request` header** to
+   branch on. The project seam is `web.hiccup/read-signals`: read `:body-params`
+   (POST/PUT) else the `datastar` query param (GET/DELETE) — keyword-keyed, zero
+   middleware change. Use it instead of `get-signals` directly. (Phase 1.)
 6. Checkbox-array `data-bind` seeds the signal with **one empty string per unchecked
    box** (`["","",""]`), not `[]` — gate filters on `($sig.filter(x=>x).length)`,
    not `.length === 0`.
