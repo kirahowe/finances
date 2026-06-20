@@ -223,6 +223,66 @@
    [:path {:d "M4 4v7a4 4 0 0 0 4 4h12"}]])
 
 ;; ---------------------------------------------------------------------------
+;; Header-filter funnels — option lists
+;; ---------------------------------------------------------------------------
+;; The Account / Institution / Category headers carry a multi-select filter funnel.
+;; Its option list (value + label + a count of matching rows this month) is computed
+;; server-side from the month's transactions — static per load, like React's
+;; extractFilterOptions/buildCategoryOptions. The category list is split-aware (a tx
+;; contributes each distinct category its parts touch) and omits the uncategorized
+;; tokens, which the toolbar chip owns.
+
+(defn- tx-account-id [tx] (get-in tx [:transaction/account :db/id]))
+(defn- tx-institution-id [tx] (get-in tx [:transaction/account :account/institution :db/id]))
+
+(defn- tx-category-ids
+  "Distinct real category ids a transaction touches (split-aware): each split part's
+   category, or the unsplit tx's category. Categoryless parts contribute nothing — the
+   Uncategorized chip owns those."
+  [tx]
+  (vec (distinct
+        (if-let [parts (seq (:transaction/splits tx))]
+          (keep #(get-in % [:split/category :db/id]) parts)
+          (when-let [id (get-in tx [:transaction/category :db/id])] [id])))))
+
+(defn- count-options
+  "Sorted [{:id :label :count}] from txs, counting transactions per id via id-fn/label-fn."
+  [txs id-fn label-fn]
+  (->> txs
+       (keep (fn [tx] (when-let [id (id-fn tx)] [id (label-fn tx)])))
+       (reduce (fn [m [id label]]
+                 (-> m (assoc-in [id :label] label) (update-in [id :count] (fnil inc 0))))
+               {})
+       (map (fn [[id {:keys [label count]}]] {:id id :label label :count count}))
+       (sort-by :label)))
+
+(defn- account-options [txs]
+  (count-options txs tx-account-id
+                 #(or (get-in % [:transaction/account :account/external-name]) "Unknown")))
+
+(defn- institution-options [txs]
+  (count-options txs tx-institution-id
+                 #(or (get-in % [:transaction/account :account/institution :institution/name]) "Unknown")))
+
+(defn- category-options-list
+  "Funnel options for the Category column: real categories present this month with the
+   number of transactions touching each (split-aware). Uncategorized is excluded (the
+   toolbar chip owns it, matching React)."
+  [txs]
+  (let [name-of (fn [tx]
+                  (concat
+                   (when-let [c (:transaction/category tx)]
+                     (when (:db/id c) [[(:db/id c) (:category/name c)]]))
+                   (mapcat (fn [p] (when-let [c (:split/category p)]
+                                     (when (:db/id c) [[(:db/id c) (:category/name c)]])))
+                           (:transaction/splits tx))))
+        names (into {} (mapcat name-of txs))
+        counts (frequencies (mapcat tx-category-ids txs))]
+    (->> counts
+         (map (fn [[id n]] {:id id :label (get names id "Unknown") :count n}))
+         (sort-by :label))))
+
+;; ---------------------------------------------------------------------------
 ;; Client-side filtering (Datastar data-show)
 ;; ---------------------------------------------------------------------------
 ;; Each row carries a data-show expression over the toolbar signals — search,
@@ -254,16 +314,42 @@
     (str "(" (str/join " && " (map #(str "$reviewed.sp" (:db/id %)) parts)) ")")
     (str "$reviewed.tx" (:db/id tx))))
 
+(defn- column-filter-clause
+  "Per-row clause for a checkbox-array funnel (account/institution): show when nothing is
+   selected, or this row's value is among the selection. Datastar seeds an empty string
+   per unchecked box, so `.filter(x=>x)` drops the empties before testing emptiness
+   (migration §6)."
+  [signal value]
+  (when value
+    (str " && ($" signal ".filter(x=>x).length === 0 || $" signal ".includes('" value "'))")))
+
+(defn- category-show-clause
+  "Category-funnel ∪ Uncategorized-chip clause, split-aware. Composes the multi-select
+   category funnel with the Uncategorized chip as a union (matching React's single
+   category-filter array): a row shows when neither is active, OR it touches a selected
+   category, OR (it is uncategorized AND the chip is on). The chip term is baked in only
+   for rows that are actually uncategorized."
+  [tx]
+  (let [tokens  (tx-category-ids tx)
+        literal (str "[" (str/join "," (map #(str "'" % "'") tokens)) "]")
+        active  "$filter.category.filter(x=>x).length > 0"]
+    (str " && ((!(" active ") && !$uncat)"
+         " || (" active " && " literal ".some(t => $filter.category.includes(t)))"
+         (when (db-transactions/needs-category? tx) " || $uncat")
+         ")")))
+
 (defn- row-show-attrs
-  "data-show attribute map combining the active toolbar filters for a transaction's
-   row(s). Clauses that can't ever hide this row (it isn't a hidden transfer / it is
-   uncategorized) are omitted so the expression stays minimal."
+  "data-show attribute map combining the active toolbar filters and header funnels for a
+   transaction's row(s). Clauses that can't ever hide this row (it isn't a hidden transfer,
+   it has no account/institution) are omitted so the expression stays minimal."
   [tx]
   (h/a {"data-show"
         (str "($search === '' || " (h/js-str (search-haystack tx)) ".includes($search.toLowerCase()))"
              " && ($scope === 'all' || !(" (reviewed-expr tx) "))"
              (when (:transaction/transfer-hidden tx) " && !$hideTransfers")
-             (when-not (db-transactions/needs-category? tx) " && !$uncat"))}))
+             (column-filter-clause "filter.account" (tx-account-id tx))
+             (column-filter-clause "filter.institution" (tx-institution-id tx))
+             (category-show-clause tx))}))
 
 ;; ---------------------------------------------------------------------------
 ;; Rows
@@ -359,12 +445,52 @@
   "Columns the client sort island sorts by (clicking the header). Reviewed/actions aren't."
   #{"date" "account" "institution" "payee" "amount" "category"})
 
+;; --- Header-filter funnels (UI) --------------------------------------------
+;; Each funnel column's header carries a small funnel button that opens a floating
+;; popover (rendered separately, outside the scroll container — see funnel-popovers).
+;; The button is `position:static` inside the sortable th; `__stop` keeps its click from
+;; also triggering the column sort. It sets $openFunnel + the popover's rect coords. The
+;; selection signal ($filter.<col>) is a checkbox-array, so its active count drops the
+;; empty placeholders Datastar seeds per unchecked box.
+
+(def ^:private funnel-cols #{"account" "institution" "category"})
+
+(defn- funnel-icon []
+  [:svg.th-filter-icon {:width "12" :height "12" :viewBox "0 0 24 24" :fill "none"
+                        :stroke "currentColor" :stroke-width "2" :stroke-linecap "round"
+                        :stroke-linejoin "round" :aria-hidden "true"}
+   [:polygon {:points "22 3 2 3 10 12.46 10 19 14 21 14 12.46 22 3"}]])
+
+(defn- funnel-open-js
+  "Toggle this funnel open (closing any other) and anchor the popover under the button.
+   Coords are viewport-relative for the position:fixed popover; left is clamped so a
+   right-edge column's menu stays on screen."
+  [col]
+  (str "$openFunnel = ($openFunnel === '" col "' ? '' : '" col "'); $funnelQuery = ''; "
+       "$funnelX = Math.max(8, Math.min(el.getBoundingClientRect().left, window.innerWidth - 300)); "
+       "$funnelY = el.getBoundingClientRect().bottom + 4"))
+
+(defn- funnel-button [col label]
+  (let [active (str "$filter." col ".filter(x=>x).length")]
+    [:button.th-filter-btn
+     (h/a {"type" "button" "aria-haspopup" "dialog" "aria-label" (str "Filter " label)
+           "aria-expanded" "false"
+           "data-on:click__stop" (funnel-open-js col)
+           ;; Resolve to the literal "true"/"false" string (not a bare boolean, which
+           ;; Datastar renders as aria-expanded="" — invalid for assistive tech).
+           "data-attr" (str "{'aria-expanded': $openFunnel === '" col "' ? 'true' : 'false'}")
+           "data-class" (str "{'is-active': " active " > 0}")})
+     (funnel-icon)
+     [:span.th-filter-count
+      (h/a {"data-show" (str active " > 0") "data-text" active})]]))
+
 (defn- th-cell [{:keys [id label]}]
   (if (sortable-cols id)
     [:th (h/a {"class" (->> [(cell-class id) "th-sortable"] (remove nil?) (str/join " "))
                "data-sort-col" id "aria-sort" "none"})
      [:span.th-label label]
-     [:span.th-sort-indicator {:aria-hidden "true"}]]
+     [:span.th-sort-indicator {:aria-hidden "true"}]
+     (when (funnel-cols id) (funnel-button id label))]
     [:th {:class (th-class id)} label]))
 
 ;; --- Column visibility -----------------------------------------------------
@@ -468,6 +594,45 @@
          [:input.filter-dropdown-checkbox (h/a {"type" "checkbox" "data-bind" (str "cols." id)})]
          [:span.filter-dropdown-label-text label]]])]]])
 
+(defn- funnel-popover
+  "One header-filter popover (floating, position:fixed via .header-filter-popover so it
+   escapes the table's scroll overflow — same approach as the 3c combobox). Rendered
+   outside the table so clicks inside don't bubble to the sort handler on <thead>. Shown
+   for its column via $openFunnel; closes on an outside click, but only when it's the open
+   one (so clicking inside another funnel doesn't close it). The in-menu search filters the
+   options client-side; each checkbox binds the $filter.<col> array; Clear empties it."
+  [col options]
+  [:div.header-filter-popover
+   (h/a {"data-show" (str "$openFunnel === '" col "'")
+         "data-style" "{left: $funnelX + 'px', top: $funnelY + 'px'}"
+         "data-on:click__outside" (str "$openFunnel === '" col "' && ($openFunnel = '')")})
+   [:div.filter-dropdown.filter-dropdown--bare
+    [:div.filter-dropdown-header
+     [:input.filter-dropdown-search
+      (h/a {"type" "search" "placeholder" "Search…" "data-bind" "funnelQuery"
+            "aria-label" "Filter options"})]]
+    [:ul.filter-dropdown-list
+     (if (empty? options)
+       [:li.filter-dropdown-item.empty "No values"]
+       (for [{:keys [id label count]} options]
+         [:li.filter-dropdown-item
+          (h/a {"data-show" (str "$funnelQuery === '' || "
+                                 (h/js-str (str/lower-case label)) ".includes($funnelQuery.toLowerCase())")})
+          [:label.filter-dropdown-checkbox-label
+           [:input.filter-dropdown-checkbox
+            (h/a {"type" "checkbox" "value" (str id) "data-bind" (str "filter." col)})]
+           [:span.filter-dropdown-label-text label]
+           [:span.filter-dropdown-count count]]]))]
+    [:div.filter-dropdown-footer
+     [:button.button.button-secondary.filter-dropdown-clear
+      (h/a {"type" "button" "data-on:click" (str "$filter." col " = []")}) "Clear"]]]])
+
+(defn- funnel-popovers [account-opts institution-opts category-opts]
+  (list
+   (funnel-popover "account" account-opts)
+   (funnel-popover "institution" institution-opts)
+   (funnel-popover "category" category-opts)))
+
 (defn- toolbar [m counts]
   [:div.toolbar
    [:div.toolbar-controls
@@ -536,7 +701,10 @@
           txs (db-transactions/list-for-month db-conn month-str)
           counts (db-transactions/month-counts txs)
           stats (db-stats/entity-counts db-conn)
-          categories (db-categories/list-all db-conn)]
+          categories (db-categories/list-all db-conn)
+          account-opts (account-options txs)
+          institution-opts (institution-options txs)
+          category-opts (category-options-list txs)]
       {:status 200
        :headers {"Content-Type" "text/html"}
        :body
@@ -549,6 +717,11 @@
                    :cat (category-signals txs)
                    :cols (into {} (map (fn [[id _]] [(keyword id) true]) hideable-columns))
                    :colsOpen false
+                   :filter {:account [] :institution [] :category []}
+                   :openFunnel ""
+                   :funnelX 0
+                   :funnelY 0
+                   :funnelQuery ""
                    :month month-str
                    :search ""
                    :scope "all"
@@ -562,4 +735,6 @@
            (if (empty? txs)
              (empty-state)
              (transactions-table txs))]]
+         (when (seq txs)
+           (funnel-popovers account-opts institution-opts category-opts))
          (category-options categories)])})))

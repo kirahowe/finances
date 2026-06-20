@@ -290,7 +290,7 @@
     background-color 0.12s var(--ease-out);
 }
 
-.table.table-resizable th:hover .th-filter-btn {
+.table th:hover .th-filter-btn {
   opacity: 1;
 }
 
