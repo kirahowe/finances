@@ -32,9 +32,13 @@
 }
 
 /* Denser rows: trim the vertical padding so more of the month fits at a glance
-   (horizontal padding from the shared .table rules is preserved). */
+   (horizontal padding from the shared .table rules is preserved). Density is its own
+   concern, independent of resizing — .table-dense gets it without fixed layout (the
+   server-authoritative /v2 table, until R3 makes it resizable). */
 .table.table-resizable th,
-.table.table-resizable td {
+.table.table-resizable td,
+.table.table-dense th,
+.table.table-dense td {
   padding-top: 0.32rem;
   padding-bottom: 0.32rem;
 }

@@ -179,7 +179,7 @@
 
 (defn- table [rows]
   [:div.transactions-table-scroll {:tabindex "0"}
-   [:table.table {:role "grid"}
+   [:table.table.table-dense {:role "grid"}
     [:colgroup (for [{:keys [w]} columns] [:col {:style (str "width:" w "px")}])]
     [:thead [:tr (map th columns)]]
     (tbody rows)]])
