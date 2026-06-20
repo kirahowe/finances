@@ -15,10 +15,12 @@ notes) is in **`replicant-datastar-3c-3d-handoff.md`** — read that before cont
 
 ## 1. Status at a glance
 
-Phases **0, 1, 2, 3a, 3b, 3c done; 3d in progress** (grid-nav, keyboard editing, column
-visibility, sorting done) — ~18 commits on `spike/replicant-datastar` since the handoff
-(`cb7371e..HEAD`). Backend suite green throughout (**274 tests / 1197 assertions / 0
-failures**). Every UI unit has a real-Chromium `e2e/*.mjs` check.
+Phases **0–3c done; 3d DONE** (grid-nav, keyboard editing, column visibility, sorting,
+header-filter funnels, column resize/auto-fit, lingering rows, URL view-state) — on
+`spike/replicant-datastar`. Backend suite green throughout (**274 tests / 1197 assertions /
+0 failures**); islands `tsc` clean + **64** vitest. Every UI unit has a real-Chromium
+`e2e/*.mjs` check — **15 specs / 183 checks** green. Next up: **Phase 3e** (split editor +
+transfer modals + rollup + row actions).
 
 | Phase | What shipped | Check |
 |---|---|---|
@@ -30,8 +32,12 @@ failures**). Every UI unit has a real-Chromium `e2e/*.mjs` check.
 | 3c | **inline description edit** (class-swap, optimistic via `data-text`/`data-bind`, `@put`→`set-user-description!`, signal reconciled to effective desc); **category combobox** (first **Zag.js vanilla** island, reuses `buildCategoryDropdownModel`, `position:fixed` floating root, `@put`→`update-category!`→counts patch) | `e2e/edit.mjs` **9/9**, `e2e/combobox.mjs` **13/13** |
 | 3d-1 | **keyboard grid-nav island** (`grid-nav.ts`, imports the ported reducer): arrows/Tab/Home/End/click move the active cell, Space toggles reviewed, `role=grid/row/gridcell` + roving tabindex + active ring; yields to open editors. `data-cell` on the normal-row editable cells | `e2e/grid-nav.mjs` **19/19** |
 | 3d-2 | **keyboard editing**: Enter/type-to-edit open the editor, Enter walks down the column (advance), Tab commits+moves, combobox opens by keyboard + advances on select. grid-nav drives the 3c editors via a bubbling `gridedit` event (`advance`/`cancel`) | `e2e/grid-edit.mjs` **15/15** |
-| 3d-3a | **column visibility**: toolbar "Columns" picker toggles read-only columns (`cols.<id>` signals → `hide-<id>` class → nth-child CSS collapse); reuses filter-dropdown styling; no grid-nav interaction | `e2e/columns.mjs` **9/9** |
-| 3d-3b | **client-side sorting**: header click reorders rows asc→desc→clear (island; numeric keys baked, strings read from cells); keeps all filter/edit signals ("never drop filters"); fires `grid-refresh` so grid-nav follows the order | `e2e/sort.mjs` **12/12** |
+| 3d-3a | **column visibility**: toolbar "Columns" picker toggles read-only columns (`cols.<id>` signals → `hide-<id>` class → nth-child CSS collapse); reuses filter-dropdown styling | `e2e/columns.mjs` **9/9** |
+| 3d-3b | **client-side sorting**: header click reorders rows asc→desc→clear (island; numeric keys baked, strings read from cells); keeps all filter/edit signals ("never drop filters"); fires `grid-refresh` so grid-nav follows | `e2e/sort.mjs` **12/12** |
+| 3d-4 | **header-filter funnels** (account/institution/category): floating `position:fixed` popovers (reuse the 3c portal), checkbox-array signals gated `.filter(x=>x)`, in-funnel search, OR-within/AND-across, split-aware category clause that **unions** the funnel with the Uncategorized chip (also lands split-aware category matching) | `e2e/funnels.mjs` **22/22** |
+| 3d-5 | **column resize/auto-fit island** (`col-resize.ts`): table switched to `.table-resizable` (fixed layout); auto-fit on load + ResizeObserver/visibility-change; drag handles (min/max clamp) + double-click re-fit; sort-collision guard; hides hidden columns' `<col>` so widths map 1:1 | `e2e/resize.mjs` **11/11** |
+| 3d-6 | **lingering rows**: pin-on-edit (`$linger.tx<id>`) so reviewing/categorizing a row keeps it in place (`.is-stale` + "→" breadcrumb) until a filter change clears the pins (centralized `data-on-signal-patch` reset); category clause now reads the live `$cat` signal | `e2e/lingering.mjs` **12/12** |
+| 3d-7 | **URL view-state**: server seeds signals from query params; `url-state` island (`__syncUrl`) + sort island write search/scope/chips/funnels/cols/sort back; month nav preserves the params | `e2e/url-state.mjs` **16/16** |
 
 React still runs on `:5173` (untouched, for before/after comparison). The new app
 is served by the backend at `:8080` (`/`, `/setup`). Flip + delete React at Phase 5.
@@ -75,6 +81,10 @@ BASE_URL=http://localhost:8099 node e2e/grid-nav.mjs      # 19
 BASE_URL=http://localhost:8099 node e2e/grid-edit.mjs     # 15  (mutates + resets seed)
 BASE_URL=http://localhost:8099 node e2e/columns.mjs       # 9
 BASE_URL=http://localhost:8099 node e2e/sort.mjs          # 12
+BASE_URL=http://localhost:8099 node e2e/funnels.mjs       # 22
+BASE_URL=http://localhost:8099 node e2e/resize.mjs        # 11
+BASE_URL=http://localhost:8099 node e2e/lingering.mjs     # 12  (mutates + resets seed)
+BASE_URL=http://localhost:8099 node e2e/url-state.mjs     # 16
 ```
 
 ---
@@ -148,47 +158,46 @@ content-type by extension (ES modules → `text/javascript`).
 - **Islands**: TS entry in `islands/src/`, pure logic in `src/lib/` with vitest;
   add the entry to `islands/build.mjs`; output is `…/js/islands/<name>.js`. Island↔
   Datastar interop goes through DOM events. Load per-page via `base-page`'s `:islands`.
-- **Tables**: plain `.table` (auto layout) + the server-side `<col>` width estimate
-  until the resize/auto-fit island lands; then switch to `.table-resizable` (fixed)
-  and let the island set `<col>` widths client-side.
-- **Month change = full navigation** (anchor links), matching React's remount.
+- **Tables**: now `.table-resizable` (fixed layout); the server renders a `<col>` width
+  estimate for the pre-/no-JS view and the `col-resize` island refines them client-side
+  (and hides hidden columns' `<col>` so widths map 1:1 in fixed layout).
+- **Month change = full navigation**, but the prev/next links now swap only the `month`
+  param on the current URL (preserving the live view-state the `url-state` island keeps
+  in the query string); the plain `/?month=` href is the no-JS fallback.
 
 ---
 
 ## 5. Known gaps / deliberate simplifications to revisit
 
-These are intentional shortcuts taken to keep each commit shippable — fold them in
-as the relevant unit lands:
+Resolved during the rest of 3d (kept here for history):
+- ~~Lingering rows~~ — **done (3d-6)**, via per-row `$linger.tx<id>` pin-on-edit +
+  centralized `data-on-signal-patch` reset (not the snapshot-namespace approach
+  originally sketched). The category match clause now reads the live `$cat` signal.
+- ~~Header-filter funnels~~ — **done (3d-4)**, pure Datastar + the 3c `.is-floating`
+  fixed-portal; rendered outside the table so clicks don't reach the sort handler.
+- ~~Uncategorized two-token / split-aware category~~ — **resolved (3d-4)**: the category
+  clause unions the funnel selection with the `$uncat` chip and is split-aware. Kept the
+  single `$uncat` boolean (the chip = "any uncategorized", matching React's observable
+  behaviour) rather than two literal by-sign tokens.
+- ~~URL view-state~~ — **done (3d-7)**: server seeds signals from query params; the
+  `url-state` island + the sort island write them back; month nav preserves them.
 
-1. **Lingering rows not implemented.** Reviewing a row while in Needs-review scope
-   hides it immediately (the `data-show` keys off the live reviewed signal), vs
-   React's "linger until the next filter reset." To add: key the scope `data-show`
-   off a *snapshot* signal that only refreshes on a filter/sort/page reset, not the
-   live reviewed signal. (Tracked for 3d.)
-2. **Header-filter funnels deferred** (account/institution/category). They need a
-   portal/`position:fixed` dropdown to escape the table's overflow — **the combobox
-   island (3c) established this**: a floating root with `.category-dropdown.is-floating`
-   (`position:fixed`+`z-index` in CSS) positioned from the cell rect (only left/top/width
-   inline). Reuse that approach for the funnels.
-3. **Uncategorized chip** uses one client predicate (`needs-category?`), not React's
-   two by-sign tokens (income vs expense uncategorized). Revisit with the category
-   funnel.
-4. **Split-aware category filter** simplified — the category clause is omitted for
-   split rows (seed has no splits, so untested). Add part-category matching when the
-   funnel lands.
-5. **Pagination deferred** (seed month < 25 rows). `page`/`pageSize` URL state not yet.
-6. **URL view-state persistence** ([[feedback_url_view_state]]) is **not** wired for
-   search/scope/filters/cols/sort yet — they're Datastar signals only. Month IS in the
-   URL. Decide: reflect signals→URL via a small `data-on-signal-patch` + History API
-   helper, and read them back into the initial signals on load.
-7. **Inline edit deferrals (3d/3e).** Normal-row description + category editing shipped
-   in 3c, but: Enter "save & advance to next row" and type-to-edit (seed-char) wait on
-   the grid-nav focus model (**3d**); **split** memo + category editing is untouched
-   (split-row buttons stay inert) until the split modal (**3e**); the inert split
-   category button has no `aria-disabled` yet (fold in with 3e).
-8. **Actions column empty**; **transfer ⇄ glyphs are inert** (row-actions + transfer
+Still open:
+1. **Pagination deferred** (seed month < 25 rows). `page`/`pageSize` URL state not yet —
+   confirm it's even needed before building.
+2. **Column WIDTHS not persisted to the URL.** Visibility + sort persist (3d-7); the
+   resize island's manual `userWidths` don't yet (gap #6's list was visibility, not
+   widths). Fold in via a `colw=id:width,…` param the col-resize island reads/writes.
+3. **Sort doesn't clear lingering rows.** React resets lingering on sort too; our sort is
+   a client island with no signal, so the `data-on-signal-patch` reset doesn't see it.
+   Benign (stale rows just stay, reordered) — wire a signal if it ever matters.
+4. **Inline edit / split deferrals (3e).** **Split** memo + category editing is untouched
+   (split-row buttons stay inert; no `data-cell` on split cells; the inert split category
+   button has no `aria-disabled` yet). Split rows aren't keyboard-navigable or resizable-
+   column-aware for category, and use baked (not live) category tokens in the filter.
+5. **Actions column empty**; **transfer ⇄ glyphs are inert** (row-actions + transfer
    modals = 3e).
-9. **reviewed checkbox** relies on `data-bind` to set `checked` from the signal on
+6. **reviewed checkbox** relies on `data-bind` to set `checked` from the signal on
    load (possible 1-frame flash; acceptable).
 
 ---
@@ -216,32 +225,20 @@ approach for 3d/3e funnels. Original spec, for reference:
   modal instead (3e). Establish the portal-positioning approach here — the header
   funnels reuse it.
 
-**3d — grid-nav + columns + sort + paginate + linger** (IN PROGRESS)
-- ✅ **Keyboard grid-nav island done (3d-1 + 3d-2).** `islands/src/grid-nav.ts` imports
-  the ported reducer; navigation + a11y + Space-toggle (3d-1), then keyboard editing —
-  Enter/type-to-edit open, Enter walks the column, Tab commits+moves, combobox-by-keyboard
-  + advance (3d-2). grid-nav drives the 3c editors via a bubbling `gridedit` event.
-  Split-row navigation/editing still deferred to 3e (no `data-cell` on split cells yet).
-- ✅ **Column visibility done (3d-3a)** — toolbar picker, `cols.<id>` signals + nth-child
-  CSS collapse, read-only columns only (no grid-nav interaction).
-- ✅ **Sorting done (3d-3b)** — client-side island reorders rows (asc/desc/clear), keeps
-  all filter/edit signals, fires `grid-refresh` so grid-nav follows. Chose client-side
-  over server `@get?sort=` to honour "never drop filters".
-- **Still TODO in 3d:** *header-filter funnels* (reuse the combobox's `.is-floating`
-  portal; gaps #2/#3), *column resize/auto-fit island* (port `columnAutoSizing.ts`; then
-  switch the table to `.table-resizable`), *pagination* (likely unneeded at seed size —
-  confirm), *lingering rows* (gap #1), *URL view-state* (gap #6, would also let sort/
-  filters survive month nav). These are independent of the editors.
-- *Keyboard grid-nav island (original spec)*: port `gridNavigation.ts` verbatim (it's already a pure
-  reducer; the spike's `resources/public/grid-nav.js` is the port). Mounts on
-  `.transactions-table-scroll`; reconstructs its model from `[data-cell]` DOM order
-  (don't embed JSON — Replicant escapes `<script>` bodies). Interops with Datastar
-  via DOM events. Add `role=gridcell`/`row` + roving tabindex to the cells.
-- *Header-filter funnels* (reuse 3c positioning), *column visibility* (Datastar
-  signals + CSS `hide-<col>` classes), *column resize/auto-fit island* (port
-  `columnAutoSizing.ts`; write `<col>` widths; then switch the table to
-  `.table-resizable`). *Sorting* (`@get?sort=` server re-render or client). *Pagination*
-  (`page`/`pageSize`). *Lingering rows* (gap #1). Wire **URL view-state** (gap #6).
+**3d — grid-nav + columns + sort + funnels + resize + linger + URL state — ✅ DONE.**
+Shipped as units 3d-1…3d-7 (see the status table §1 for each + its e2e spec):
+- **grid-nav + keyboard editing** (3d-1/3d-2): `grid-nav.ts` over the ported reducer.
+- **column visibility** (3d-3a) + **client-side sorting** (3d-3b).
+- **header-filter funnels** (3d-4): pure Datastar floating popovers; split-aware category
+  clause unioning the funnel with the `$uncat` chip.
+- **column resize/auto-fit** (3d-5): `col-resize.ts`; table is now `.table-resizable`
+  (fixed layout); auto-fit + drag + double-click re-fit; hides hidden columns' `<col>`.
+- **lingering rows** (3d-6): pin-on-edit `$linger` + centralized signal-patch reset.
+- **URL view-state** (3d-7): server seeds from params; `url-state`/sort islands write back.
+
+Remaining 3d-adjacent items are deferred (see §5): *pagination* (likely unneeded — confirm),
+*column-width URL persistence*, and the *split-row* editing paths (3e). Split-row
+navigation/editing stays in 3e (no `data-cell` on split cells; baked category tokens).
 
 **3e — modals + rollup + row actions**
 - *Split editor*: port `splitMath.ts`; live balance; `@put('/transactions/:id/splits')`
