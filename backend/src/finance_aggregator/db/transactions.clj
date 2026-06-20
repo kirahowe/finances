@@ -94,6 +94,23 @@
                :where [?e :transaction/external-id _]]
              (d/db conn) transaction-pull-pattern)))
 
+(defn sync-reviewed!
+  "Batch-persist reviewed flags from the transactions page's `reviewed` signal map.
+   Keys like \"tx<id>\" set :transaction/reviewed; \"sp<id>\" set :split/reviewed.
+   A true value asserts the flag, false retracts it (absence nil-puns to not
+   reviewed). One transaction; idempotent (re-asserting an existing flag is a
+   no-op). This is the write-behind sink for the optimistic reviewed toggle — it
+   persists only; the optimistic client signal stands, with no per-toggle echo."
+  [conn reviewed]
+  (let [ops (for [[k v] reviewed
+                  :let [s (name k)]
+                  :when (or (str/starts-with? s "tx") (str/starts-with? s "sp"))]
+              (let [id (parse-long (subs s 2))
+                    attr (if (str/starts-with? s "tx") :transaction/reviewed :split/reviewed)]
+                (if v [:db/add id attr true] [:db/retract id attr])))]
+    (when (seq ops)
+      (d/transact! conn (vec ops)))))
+
 (defn- set-reviewed-datom!
   "Assert (true) or clear (false) the boolean reviewed flag `attr` on entity `eid`.
    Clearing retracts the datom so its absence nil-puns to not-reviewed."

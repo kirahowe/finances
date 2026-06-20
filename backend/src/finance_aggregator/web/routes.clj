@@ -7,6 +7,7 @@
    a server-authoritative SSE round-trip, and an esbuild island. Real pages land
    here (and under finance-aggregator.web.pages.*) as the migration proceeds."
   (:require
+   [finance-aggregator.db.transactions :as db-transactions]
    [finance-aggregator.web.hiccup :as h]
    [finance-aggregator.web.layout :as layout]
    [finance-aggregator.web.pages.setup :as setup]
@@ -74,6 +75,19 @@
         (d*/close-sse! sse))})))
 
 ;; ---------------------------------------------------------------------------
+;; Transactions hypermedia handlers
+;; ---------------------------------------------------------------------------
+
+(defn- sync-reviewed-handler
+  "Write-behind sink for the optimistic reviewed toggle: persist the `reviewed`
+   signal map, then close the SSE without echoing the checkboxes (the optimistic
+   client state stands). Derived counts are reconciled separately in later phases."
+  [{:keys [db-conn]}]
+  (fn [req]
+    (db-transactions/sync-reviewed! db-conn (:reviewed (h/read-signals req)))
+    (hk/->sse-response req {hk/on-open (fn [sse] (d*/close-sse! sse))})))
+
+;; ---------------------------------------------------------------------------
 ;; Route tree
 ;; ---------------------------------------------------------------------------
 
@@ -83,7 +97,8 @@
    is closed over by page handlers as real pages are added."
   [deps]
   [""
-   ["/"               {:get  {:handler (transactions/page deps) :name ::transactions}}]
-   ["/setup"          {:get  {:handler (setup/page deps) :name ::setup}}]
+   ["/"                      {:get {:handler (transactions/page deps) :name ::transactions}}]
+   ["/transactions/reviewed" {:put {:handler (sync-reviewed-handler deps) :name ::sync-reviewed}}]
+   ["/setup"                 {:get {:handler (setup/page deps) :name ::setup}}]
    ["/_scaffold"      {:get  {:handler scaffold-page :name ::scaffold}}]
    ["/_scaffold/sync" {:post {:handler scaffold-sync :name ::scaffold-sync}}]])

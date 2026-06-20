@@ -9,6 +9,7 @@
    [finance-aggregator.db.stats :as db-stats]
    [finance-aggregator.db.transactions :as db-transactions]
    [finance-aggregator.web.format :as fmt]
+   [finance-aggregator.web.hiccup :as h]
    [finance-aggregator.web.layout :as layout]
    [finance-aggregator.web.month :as month]
    [finance-aggregator.web.shell :as shell]))
@@ -110,9 +111,16 @@
      {:type "button" :title "Transfer with no matched counterpart — click to match"}
      [:span.transfer-status-glyph {:aria-hidden "true"} "⇄"] "Match"]))
 
-(defn- reviewed-checkbox [reviewed?]
-  ;; Display-only in Phase 3a; the optimistic Datastar toggle is wired in 3b.
-  [:input.reviewed-checkbox (cond-> {:type "checkbox"} reviewed? (assoc :checked true))])
+(defn- reviewed-checkbox
+  "Optimistic reviewed checkbox bound to a Datastar signal: the click flips the
+   signal instantly (no round-trip), and a per-checkbox debounced write-behind
+   persists via @put. The server never echoes the checkbox back (the optimistic
+   state stands); it only persists. `signal` is e.g. \"reviewed.tx12\"."
+  [signal]
+  [:input.reviewed-checkbox
+   (h/a {"type" "checkbox"
+         "data-bind" signal
+         "data-on:change__debounce.700ms" "@put('/transactions/reviewed')"})])
 
 (defn- split-icon [drift?]
   [:svg {:class (str "split-icon" (when drift? " split-icon-drift"))
@@ -127,7 +135,7 @@
 ;; ---------------------------------------------------------------------------
 
 (defn- normal-row [{:transaction/keys [posted-date account payee effective-description
-                                       amount category reviewed] :as tx}]
+                                       amount category] :as tx}]
   [:tr
    [:td [:span.numeric (fmt/date posted-date)]]
    [:td (or (:account/external-name account) "—")]
@@ -140,7 +148,7 @@
      [:button.category-button {:type "button" :tabindex "-1"}
       (or (:category/name category) "Uncategorized")]
      (transfer-status tx)]]
-   [:td.reviewed-cell (reviewed-checkbox reviewed)]
+   [:td.reviewed-cell (reviewed-checkbox (str "reviewed.tx" (:db/id tx)))]
    [:td.actions-cell]
    [:td.table-spacer-cell {:aria-hidden "true"}]])
 
@@ -157,7 +165,7 @@
    [:td.actions-cell]
    [:td.table-spacer-cell {:aria-hidden "true"}]])
 
-(defn- split-child-row [drift? last? {:split/keys [amount memo category reviewed]}]
+(defn- split-child-row [drift? last? {:split/keys [amount memo category] :as part}]
   [:tr {:class (str "split-child-row" (when last? " is-last"))}
    [:td] [:td] [:td] [:td]
    [:td.description-cell
@@ -167,7 +175,7 @@
     [:div.category-cell-content
      [:button.category-button {:type "button" :tabindex "-1" :title "Edit split"}
       (or (:category/name category) "Uncategorized")]]]
-   [:td.reviewed-cell (reviewed-checkbox reviewed)]
+   [:td.reviewed-cell (reviewed-checkbox (str "reviewed.sp" (:db/id part)))]
    [:td]
    [:td.table-spacer-cell {:aria-hidden "true"}]])
 
@@ -226,6 +234,20 @@
    [:p "Use the month controls to browse another period, or import transactions "
     "from the Setup page."]])
 
+(defn- reviewed-signals
+  "Initial `reviewed` signal map for the month's rows: {tx<id> bool} for normal
+   transactions, {sp<id> bool} per split part (split parents have no checkbox)."
+  [txs]
+  (into {}
+        (mapcat (fn [tx]
+                  (if-let [parts (seq (:transaction/splits tx))]
+                    (map (fn [p] [(keyword (str "sp" (:db/id p)))
+                                  (boolean (:split/reviewed p))])
+                         parts)
+                    [[(keyword (str "tx" (:db/id tx)))
+                      (boolean (:transaction/reviewed tx))]]))
+                txs)))
+
 ;; ---------------------------------------------------------------------------
 ;; Page
 ;; ---------------------------------------------------------------------------
@@ -241,7 +263,8 @@
        :headers {"Content-Type" "text/html"}
        :body
        (layout/base-page
-        {:title "Finance Aggregator"}
+        {:title "Finance Aggregator"
+         :signals {:reviewed (reviewed-signals txs)}}
         [:div.container.container--workspace
          (shell/masthead {:active :transactions :stats stats})
          [:div.transactions-layout
