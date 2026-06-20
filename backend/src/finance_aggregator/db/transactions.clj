@@ -94,6 +94,26 @@
                :where [?e :transaction/external-id _]]
              (d/db conn) transaction-pull-pattern)))
 
+(defn needs-category?
+  "True when a transaction still needs a category: a split needs work when any part
+   lacks a category; an unsplit row needs a category ref. (Mirrors React needsCategory.)"
+  [tx]
+  (if-let [parts (seq (:transaction/splits tx))]
+    (some #(nil? (get-in % [:split/category :db/id])) parts)
+    (nil? (get-in tx [:transaction/category :db/id]))))
+
+(defn month-counts
+  "Counts driving the toolbar's review-scope toggle and binary chips, from a list of
+   derived transactions (the whole month, pre-filter). Mirrors React computeMonthCounts."
+  [txs]
+  (reduce (fn [acc tx]
+            (cond-> (update acc :total inc)
+              (not (true? (:transaction/reviewed tx)))   (update :unreviewed inc)
+              (needs-category? tx)                        (update :uncategorized inc)
+              (:transaction/transfer-hidden tx)           (update :transfers-hidden inc)))
+          {:total 0 :unreviewed 0 :uncategorized 0 :transfers-hidden 0}
+          txs))
+
 (defn sync-reviewed!
   "Batch-persist reviewed flags from the transactions page's `reviewed` signal map.
    Keys like \"tx<id>\" set :transaction/reviewed; \"sp<id>\" set :split/reviewed.

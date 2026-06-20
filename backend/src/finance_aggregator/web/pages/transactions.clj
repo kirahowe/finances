@@ -131,12 +131,55 @@
    [:path {:d "M4 4v7a4 4 0 0 0 4 4h12"}]])
 
 ;; ---------------------------------------------------------------------------
+;; Client-side filtering (Datastar data-show)
+;; ---------------------------------------------------------------------------
+;; Each row carries a data-show expression over the toolbar signals — search,
+;; review scope, hide-transfers, uncategorized — so filtering is instant with no
+;; round-trip. Per-row constants (search haystack, transfer-hidden, uncategorized,
+;; the reviewed expression) are baked in server-side; the signals are the only
+;; reactive inputs. A reviewed row stays put (no re-render) until the next full
+;; page render, which is the desired "linger".
+
+(defn- search-haystack
+  "Lowercased text a search matches against (payee, effective description, category,
+   and each split part's memo + category) — mirrors React searchTransactions."
+  [tx]
+  (str/lower-case
+   (str/join " "
+             (remove str/blank?
+                     (concat [(:transaction/payee tx)
+                              (:transaction/effective-description tx)
+                              (get-in tx [:transaction/category :category/name])]
+                             (mapcat (fn [p] [(:split/memo p)
+                                              (get-in p [:split/category :category/name])])
+                                     (:transaction/splits tx)))))))
+
+(defn- reviewed-expr
+  "JS expression that is true when the row counts as reviewed: the tx signal for a
+   normal row, or every part's signal AND-ed for a split."
+  [tx]
+  (if-let [parts (seq (:transaction/splits tx))]
+    (str "(" (str/join " && " (map #(str "$reviewed.sp" (:db/id %)) parts)) ")")
+    (str "$reviewed.tx" (:db/id tx))))
+
+(defn- row-show-attrs
+  "data-show attribute map combining the active toolbar filters for a transaction's
+   row(s). Clauses that can't ever hide this row (it isn't a hidden transfer / it is
+   uncategorized) are omitted so the expression stays minimal."
+  [tx]
+  (h/a {"data-show"
+        (str "($search === '' || " (h/js-str (search-haystack tx)) ".includes($search.toLowerCase()))"
+             " && ($scope === 'all' || !(" (reviewed-expr tx) "))"
+             (when (:transaction/transfer-hidden tx) " && !$hideTransfers")
+             (when-not (db-transactions/needs-category? tx) " && !$uncat"))}))
+
+;; ---------------------------------------------------------------------------
 ;; Rows
 ;; ---------------------------------------------------------------------------
 
-(defn- normal-row [{:transaction/keys [posted-date account payee effective-description
-                                       amount category] :as tx}]
-  [:tr
+(defn- normal-row [show {:transaction/keys [posted-date account payee effective-description
+                                            amount category] :as tx}]
+  [:tr show
    [:td [:span.numeric (fmt/date posted-date)]]
    [:td (or (:account/external-name account) "—")]
    [:td (or (get-in account [:account/institution :institution/name]) "—")]
@@ -152,8 +195,8 @@
    [:td.actions-cell]
    [:td.table-spacer-cell {:aria-hidden "true"}]])
 
-(defn- split-parent-row [{:transaction/keys [posted-date account payee effective-description]}]
-  [:tr.is-split-parent
+(defn- split-parent-row [show {:transaction/keys [posted-date account payee effective-description]}]
+  [:tr (merge show {:class "is-split-parent"})
    [:td [:span.numeric (fmt/date posted-date)]]
    [:td (or (:account/external-name account) "—")]
    [:td (or (get-in account [:account/institution :institution/name]) "—")]
@@ -165,8 +208,8 @@
    [:td.actions-cell]
    [:td.table-spacer-cell {:aria-hidden "true"}]])
 
-(defn- split-child-row [drift? last? {:split/keys [amount memo category] :as part}]
-  [:tr {:class (str "split-child-row" (when last? " is-last"))}
+(defn- split-child-row [show drift? last? {:split/keys [amount memo category] :as part}]
+  [:tr (merge show {:class (str "split-child-row" (when last? " is-last"))})
    [:td] [:td] [:td] [:td]
    [:td.description-cell
     [:span.split-description (split-icon drift?) (description-button memo)]]
@@ -181,15 +224,17 @@
 
 (defn- tx-rows
   "Expand a transaction into its table row(s): one normal row, or a split parent +
-   one row per ordered part."
+   one row per ordered part. All rows of a split share the same data-show so they
+   filter together."
   [tx]
-  (if-let [parts (seq (:transaction/splits tx))]
-    (let [sorted (sort-by :split/order parts)
-          drift? (false? (:transaction/splits-balanced tx))
-          last-idx (dec (count sorted))]
-      (into [(split-parent-row tx)]
-            (map-indexed (fn [i p] (split-child-row drift? (= i last-idx) p)) sorted)))
-    [(normal-row tx)]))
+  (let [show (row-show-attrs tx)]
+    (if-let [parts (seq (:transaction/splits tx))]
+      (let [sorted (sort-by :split/order parts)
+            drift? (false? (:transaction/splits-balanced tx))
+            last-idx (dec (count sorted))]
+        (into [(split-parent-row show tx)]
+              (map-indexed (fn [i p] (split-child-row show drift? (= i last-idx) p)) sorted)))
+      [(normal-row show tx)])))
 
 ;; ---------------------------------------------------------------------------
 ;; Table + chrome
@@ -224,9 +269,57 @@
     [:a.button.button-secondary.month-nav-button
      {:href (str "/?month=" (month/serialize (month/next-month m))) :title "Next month"} "›"]]])
 
-(defn- toolbar [m]
+(defn- search-box []
+  [:div.table-search
+   [:svg.table-search-icon {:width "14" :height "14" :viewBox "0 0 24 24" :fill "none"
+                            :stroke "currentColor" :stroke-width "2" :stroke-linecap "round"
+                            :stroke-linejoin "round" :aria-hidden "true"}
+    [:circle {:cx "11" :cy "11" :r "8"}]
+    [:line {:x1 "21" :y1 "21" :x2 "16.65" :y2 "16.65"}]]
+   [:input.table-search-input
+    (h/a {"type" "search" "placeholder" "Search payee, description…"
+          "data-bind" "search" "aria-label" "Search transactions"})]])
+
+(defn- scope-toggle
+  "Segmented Needs-review / All switch. Sets the $scope signal (data-show keys off
+   it); the counts are server-rendered and patched after the reviewed write-behind."
+  [{:keys [unreviewed total]}]
+  [:div.scope-toggle {:role "group" :aria-label "Review scope"}
+   [:button.scope-toggle-btn
+    (h/a {"type" "button" "data-on:click" "$scope = 'needs-review'"
+          "data-class" "{'is-active': $scope === 'needs-review'}"})
+    "Needs review" [:span#count-unreviewed.filter-count unreviewed]]
+   [:button.scope-toggle-btn
+    (h/a {"type" "button" "data-on:click" "$scope = 'all'"
+          "data-class" "{'is-active': $scope === 'all'}"})
+    "All" [:span#count-total.filter-count total]]])
+
+(defn- count-chip [label signal span-id count]
+  [:button.count-chip
+   (h/a {"type" "button" "data-on:click" (str "$" signal " = !$" signal)
+         "data-class" (str "{'is-active': $" signal "}")})
+   label [:span.filter-count {:id span-id} count]])
+
+(defn counts-fragment
+  "The four toolbar count badges as an HTML string, for the SSE patch after a
+   write-behind (each morphed by id)."
+  [counts]
+  (str/join
+   (map h/render
+        [[:span#count-unreviewed.filter-count (:unreviewed counts)]
+         [:span#count-total.filter-count (:total counts)]
+         [:span#count-uncategorized.filter-count (:uncategorized counts)]
+         [:span#count-transfers.filter-count (:transfers-hidden counts)]])))
+
+(defn- toolbar [m counts]
   [:div.toolbar
-   [:div.toolbar-controls (month-navigator m)]])
+   [:div.toolbar-controls
+    (month-navigator m)
+    [:span.toolbar-divider {:aria-hidden "true"}]
+    (search-box)
+    (scope-toggle counts)
+    (count-chip "Uncategorized" "uncat" "count-uncategorized" (:uncategorized counts))
+    (count-chip "Hide transfers" "hideTransfers" "count-transfers" (:transfers-hidden counts))]])
 
 (defn- empty-state []
   [:div.empty-state
@@ -257,19 +350,26 @@
   [{:keys [db-conn]}]
   (fn [req]
     (let [m (month/parse (get-in req [:query-params "month"]))
-          txs (db-transactions/list-for-month db-conn (month/serialize m))
+          month-str (month/serialize m)
+          txs (db-transactions/list-for-month db-conn month-str)
+          counts (db-transactions/month-counts txs)
           stats (db-stats/entity-counts db-conn)]
       {:status 200
        :headers {"Content-Type" "text/html"}
        :body
        (layout/base-page
         {:title "Finance Aggregator"
-         :signals {:reviewed (reviewed-signals txs)}}
+         :signals {:reviewed (reviewed-signals txs)
+                   :month month-str
+                   :search ""
+                   :scope "all"
+                   :hideTransfers false
+                   :uncat false}}
         [:div.container.container--workspace
          (shell/masthead {:active :transactions :stats stats})
          [:div.transactions-layout
           [:div.card
-           (toolbar m)
+           (toolbar m counts)
            (if (empty? txs)
              (empty-state)
              (transactions-table txs))]]])})))

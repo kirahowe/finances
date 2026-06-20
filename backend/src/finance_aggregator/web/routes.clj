@@ -10,6 +10,7 @@
    [finance-aggregator.db.transactions :as db-transactions]
    [finance-aggregator.web.hiccup :as h]
    [finance-aggregator.web.layout :as layout]
+   [finance-aggregator.web.month :as month]
    [finance-aggregator.web.pages.setup :as setup]
    [finance-aggregator.web.pages.transactions :as transactions]
    [starfederation.datastar.clojure.api :as d*]
@@ -80,12 +81,20 @@
 
 (defn- sync-reviewed-handler
   "Write-behind sink for the optimistic reviewed toggle: persist the `reviewed`
-   signal map, then close the SSE without echoing the checkboxes (the optimistic
-   client state stands). Derived counts are reconciled separately in later phases."
+   signal map, then patch the server-authoritative toolbar counts (never the
+   checkboxes — the optimistic client state stands)."
   [{:keys [db-conn]}]
   (fn [req]
-    (db-transactions/sync-reviewed! db-conn (:reviewed (h/read-signals req)))
-    (hk/->sse-response req {hk/on-open (fn [sse] (d*/close-sse! sse))})))
+    (let [signals (h/read-signals req)
+          month   (month/serialize (month/parse (:month signals)))]
+      (db-transactions/sync-reviewed! db-conn (:reviewed signals))
+      (let [counts (db-transactions/month-counts (db-transactions/list-for-month db-conn month))]
+        (hk/->sse-response
+         req
+         {hk/on-open
+          (fn [sse]
+            (d*/patch-elements! sse (transactions/counts-fragment counts))
+            (d*/close-sse! sse))})))))
 
 ;; ---------------------------------------------------------------------------
 ;; Route tree
