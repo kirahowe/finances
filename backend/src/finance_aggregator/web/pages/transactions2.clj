@@ -88,7 +88,8 @@
    :sortDir       (if-let [s (:sort vs)] (name (:dir s)) "asc")
    :page          (:page result)
    :pageSize      (:page-size result)
-   :month         month-str})
+   :month         month-str
+   :editValue     ""})
 
 ;; ---------------------------------------------------------------------------
 ;; Rows (read-only in cp1; editors arrive in cp2)
@@ -114,6 +115,43 @@
 (defn- row-class [base stale?]
   (str/trim (str base (when stale? " is-stale"))))
 
+;; --- Inline description edit (server-confirmed) ----------------------------
+;; Click the button → class-swap to an input (reusing the carried-over
+;; .description-cell.editing CSS). Enter/blur optimistically set the button text, copy the
+;; input value into the single $editValue courier signal, and @put it; the server applies a
+;; command and morphs the row back (reconciling blank → imported description). Escape reverts
+;; the input to its server value. No per-row signals — the input holds its own text.
+
+(def ^:private desc-open-js
+  (str "el.closest('.description-cell').classList.add('editing');"
+       " el.nextElementSibling.focus(); el.nextElementSibling.select()"))
+
+(defn- desc-commit-js [tx-id]
+  (str "el.previousElementSibling.textContent = el.value || '—',"
+       " $editValue = el.value, @put('/v2/tx/" tx-id "/description'),"
+       " el.closest('.description-cell').classList.remove('editing')"))
+
+(defn- desc-keydown-js [tx-id]
+  (str "evt.key === 'Enter' && (" (desc-commit-js tx-id) "); "
+       "evt.key === 'Escape' && (el.value = el.defaultValue,"
+       " el.closest('.description-cell').classList.remove('editing'))"))
+
+(defn- desc-blur-js [tx-id]
+  ;; A genuine click-away commits; Enter/Escape already removed `editing`, so their trailing
+  ;; blur is a no-op (guards the double-commit).
+  (str "el.closest('.description-cell').classList.contains('editing') && (" (desc-commit-js tx-id) ")"))
+
+(defn- editable-description [tx-id text]
+  (list
+   [:button.description-button
+    {:type "button" :tabindex "-1" "data-on:click" desc-open-js
+     :aria-label (when (str/blank? text) "Add description")}
+    (if (str/blank? text) "—" text)]
+   [:input.description-input
+    {:type "text" :value text :aria-label "Edit description"
+     "data-on:keydown" (desc-keydown-js tx-id)
+     "data-on:blur" (desc-blur-js tx-id)}]))
+
 (defn- normal-row [stale? {:transaction/keys [posted-date account payee effective-description
                                               amount category reviewed] :as tx}]
   [:tr {:role "row" :class (row-class "" stale?)}
@@ -121,7 +159,7 @@
    [:td (or (:account/external-name account) "—")]
    [:td (or (get-in account [:account/institution :institution/name]) "—")]
    [:td payee]
-   [:td.description-cell (if (str/blank? effective-description) "—" effective-description)]
+   [:td.description-cell (editable-description (:db/id tx) effective-description)]
    [:td.amount-cell (amount-span amount false)]
    [:td.category-cell (or (:category/name category) "Uncategorized")]
    [:td.reviewed-cell (reviewed-checkbox (:db/id tx) reviewed true)]])
@@ -400,6 +438,20 @@
                        {:type :set-reviewed :tx-id tx-id :before (not after) :after after
                         :label (if after "Marked reviewed" "Marked unreviewed")})
       (edit-response db-conn req (r/read-signals req)))))
+
+(defn set-description
+  "PUT /v2/tx/:id/description — record + apply an inline-description-edit command (the new
+   value rides in the $editValue courier signal), then re-render."
+  [{:keys [db-conn]}]
+  (fn [req]
+    (let [tx-id (-> req :path-params :id parse-long)
+          signals (r/read-signals req)
+          before (db-transactions/user-description db-conn tx-id)
+          after (str/trim (or (:editValue signals) ""))]
+      (commands/apply! db-conn auth/user-id
+                       {:type :set-description :tx-id tx-id :before before :after after
+                        :label "Edited description"})
+      (edit-response db-conn req signals))))
 
 (defn undo
   "POST /v2/undo — reverse the last edit (keeping the row lingering), then re-render."

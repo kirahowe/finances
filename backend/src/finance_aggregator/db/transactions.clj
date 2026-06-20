@@ -94,6 +94,12 @@
                :where [?e :transaction/external-id _]]
              (d/db conn) transaction-pull-pattern)))
 
+(defn user-description
+  "The transaction's current user-description override (\"\" when none) — for capturing the
+   before-value of an inline-description-edit command so undo can restore it."
+  [conn tx-id]
+  (or (:transaction/user-description (d/pull (d/db conn) [:transaction/user-description] tx-id)) ""))
+
 (defn needs-category?
   "True when a transaction still needs a category: a split needs work when any part
    lacks a category; an unsplit row needs a category ref. (Mirrors React needsCategory.)"
