@@ -15,8 +15,7 @@
    [finance-aggregator.db.accounts :as db-accounts]
    [finance-aggregator.db.transactions :as db-transactions]
    [finance-aggregator.http.responses :as responses]
-   [finance-aggregator.manual.service :as manual-service]
-   [finance-aggregator.utils :as utils]))
+   [finance-aggregator.manual.service :as manual-service]))
 
 (defn list-institutions-handler
   "Factory: creates handler for GET /api/institutions.
@@ -160,32 +159,11 @@
      Ring handler function"
   [{:keys [db-conn]}]
   (fn [request]
-    (let [month (get-in request [:query-params "month"])
-          db (d/db db-conn)]
-      (if month
-        ;; Filter by month
-        ;; Note: Datalevin has a limitation combining >= and < on dates in the same query,
-        ;; so we query with end-date only and post-filter by start-date
-        (let [{:keys [start-date end-date]} (utils/month-date-range month)
-              query '[:find [(pull ?e pattern) ...]
-                      :in $ pattern ?end
-                      :where
-                      [?e :transaction/external-id _]
-                      [?e :transaction/posted-date ?date]
-                      [(< ?date ?end)]]
-              raw-results (d/q query db db-transactions/transaction-pull-pattern end-date)
-              ;; Post-filter by start date
-              results (filter #(not (.before (:transaction/posted-date %) start-date))
-                              raw-results)]
-          (responses/success-response
-           (mapv db-transactions/with-derived-fields results)))
-        ;; No filter - return all transactions
-        (let [query '[:find [(pull ?e pattern) ...]
-                      :in $ pattern
-                      :where [?e :transaction/external-id _]]
-              results (d/q query db db-transactions/transaction-pull-pattern)]
-          (responses/success-response
-           (mapv db-transactions/with-derived-fields results)))))))
+    (let [month (get-in request [:query-params "month"])]
+      (responses/success-response
+       (if month
+         (db-transactions/list-for-month db-conn month)
+         (db-transactions/list-all db-conn))))))
 
 (defn query-handler
   "Factory: creates handler for POST /api/query.

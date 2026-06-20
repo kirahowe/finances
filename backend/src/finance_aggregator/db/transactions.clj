@@ -2,7 +2,8 @@
   (:require [clojure.string :as str]
             [datalevin.core :as d]
             [finance-aggregator.db.transfers :as db-transfers]
-            [finance-aggregator.splits :as splits]))
+            [finance-aggregator.splits :as splits]
+            [finance-aggregator.utils :as utils]))
 
 (def split-pull
   "Pull sub-pattern for a transaction's split parts. Shared with the list endpoint
@@ -65,6 +66,33 @@
    the response shape never drifts."
   [tx]
   (-> tx with-split-balance with-reviewed with-effective-description db-transfers/with-transfer-hidden))
+
+(defn list-for-month
+  "All transactions whose posted-date falls in `month` (a YYYY-MM string), pulled
+   with the canonical pattern and annotated with the derived API fields. Shared by
+   the JSON list endpoint and the server-rendered transactions page. Datalevin
+   can't combine >= and < on a date in one query, so we bound by end-date and
+   post-filter by start-date."
+  [conn month]
+  (let [{:keys [start-date end-date]} (utils/month-date-range month)
+        raw (d/q '[:find [(pull ?e pattern) ...]
+                   :in $ pattern ?end
+                   :where
+                   [?e :transaction/external-id _]
+                   [?e :transaction/posted-date ?date]
+                   [(< ?date ?end)]]
+                 (d/db conn) transaction-pull-pattern end-date)]
+    (mapv with-derived-fields
+          (filter #(not (.before (:transaction/posted-date %) start-date)) raw))))
+
+(defn list-all
+  "All transactions, pulled + annotated with the derived API fields."
+  [conn]
+  (mapv with-derived-fields
+        (d/q '[:find [(pull ?e pattern) ...]
+               :in $ pattern
+               :where [?e :transaction/external-id _]]
+             (d/db conn) transaction-pull-pattern)))
 
 (defn- set-reviewed-datom!
   "Assert (true) or clear (false) the boolean reviewed flag `attr` on entity `eid`.
