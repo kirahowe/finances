@@ -1,5 +1,11 @@
 # Spike: replacing the React frontend with Replicant (SSR) + Datastar
 
+> **DECISION (2026-06-19): GO.** Migrate to Replicant SSR + Datastar + **TS/esbuild
+> islands using Zag.js** for headless widgets. CLJS islands are a deferred stretch
+> goal (proven viable in §9, easier from this baseline). Implementation handoff:
+> **`doc/plans/replicant-datastar-migration.md`** — start there. This document is the
+> research record behind that decision.
+
 **Question.** Can we replace the standalone React Router frontend with reactive,
 server-rendered pages using [Replicant](https://replicant.fun) for hiccup→HTML on
 the JVM and [Datastar](https://data-star.dev) for hypermedia interactivity — given
@@ -484,6 +490,12 @@ deciding asset, and the widget friction is bounded to ~1–2 rich components. If
 per-widget friction reads as a recurring tax, **TS+Zag is the pragmatic hedge**.
 Either way the spike's job is done: both are real, and the choice is about values,
 not whether it works.
+
+**Chosen: TS+Zag** (2026-06-19). CLJS is deferred. Honest open item for the stretch
+goal: despite `verify-cljs.mjs` going 10/10, the CLJS combobox was still observed
+failing on real keyboard interaction — i.e. a test/repro gap remains, not a clean
+bill of health. Resolve that (and add coverage for the exact failing path) before
+relying on the CLJS island.
 
 ## How to run the spike
 
