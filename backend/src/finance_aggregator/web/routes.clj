@@ -12,6 +12,7 @@
    [finance-aggregator.web.hiccup :as h]
    [finance-aggregator.web.layout :as layout]
    [finance-aggregator.web.month :as month]
+   [finance-aggregator.web.pages.rows-spike :as rows-spike]
    [finance-aggregator.web.pages.setup :as setup]
    [finance-aggregator.web.pages.transactions :as transactions]
    [starfederation.datastar.clojure.api :as d*]
@@ -150,5 +151,9 @@
    ["/transactions/:id/description" {:put {:handler (set-description-handler deps) :name ::set-description}}]
    ["/transactions/:id/category"    {:put {:handler (set-category-handler deps) :name ::set-category}}]
    ["/setup"                 {:get {:handler (setup/page deps) :name ::setup}}]
+   ;; SPIKE — server-authoritative filtering over SSE (delete after the latency test).
+   ["/spike"                 {:get {:handler (rows-spike/page deps) :name ::spike}}]
+   ["/spike/rows"            {:get {:handler (rows-spike/rows deps) :name ::spike-rows}}]
+   ["/spike/tx/:id/reviewed/:v" {:put {:handler (rows-spike/toggle-reviewed deps) :name ::spike-reviewed}}]
    ["/_scaffold"      {:get  {:handler scaffold-page :name ::scaffold}}]
    ["/_scaffold/sync" {:post {:handler scaffold-sync :name ::scaffold-sync}}]])
