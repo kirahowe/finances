@@ -12,10 +12,10 @@ how to continue.** Memory entry: `project_replicant_datastar_spike`.
 
 ## 1. Status at a glance
 
-Phases **0, 1, 2, 3a, 3b, 3c done; 3d in progress** (grid-nav + keyboard editing done)
-— ~15 commits on `spike/replicant-datastar` since the handoff (`cb7371e..HEAD`). Backend
-suite green throughout (**274 tests / 1197 assertions / 0 failures**). Every UI unit has
-a real-Chromium `e2e/*.mjs` check.
+Phases **0, 1, 2, 3a, 3b, 3c done; 3d in progress** (grid-nav, keyboard editing, column
+visibility, sorting done) — ~18 commits on `spike/replicant-datastar` since the handoff
+(`cb7371e..HEAD`). Backend suite green throughout (**274 tests / 1197 assertions / 0
+failures**). Every UI unit has a real-Chromium `e2e/*.mjs` check.
 
 | Phase | What shipped | Check |
 |---|---|---|
@@ -27,6 +27,8 @@ a real-Chromium `e2e/*.mjs` check.
 | 3c | **inline description edit** (class-swap, optimistic via `data-text`/`data-bind`, `@put`→`set-user-description!`, signal reconciled to effective desc); **category combobox** (first **Zag.js vanilla** island, reuses `buildCategoryDropdownModel`, `position:fixed` floating root, `@put`→`update-category!`→counts patch) | `e2e/edit.mjs` **9/9**, `e2e/combobox.mjs` **13/13** |
 | 3d-1 | **keyboard grid-nav island** (`grid-nav.ts`, imports the ported reducer): arrows/Tab/Home/End/click move the active cell, Space toggles reviewed, `role=grid/row/gridcell` + roving tabindex + active ring; yields to open editors. `data-cell` on the normal-row editable cells | `e2e/grid-nav.mjs` **19/19** |
 | 3d-2 | **keyboard editing**: Enter/type-to-edit open the editor, Enter walks down the column (advance), Tab commits+moves, combobox opens by keyboard + advances on select. grid-nav drives the 3c editors via a bubbling `gridedit` event (`advance`/`cancel`) | `e2e/grid-edit.mjs` **15/15** |
+| 3d-3a | **column visibility**: toolbar "Columns" picker toggles read-only columns (`cols.<id>` signals → `hide-<id>` class → nth-child CSS collapse); reuses filter-dropdown styling; no grid-nav interaction | `e2e/columns.mjs` **9/9** |
+| 3d-3b | **client-side sorting**: header click reorders rows asc→desc→clear (island; numeric keys baked, strings read from cells); keeps all filter/edit signals ("never drop filters"); fires `grid-refresh` so grid-nav follows the order | `e2e/sort.mjs` **12/12** |
 
 React still runs on `:5173` (untouched, for before/after comparison). The new app
 is served by the backend at `:8080` (`/`, `/setup`). Flip + delete React at Phase 5.
@@ -68,6 +70,8 @@ BASE_URL=http://localhost:8099 node e2e/edit.mjs          # 9   (mutates + resto
 BASE_URL=http://localhost:8099 node e2e/combobox.mjs      # 13  (mutates + restores)
 BASE_URL=http://localhost:8099 node e2e/grid-nav.mjs      # 19
 BASE_URL=http://localhost:8099 node e2e/grid-edit.mjs     # 15  (mutates + resets seed)
+BASE_URL=http://localhost:8099 node e2e/columns.mjs       # 9
+BASE_URL=http://localhost:8099 node e2e/sort.mjs          # 12
 ```
 
 ---
@@ -215,11 +219,16 @@ approach for 3d/3e funnels. Original spec, for reference:
   Enter/type-to-edit open, Enter walks the column, Tab commits+moves, combobox-by-keyboard
   + advance (3d-2). grid-nav drives the 3c editors via a bubbling `gridedit` event.
   Split-row navigation/editing still deferred to 3e (no `data-cell` on split cells yet).
+- ✅ **Column visibility done (3d-3a)** — toolbar picker, `cols.<id>` signals + nth-child
+  CSS collapse, read-only columns only (no grid-nav interaction).
+- ✅ **Sorting done (3d-3b)** — client-side island reorders rows (asc/desc/clear), keeps
+  all filter/edit signals, fires `grid-refresh` so grid-nav follows. Chose client-side
+  over server `@get?sort=` to honour "never drop filters".
 - **Still TODO in 3d:** *header-filter funnels* (reuse the combobox's `.is-floating`
-  portal), *column visibility*, *column resize/auto-fit island* (port `columnAutoSizing.ts`;
-  then switch the table to `.table-resizable`), *sorting* (decide server `@get?sort=` vs
-  client), *pagination* (likely unneeded at seed size — confirm), *lingering rows* (gap #1),
-  *URL view-state* (gap #6). These are independent of the editors.
+  portal; gaps #2/#3), *column resize/auto-fit island* (port `columnAutoSizing.ts`; then
+  switch the table to `.table-resizable`), *pagination* (likely unneeded at seed size —
+  confirm), *lingering rows* (gap #1), *URL view-state* (gap #6, would also let sort/
+  filters survive month nav). These are independent of the editors.
 - *Keyboard grid-nav island (original spec)*: port `gridNavigation.ts` verbatim (it's already a pure
   reducer; the spike's `resources/public/grid-nav.js` is the port). Mounts on
   `.transactions-table-scroll`; reconstructs its model from `[data-cell]` DOM order
