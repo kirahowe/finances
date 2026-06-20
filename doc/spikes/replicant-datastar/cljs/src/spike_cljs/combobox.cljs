@@ -81,7 +81,11 @@
 (let [grid (js/document.getElementById "grid")]
   (.addEventListener grid "click"
                      (fn [e] (when-let [td (.closest (.-target e) ".combo-cell")] (open! td)))))
-(.addEventListener js/document "open-combo" (fn [e] (open! (.. e -detail -td))))
+;; grid-nav dispatches open-combo with a plain JS detail {td}. Under :advanced,
+;; `(.. e -detail -td)` would rename the JS-created `.td` property → undefined; read
+;; it by string key instead. (Classic CLJS advanced-compilation discipline.)
+(.addEventListener js/document "open-combo"
+                   (fn [e] (open! (unchecked-get (.-detail e) "td"))))
 
 (aset js/window "__comboOpen" (fn [] (boolean @!state)))
 (js/console.log "cljs combobox island ready —" (count shared/categories) "categories"

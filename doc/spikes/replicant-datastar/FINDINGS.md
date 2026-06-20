@@ -460,9 +460,14 @@ What the numbers say:
   null), and defaults to CSS `anchor()` positioning (Chromium-only — needed a manual
   override). None of that is CLJS's fault — it's the web component's — but it
   confirms the caveat: **the headless-combobox web-component ecosystem is less
-  turnkey than Zag.** cljs.main release builds (~4 s) are far slower than esbuild
-  (23 ms); shadow-cljs would close the *dev* gap with hot-reload but release builds
-  stay Closure-slow.
+  turnkey than Zag.** There is also a genuine *CLJS-side* tax: **`:advanced`
+  property renaming.** Reading a JS-created object property by accessor
+  (`(.. e -detail -td)`) gets renamed by Closure → `undefined` at runtime; you must
+  read JS-boundary props by string key (`unchecked-get`/`goog.object`). This bit the
+  keyboard-open path (and slipped past a click-only test) — the kind of papercut
+  that needs discipline + test coverage on every JS↔CLJS seam. cljs.main release
+  builds (~4 s) are far slower than esbuild (23 ms); shadow-cljs would close the
+  *dev* gap with hot-reload but release builds stay Closure-slow.
 
 **Bottom line — now a values call between two PROVEN options, not a feasibility
 question:**

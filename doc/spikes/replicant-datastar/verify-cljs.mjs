@@ -24,6 +24,17 @@ check('no page errors', !logs.some((l) => l.startsWith('PAGEERROR')),
 check('shared .cljc runs in the browser (cents->str → -$84.23)',
   logs.some((l) => l.includes('shared .cljc fmt: -$84.23')));
 
+// Keyboard-open path (grid-nav → open-combo CustomEvent): arrow to a category
+// cell and type — this crosses the JS→CLJS detail boundary that :advanced renames.
+await page.click('[data-cell="3:tx:description"]');
+await page.keyboard.press('ArrowRight'); // → 3:tx:category
+await page.keyboard.press('a');          // type-to-edit → dispatches open-combo
+await page.waitForTimeout(120);
+check('keyboard (type-to-edit) opens the combobox — no advanced-compile rename bug',
+  await page.evaluate(() => window.__comboOpen() && !!document.querySelector('combobox-framework')));
+await page.keyboard.press('Escape');
+await page.waitForTimeout(60);
+
 // Open via click; Replicant rendered <combobox-framework>, which provides ARIA.
 await page.click('[data-cell="1:tx:category"]');
 await page.waitForSelector('combobox-framework input');
