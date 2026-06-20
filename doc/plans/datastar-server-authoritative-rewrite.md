@@ -1,6 +1,6 @@
 # Datastar server-authoritative rewrite — architecture & plan
 
-**Status:** R0 (renderer) + R1 (view engine) + R2 cp1 (read-only `/v2`) + **R2 cp2 core (command-log undo + lingering, reviewed edit)** done. **Branch:** `spike/replicant-datastar`. Next: cp2 description + category edits, then cp1b funnels, then R3.
+**Status:** R0 (renderer) + R1 (view engine) + R2 cp1 (read-only `/v2`) + **R2 cp2 (all edits: reviewed/description/category, undo + lingering)** done. **Branch:** `spike/replicant-datastar`. Next: cp1b funnels, then R3 (column chooser + URL write-back).
 Supersedes the client-heavy approach in `replicant-datastar-progress.md` for the
 transactions workspace. Memory: `project_replicant_datastar_spike`.
 
@@ -167,10 +167,16 @@ noticeable; undo lets you *reverse* a spotted mistake (ideally surfaced inline, 
   - **cp2 description ✅ DONE.** Inline editor (class-swap, `@put('/v2/tx/:id/description')`
     → `:set-description` command capturing the prior override via `db.transactions/user-description`).
     Single `$editValue` courier, no per-row signals. `e2e/v2-desc.mjs` 5/5.
-  - **cp2 category** (next) — combobox island (`combobox.ts`) → `@put('/v2/tx/:id/category')`
-    → `:update-category!` command (capture prior category id for undo). The high-value undo
-    case (mis-categorizing while filtered). Then wire grid-nav/col-resize against /v2 markup.
+  - **cp2 category ✅ DONE.** Zag combobox island wired to /v2: `.category-button.combo-cell`
+    + hidden-input courier → `@put('/v2/tx/:id/category')` → `:update-category` command
+    (prior id captured via `db.transactions/category-id`). Counts move; undoable. Island
+    survives morphs (delegated listener). `e2e/v2-category.mjs` 8/8.
   - Row-height density fix: `.table-dense` (was `.table-resizable`-only). Matches `/` (37px).
+  - **Note:** edit responses patch fragments as separate SSE events (tbody → pagination →
+    counts → undo-redo), applied in order — imperceptible to a user, but e2e gates on the
+    last (undo-redo) to avoid reading counts mid-stream.
+  - Still deferred to cp2-tail: **grid-nav** (keyboard cell navigation) + **col-resize**
+    islands against the /v2 markup; **split-row** editing.
 - **R3 — Column vis/width persistence** via URL + client CSS; thin `replaceState` reflector.
 - **R4 — Delete the old.** Replicant dep, `web/hiccup.clj`, `web/layout.clj`, the old
   transactions page, dead islands, the scaffold. Convert `/setup` to the hiccup2 seam.
