@@ -271,7 +271,7 @@
   (count-options txs tx-institution-id
                  #(or (get-in % [:transaction/account :account/institution :institution/name]) "Unknown")))
 
-(defn- category-options-list
+(defn- category-funnel-options
   "Funnel options for the Category column: real categories present this month with the
    number of transactions touching each (split-aware). Uncategorized is excluded (the
    toolbar chip owns it, matching React)."
@@ -479,8 +479,9 @@
 ;; Table + chrome
 ;; ---------------------------------------------------------------------------
 
-(defn- th-class [id]
-  (->> [(cell-class id) "th-static"] (remove nil?) (str/join " ")))
+(defn- th-class
+  ([id] (th-class id "th-static"))
+  ([id modifier] (->> [(cell-class id) modifier] (remove nil?) (str/join " "))))
 
 (def ^:private sortable-cols
   "Columns the client sort island sorts by (clicking the header). Reviewed/actions aren't."
@@ -537,7 +538,7 @@
   ;; sort indicator + filter funnel stay pinned + clickable when a column shrinks to its
   ;; minimum (fixed layout). The resize handle is an absolute sibling, outside that row.
   (if (sortable-cols id)
-    [:th (h/a {"class" (->> [(cell-class id) "th-sortable"] (remove nil?) (str/join " "))
+    [:th (h/a {"class" (th-class id "th-sortable")
                "data-col-id" id "data-sort-col" id "aria-sort" "none"})
      [:span.th-content
       [:span.th-label label]
@@ -787,15 +788,10 @@
   "Initial `linger` signal map {tx<id> false} over every transaction. Pre-declaring each
    key (rather than starting from {}) is what makes the per-row is-stale / data-show
    expressions reactive to a later pin: Datastar only tracks signals that exist when an
-   expression first runs, so a key created on the fly wouldn't notify the row."
+   expression first runs, so a key created on the fly wouldn't notify the row. (Reused as
+   the reset value via h/signals — see linger-reset.)"
   [txs]
   (into {} (for [tx txs] [(keyword (str "tx" (:db/id tx))) false])))
-
-(defn- linger-empty-literal
-  "The all-false `linger` map as a JS object literal, for the reset handler (so it clears
-   pins without dropping the keys — see linger-reset)."
-  [txs]
-  (str "{" (str/join "," (for [tx txs] (str "tx" (:db/id tx) ": false"))) "}"))
 
 ;; ---------------------------------------------------------------------------
 ;; URL view-state (read side)
@@ -837,7 +833,7 @@
           categories (db-categories/list-all db-conn)
           account-opts (account-options txs)
           institution-opts (institution-options txs)
-          category-opts (category-options-list txs)
+          category-opts (category-funnel-options txs)
           vs (parse-view-state (:query-params req))]
       {:status 200
        :headers {"Content-Type" "text/html"}
@@ -873,6 +869,6 @@
          (when (seq txs)
            (list
             (funnel-popovers account-opts institution-opts category-opts)
-            (linger-reset (linger-empty-literal txs))
+            (linger-reset (h/signals (linger-signals txs)))
             (url-sync)))
          (category-options categories)])})))

@@ -108,7 +108,18 @@ if (scroll && table) {
   new MutationObserver(schedule).observe(tbl, { attributes: true, attributeFilter: ['class'] });
 
   // --- Manual drag-resize -----------------------------------------------------------------
-  let drag: { id: string; startX: number; startW: number; col: HTMLElement } | null = null;
+  let drag: { id: string; startX: number; startW: number; col: HTMLElement; handle: HTMLElement } | null = null;
+
+  // End the drag deterministically from the stored handle — pointer capture means a
+  // pointerup/pointercancel may fire on the handle, not the cell under the cursor, so we
+  // don't rely on the event target. pointercancel (touch interrupted, device sleep) must be
+  // handled too, or `drag` stays set and every later move keeps resizing the column.
+  function endDrag() {
+    if (!drag) return;
+    drag.handle.classList.remove('is-resizing');
+    drag = null;
+    recompute(); // re-fill the auto columns around the committed manual width
+  }
 
   tbl.addEventListener('pointerdown', (e) => {
     const handle = (e.target as HTMLElement).closest<HTMLElement>('.col-resize-handle');
@@ -119,7 +130,7 @@ if (scroll && table) {
     // Don't let the drag start a header sort or a grid-cell selection.
     e.preventDefault();
     e.stopPropagation();
-    drag = { id, startX: e.clientX, startW: col.getBoundingClientRect().width, col };
+    drag = { id, startX: e.clientX, startW: col.getBoundingClientRect().width, col, handle };
     handle.classList.add('is-resizing');
     handle.setPointerCapture(e.pointerId);
   });
@@ -131,12 +142,8 @@ if (scroll && table) {
     drag.col.style.width = `${w}px`;
   });
 
-  tbl.addEventListener('pointerup', (e) => {
-    if (!drag) return;
-    (e.target as HTMLElement).closest<HTMLElement>('.col-resize-handle')?.classList.remove('is-resizing');
-    drag = null;
-    recompute(); // re-fill the auto columns around the new manual width
-  });
+  tbl.addEventListener('pointerup', endDrag);
+  tbl.addEventListener('pointercancel', endDrag);
 
   // Double-click a handle → drop the manual width and re-auto-fit that column.
   tbl.addEventListener('dblclick', (e) => {
