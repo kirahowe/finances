@@ -33,14 +33,17 @@
 ;; ---------------------------------------------------------------------------
 
 (def ^:private columns
-  [{:id "date"        :label "Date"        :w 120 :sortable true}
-   {:id "account"     :label "Account"     :w 150 :sortable true}
-   {:id "institution" :label "Institution" :w 160 :sortable true}
-   {:id "payee"       :label "Payee"       :w 200 :sortable true}
-   {:id "description" :label "Description" :w 240 :sortable false}
-   {:id "amount"      :label "Amount"      :w 120 :sortable true}
-   {:id "category"    :label "Category"    :w 180 :sortable true}
-   {:id "reviewed"    :label "Reviewed"    :w 96  :sortable false}])
+  [{:id "date"        :label "Date"        :w 120 :sortable true  :min 80  :protected true}
+   {:id "account"     :label "Account"     :w 150 :sortable true  :min 90}
+   {:id "institution" :label "Institution" :w 160 :sortable true  :min 90}
+   {:id "payee"       :label "Payee"       :w 200 :sortable true  :min 100}
+   {:id "description" :label "Description" :w 240 :sortable false :min 200}
+   {:id "amount"      :label "Amount"      :w 120 :sortable true  :min 90  :protected true}
+   {:id "category"    :label "Category"    :w 180 :sortable true  :min 200 :protected true}
+   {:id "reviewed"    :label "Reviewed"    :w 96  :sortable false :min 80  :protected true}])
+
+;; Columns the resize island gives a drag handle (reviewed is fixed-width).
+(def ^:private resizable-cols #{"date" "account" "institution" "payee" "description" "amount" "category"})
 
 (def ^:private page-size-options [25 50 100 250])
 
@@ -348,22 +351,29 @@
      (funnel-icon)
      [:span.th-filter-count {"data-show" (str active " > 0") "data-text" active}]]))
 
-(defn- th [{:keys [id label sortable]}]
-  (if sortable
-    [:th {"class" "th-sortable" "data-col-id" id
-          "data-on:click" (sort-click-js id)
-          "data-attr" (str "{'aria-sort': $sortCol === '" id "'"
-                           " ? ($sortDir === 'asc' ? 'ascending' : 'descending') : 'none'}")}
-     [:span.th-content
-      [:span.th-label label]
-      [:span.th-sort-indicator
-       {"data-text" (str "$sortCol === '" id "' ? ($sortDir === 'asc' ? ' ↑' : ' ↓') : ''")}]
-      (when (funnel-cols id) (funnel-button id label))]]
-    [:th {:data-col-id id} [:span.th-content [:span.th-label label]]]))
+(defn- resize-handle [] [:div.col-resize-handle {:aria-hidden "true"}])
+
+(defn- th [{:keys [id label sortable min protected]}]
+  (let [meta {"data-col-id" id "data-min" (str min) "data-protected" (str (boolean protected))}
+        handle (when (resizable-cols id) (resize-handle))]
+    (if sortable
+      [:th (merge meta {"class" "th-sortable"
+                        "data-on:click" (sort-click-js id)
+                        "data-attr" (str "{'aria-sort': $sortCol === '" id "'"
+                                         " ? ($sortDir === 'asc' ? 'ascending' : 'descending') : 'none'}")})
+       [:span.th-content
+        [:span.th-label label]
+        [:span.th-sort-indicator
+         {"data-text" (str "$sortCol === '" id "' ? ($sortDir === 'asc' ? ' ↑' : ' ↓') : ''")}]
+        (when (funnel-cols id) (funnel-button id label))]
+       handle]
+      [:th meta [:span.th-content [:span.th-label label]] handle])))
 
 (defn- table [rows]
+  ;; .table-resizable = fixed layout; the <colgroup> widths are authoritative and the v2-resize
+  ;; island refines them (auto-fit on load + drag handles). Density/sticky come with the class.
   [:div.transactions-table-scroll {:tabindex "0"}
-   [:table.table.table-dense {:role "grid" "data-class" (cols-hide-class)}
+   [:table.table.table-resizable {:role "grid" "data-class" (cols-hide-class)}
     [:colgroup (for [{:keys [w]} columns] [:col {:style (str "width:" w "px")}])]
     [:thead [:tr (map th columns)]]
     (tbody rows)]])
@@ -597,7 +607,7 @@
        :body
        (layout/document
         {:title "Finance Aggregator"
-         :islands ["combobox" "v2-url" "grid-nav"]
+         :islands ["combobox" "v2-url" "grid-nav" "v2-resize"]
          :signals (client-signals vs month-str result (:query-params req))}
         [:div.container.container--workspace {"data-on:keydown__window" undo-key-js}
          (shell/masthead {:active :transactions :stats stats})

@@ -21,6 +21,7 @@ const ISLANDS = [
   'src/url-state.ts',
   'src/pagination.ts',
   'src/v2-url.ts',
+  'src/v2-resize.ts',
 ];
 
 await build({
