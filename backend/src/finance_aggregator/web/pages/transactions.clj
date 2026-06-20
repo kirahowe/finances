@@ -445,6 +445,13 @@
   "Columns the client sort island sorts by (clicking the header). Reviewed/actions aren't."
   #{"date" "account" "institution" "payee" "amount" "category"})
 
+(def ^:private resizable-cols
+  "Columns the resize island gives a drag handle. Reviewed/actions are fixed-width."
+  #{"date" "account" "institution" "payee" "description" "amount" "category"})
+
+(defn- resize-handle []
+  [:div.col-resize-handle {:aria-hidden "true"}])
+
 ;; --- Header-filter funnels (UI) --------------------------------------------
 ;; Each funnel column's header carries a small funnel button that opens a floating
 ;; popover (rendered separately, outside the scroll container — see funnel-popovers).
@@ -485,13 +492,20 @@
       (h/a {"data-show" (str active " > 0") "data-text" active})]]))
 
 (defn- th-cell [{:keys [id label]}]
+  ;; The visible header parts live in a flex .th-content row so the label truncates and the
+  ;; sort indicator + filter funnel stay pinned + clickable when a column shrinks to its
+  ;; minimum (fixed layout). The resize handle is an absolute sibling, outside that row.
   (if (sortable-cols id)
     [:th (h/a {"class" (->> [(cell-class id) "th-sortable"] (remove nil?) (str/join " "))
-               "data-sort-col" id "aria-sort" "none"})
-     [:span.th-label label]
-     [:span.th-sort-indicator {:aria-hidden "true"}]
-     (when (funnel-cols id) (funnel-button id label))]
-    [:th {:class (th-class id)} label]))
+               "data-col-id" id "data-sort-col" id "aria-sort" "none"})
+     [:span.th-content
+      [:span.th-label label]
+      [:span.th-sort-indicator {:aria-hidden "true"}]
+      (when (funnel-cols id) (funnel-button id label))]
+     (when (resizable-cols id) (resize-handle))]
+    [:th (h/a {"class" (th-class id) "data-col-id" id})
+     [:span.th-content [:span.th-label label]]
+     (when (resizable-cols id) (resize-handle))]))
 
 ;; --- Column visibility -----------------------------------------------------
 ;; The read-only columns are hideable via the toolbar picker: a `cols.<id>` signal per
@@ -507,10 +521,12 @@
   (str "{" (str/join ", " (map (fn [[id _]] (str "'hide-" id "': !$cols." id)) hideable-columns)) "}"))
 
 (defn- transactions-table [txs]
-  ;; Plain .table (table-layout:auto, content-fit) for now; Phase 3d switches to
-  ;; .table-resizable (fixed layout) once the resize/auto-size island sets <col> widths.
+  ;; .table-resizable = table-layout:fixed, so the <colgroup> widths are authoritative.
+  ;; The server renders a content-fit estimate per <col> (below) for the pre-JS / no-JS
+  ;; view; the col-resize island refines them on load and on each container/visibility
+  ;; change, and the drag handles let the user override per column.
   [:div.transactions-table-scroll {:tabindex "0"}
-   [:table.table (h/a {"role" "grid" "data-class" (cols-hide-class)})
+   [:table.table.table-resizable (h/a {"role" "grid" "data-class" (cols-hide-class)})
     [:colgroup
      (concat
       (for [{:keys [id label]} columns]
@@ -710,7 +726,7 @@
        :body
        (layout/base-page
         {:title "Finance Aggregator"
-         :islands ["combobox" "grid-nav" "sort"]
+         :islands ["combobox" "grid-nav" "sort" "col-resize"]
          :signals {:reviewed (reviewed-signals txs)
                    :desc (description-signals txs)
                    :descOrig ""

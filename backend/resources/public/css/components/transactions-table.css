@@ -192,6 +192,31 @@
   min-width: 0;
 }
 
+/* Header content row: the label truncates so the sort indicator + filter funnel stay
+   visible and clickable even when the column shrinks to its minimum in fixed layout.
+   th overflow:hidden keeps a too-wide header from spilling onto the next column. */
+.table.table-resizable th {
+  overflow: hidden;
+}
+
+.th-content {
+  display: flex;
+  align-items: center;
+  min-width: 0;
+}
+
+.th-content .th-label {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  min-width: 0;
+}
+
+.th-content .th-sort-indicator,
+.th-content .th-filter-btn {
+  flex-shrink: 0;
+}
+
 .th-sortable {
   cursor: pointer;
 }
