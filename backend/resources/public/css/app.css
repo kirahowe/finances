@@ -1,69 +1,42 @@
-/* Base stylesheet for the server-rendered (Replicant + Datastar) frontend.
-   Phase 1 holds only minimal tokens + scaffold styling; the full design-system
-   carry-over from frontend/app/styles lands with the first real page. Dark mode
-   is driven by prefers-color-scheme only (no toggle). */
+/* Entry stylesheet for the server-rendered (Replicant + Datastar) frontend.
+   Composes the carried-over "Ledger" design system in the same order the React
+   root loaded it, so server-rendered pages inherit the exact visual language.
+   Dark mode is driven by prefers-color-scheme only (no toggle).
+   @import rules must precede all other rules. */
 
-:root {
-  --bg: #fbfaf7;
-  --surface: #ffffff;
-  --text: #1c1b19;
-  --muted: #6b6862;
-  --border: #e6e2da;
-  --accent: #1f6f5c; /* pine */
-  --radius: 8px;
-  --font-sans: "Hanken Grotesk", system-ui, -apple-system, sans-serif;
-  --font-mono: "IBM Plex Mono", ui-monospace, SFMono-Regular, monospace;
-}
+@import "base/variables.css";
+@import "base/reset.css";
+@import "base/typography.css";
+@import "components/common.css";
+@import "layouts/container.css";
+@import "layouts/app-shell.css";
+@import "pages/dashboard.css";
+@import "components/provider-connection.css";
 
-@media (prefers-color-scheme: dark) {
-  :root {
-    --bg: #16150f;
-    --surface: #1f1e18;
-    --text: #ece8df;
-    --muted: #9a958a;
-    --border: #34322a;
-    --accent: #5fbfa6;
-  }
-}
-
-* { box-sizing: border-box; }
-
-body {
-  margin: 0;
-  font-family: var(--font-sans);
-  background: var(--bg);
-  color: var(--text);
-  line-height: 1.5;
-}
-
-h1 { font-size: 1.5rem; }
-h2 { font-size: 1.05rem; color: var(--muted); margin-bottom: 0.5rem; }
-
-.btn {
-  font: inherit;
-  padding: 0.4rem 0.8rem;
-  margin-right: 0.5rem;
-  border: 1px solid var(--border);
-  border-radius: var(--radius);
-  background: var(--surface);
-  color: var(--text);
-  cursor: pointer;
-}
-.btn:hover { border-color: var(--accent); }
-
-/* --- Phase 1 scaffold only (remove with the scaffold route) --- */
+/* --- Phase 1 scaffold only (remove with the /_scaffold route) --------------- */
 .scaffold { max-width: 48rem; margin: 2rem auto; padding: 0 1.5rem; }
 .scaffold-block {
   margin: 1.5rem 0;
   padding: 1rem 1.25rem;
-  border: 1px solid var(--border);
-  border-radius: var(--radius);
-  background: var(--surface);
+  border: 1px solid var(--color-border, #dcd6c8);
+  border-radius: var(--radius-md, 8px);
+  background: var(--color-surface, #fff);
 }
 .scaffold-result {
   margin-top: 0.75rem;
-  font-family: var(--font-mono);
+  font-family: var(--font-mono, ui-monospace, monospace);
   font-size: 0.9rem;
-  color: var(--accent);
+  color: var(--color-pine, #1c5d4e);
 }
-#island-demo { font-family: var(--font-mono); font-size: 0.9rem; }
+#island-demo { font-family: var(--font-mono, ui-monospace, monospace); font-size: 0.9rem; }
+.btn {
+  font: inherit;
+  padding: 0.4rem 0.8rem;
+  margin-right: 0.5rem;
+  border: 1px solid var(--color-border, #dcd6c8);
+  border-radius: var(--radius-md, 8px);
+  background: var(--color-surface, #fff);
+  color: var(--color-text, #211f1a);
+  cursor: pointer;
+}
+.btn:hover { border-color: var(--color-pine, #1c5d4e); }

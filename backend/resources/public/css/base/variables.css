@@ -1,0 +1,264 @@
+:root {
+  color-scheme: light;
+
+  /* ================================================================
+     "Ledger" palette — a modern financial broadsheet.
+     Warm paper, ink type, a single restrained pine accent. Figure
+     greens/reds are reserved exclusively for amounts so they read as
+     data, never decoration.
+
+     Architecture (read top to bottom):
+       1. Raw palette      — the literal pigments, light theme.
+       2. Semantic tokens  — what the palette *means*; components only
+                             ever reference these (and a few raw ones).
+       3. Component tokens  — shared sub-component metrics.
+       4. Scales            — spacing, radius, type, elevation, motion.
+     Dark theme lives in one @media block at the very bottom and only
+     re-points the colour tokens — nothing structural is duplicated.
+  ================================================================ */
+
+  /* ---- 1. Raw palette (light) ---------------------------------- */
+
+  /* Neutrals (warm) */
+  --color-ink: #211f1a;
+  --color-ink-soft: #57534b;
+  --color-dark-gray: #211f1a;
+  --color-medium-gray: #8a8576;
+  --color-light-gray: #dcd6c8;
+  --color-very-light-gray: #efebe1;
+  --color-paper: #f6f3ec;
+  --color-paper-deep: #ece7db;
+  --color-white: #ffffff;
+
+  /* Accent (pine) */
+  --color-pine: #1c5d4e;
+  --color-pine-hover: #15493d;
+  --color-pine-soft: #e2ede8;
+  --color-pine-soft-border: #cfe1d8;
+
+  /* Figures */
+  --color-green: #157f4b;
+  --color-red: #b23a2e;
+
+  /* Error surfaces (oxblood-tinted) */
+  --color-light-red: #fbeae7;
+  --color-medium-red: #e9c4be;
+  --color-dark-red: #8c2b22;
+
+  /* Translucent inks (shadows, scrims, tints) */
+  --color-black-transparent: rgba(33, 31, 26, 0.06);
+  --color-black-semi-transparent: rgba(33, 31, 26, 0.45);
+
+  /* ---- 2. Semantic tokens -------------------------------------- */
+
+  /* Text — `muted` is darkened from the raw mid-gray so small labels
+     clear WCAG AA (4.5:1) on every surface; the raw `--color-medium-gray`
+     stays reserved for decorative, non-text marks (drag handles, arrows). */
+  --color-text: var(--color-ink);
+  --color-text-muted: #6c6656;
+  --color-background: var(--color-paper);
+
+  /* Surfaces */
+  --color-surface: var(--color-white);
+  --color-surface-sunken: var(--color-paper);
+  --color-surface-raised: var(--color-paper-deep);
+
+  /* Borders */
+  --color-border: var(--color-light-gray);
+  --color-border-strong: #cbc3b1;
+
+  /* Accent */
+  --color-primary: var(--color-pine);
+  --color-primary-hover: var(--color-pine-hover);
+  --color-accent-soft: var(--color-pine-soft);
+  --color-on-accent: var(--color-white);
+
+  /* Figures */
+  --color-positive: var(--color-green);
+  --color-negative: var(--color-red);
+
+  /* Error */
+  --color-error-bg: var(--color-light-red);
+  --color-error-text: var(--color-dark-red);
+  --color-error-border: var(--color-medium-red);
+
+  /* Effects */
+  --color-shadow: var(--color-black-transparent);
+  --color-backdrop: var(--color-black-semi-transparent);
+  --color-row-hover: rgba(28, 93, 78, 0.05);
+  --color-hover-neutral: rgba(33, 31, 26, 0.05);
+  --focus-ring: 0 0 0 3px var(--color-accent-soft);
+
+  /* Chrome */
+  --color-masthead-bg: rgba(246, 243, 236, 0.82);
+
+  /* Provider badges (bg / text / border per provider) */
+  --color-badge-bg: var(--color-paper-deep);
+  --color-badge-text: var(--color-ink-soft);
+  --color-badge-border: var(--color-border);
+  --color-badge-plaid-bg: #e6efe9;
+  --color-badge-plaid-text: var(--color-pine-hover);
+  --color-badge-plaid-border: var(--color-pine-soft-border);
+  --color-badge-manual-bg: #efe9df;
+  --color-badge-manual-text: #7a5a1e;
+  --color-badge-manual-border: #e2d6c0;
+  --color-badge-lunchflow-bg: #e7efe2;
+  --color-badge-lunchflow-text: #3f6b2a;
+  --color-badge-lunchflow-border: #d4e3c9;
+
+  /* Page atmosphere — a faint top-light so large surfaces never read as a
+     flat fill. Kept extremely subtle to preserve a clean, dense feel. */
+  --bg-atmosphere:
+    radial-gradient(120% 80% at 50% -10%, rgba(28, 93, 78, 0.05) 0%, rgba(28, 93, 78, 0) 60%),
+    radial-gradient(100% 60% at 100% 0%, rgba(178, 58, 46, 0.03) 0%, rgba(178, 58, 46, 0) 55%);
+
+  /* Compat aliases referenced by csv-import.css */
+  --color-gray-50: var(--color-paper);
+  --color-gray-100: var(--color-paper-deep);
+  --color-success: var(--color-green);
+
+  /* ---- 3. Component tokens ------------------------------------- */
+
+  /* Category control — the resting button and the editing input share this
+     box so swapping one for the other never shifts the row. The negative
+     "bleed" margin is derived from the padding (see category-button /
+     category-dropdown), so the text edge stays put no matter the values. */
+  --category-field-padding-y: 0.2rem;
+  --category-field-padding-x: 0.4rem;
+
+  /* ---- 4. Scales ----------------------------------------------- */
+
+  /* Spacing */
+  --spacing-xs: 0.25rem;
+  --spacing-sm: 0.5rem;
+  --spacing-md: 1rem;
+  --spacing-lg: 1.5rem;
+  --spacing-xl: 2rem;
+  --spacing-xxl: 3rem;
+
+  /* Typefaces */
+  --font-display: "Fraunces", "Iowan Old Style", Georgia, serif;
+  --font-body: "Hanken Grotesk", ui-sans-serif, system-ui, -apple-system,
+    "Segoe UI", Roboto, sans-serif;
+  --font-mono: "IBM Plex Mono", "SF Mono", ui-monospace, Menlo, Consolas,
+    monospace;
+
+  /* Type scale — one disciplined ramp. Every font-size in the app snaps to a
+     step here; nothing sets a raw rem. Steps climb on a ~1.18–1.25 ratio so the
+     small end (labels, tabular data) stays tight and the display end opens up.
+     `glyph` is the one non-text size: the weight icon/close/caret controls
+     (✕ ‹ ›) share it so action affordances are uniform regardless of context. */
+  --text-2xs: 0.6875rem;  /* 11px — eyebrows, table heads, badges, status tags */
+  --text-xs: 0.75rem;     /* 12px — counts, captions, mono meta */
+  --text-sm: 0.8125rem;   /* 13px — table body, menu items, small controls */
+  --text-base: 0.9375rem; /* 15px — body, inputs, buttons, banners */
+  --text-md: 1.0625rem;   /* 17px — h3, lede, institution titles */
+  --text-lg: 1.3125rem;   /* 21px — wordmark, empty-state titles */
+  --text-xl: 1.5rem;      /* 24px — h2, section + month headings */
+  --text-2xl: 2rem;       /* 32px — hero figures (stat values) */
+  --text-display: clamp(2rem, 1.5rem + 2vw, 2.9rem); /* page title */
+  --text-display-sm: clamp(1.9rem, 1.4rem + 1.6vw, 2.6rem); /* h1 */
+  --glyph: 1.0625rem;     /* icon-button glyphs (✕ ‹ › ⋯) */
+
+  /* Control sizing — buttons, inputs and other interactive boxes share two
+     footprints (default + small) so a row of mixed controls lines up. The small
+     square footprint is for icon-only glyph buttons. */
+  --control-pad-y: 0.5rem;
+  --control-pad-x: 0.9rem;
+  --control-pad-y-sm: 0.32rem;
+  --control-pad-x-sm: 0.7rem;
+  --control-square-sm: 2rem;
+
+  /* Radius — a crisp, rectilinear ramp. The ledger is a ruled document, so corners
+     stay tight; no pills. */
+  --border-radius: 5px;
+  --radius-sm: 3px;
+  --radius-lg: 8px;
+
+  /* Elevation (warm, soft) */
+  --shadow-sm: 0 1px 2px rgba(33, 31, 26, 0.05), 0 1px 1px rgba(33, 31, 26, 0.04);
+  --shadow-md: 0 4px 16px -4px rgba(33, 31, 26, 0.1),
+    0 2px 6px -2px rgba(33, 31, 26, 0.06);
+  --shadow-lg: 0 18px 40px -12px rgba(33, 31, 26, 0.2);
+
+  /* Motion */
+  --ease-out: cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+/* ================================================================
+   Dark theme — respects the OS preference only (no in-app toggle).
+   Re-points the colour tokens onto a warm-charcoal "Ledger" set; the
+   accent lightens so it reads on dark and carries dark text instead of
+   white. Every pairing below is verified to clear WCAG AA. Structure,
+   spacing, type and motion are inherited untouched from :root.
+================================================================ */
+@media (prefers-color-scheme: dark) {
+  :root {
+    color-scheme: dark;
+
+    /* Neutrals */
+    --color-ink: #ece7da;
+    --color-ink-soft: #bcb5a3;
+    --color-dark-gray: #ece7da;
+    --color-medium-gray: #827c6c;
+    --color-light-gray: #39352a;
+    --color-very-light-gray: #2b2820;
+    --color-paper: #15130d;
+    --color-paper-deep: #2b2820;
+
+    /* Accent (lightened pine + dark on-accent text) */
+    --color-pine: #57b89d;
+    --color-pine-hover: #6fc8ae;
+    --color-pine-soft: #1e3b33;
+    --color-pine-soft-border: #2e5447;
+    --color-on-accent: #10211b;
+
+    /* Figures */
+    --color-green: #46c485;
+    --color-red: #ec8074;
+
+    /* Error */
+    --color-light-red: #3a201c;
+    --color-medium-red: #5e302a;
+    --color-dark-red: #f0a89e;
+
+    /* Text & surfaces (declared directly: they don't follow a single
+       raw swap because surface aliases white and muted is its own value). */
+    --color-text-muted: #9a9384;
+    --color-surface: #201e16;
+    --color-border-strong: #757060;
+
+    /* Effects */
+    --color-black-transparent: rgba(0, 0, 0, 0.4);
+    --color-backdrop: rgba(0, 0, 0, 0.62);
+    --color-row-hover: rgba(87, 184, 157, 0.08);
+    --color-hover-neutral: rgba(236, 231, 218, 0.06);
+
+    /* Chrome */
+    --color-masthead-bg: rgba(21, 19, 13, 0.82);
+
+    /* Provider badges */
+    --color-badge-bg: #2b2820;
+    --color-badge-text: var(--color-ink-soft);
+    --color-badge-plaid-bg: #16302a;
+    --color-badge-plaid-text: #7fd3ba;
+    --color-badge-plaid-border: #27483e;
+    --color-badge-manual-bg: #2f2a1c;
+    --color-badge-manual-text: #d9b878;
+    --color-badge-manual-border: #473f2b;
+    --color-badge-lunchflow-bg: #23301b;
+    --color-badge-lunchflow-text: #a7cd8c;
+    --color-badge-lunchflow-border: #3a472c;
+
+    /* Atmosphere — quiet pine/oxblood glows on near-black. */
+    --bg-atmosphere:
+      radial-gradient(120% 80% at 50% -10%, rgba(87, 184, 157, 0.06) 0%, rgba(87, 184, 157, 0) 60%),
+      radial-gradient(100% 60% at 100% 0%, rgba(236, 128, 116, 0.04) 0%, rgba(236, 128, 116, 0) 55%);
+
+    /* Elevation — shadows read poorly on dark, so deepen them and lean on
+       borders for separation. */
+    --shadow-sm: 0 1px 2px rgba(0, 0, 0, 0.4);
+    --shadow-md: 0 4px 16px -4px rgba(0, 0, 0, 0.5), 0 2px 6px -2px rgba(0, 0, 0, 0.4);
+    --shadow-lg: 0 18px 40px -12px rgba(0, 0, 0, 0.6);
+  }
+}

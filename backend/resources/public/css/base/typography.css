@@ -1,0 +1,47 @@
+h1, h2, h3 {
+  font-family: var(--font-display);
+  font-weight: 500;
+  letter-spacing: -0.015em;
+  line-height: 1.12;
+  color: var(--color-ink);
+}
+
+h1 {
+  font-size: var(--text-display-sm);
+  letter-spacing: -0.02em;
+  font-optical-sizing: auto;
+}
+
+h2 {
+  font-size: var(--text-xl);
+}
+
+h3 {
+  font-size: var(--text-md);
+  letter-spacing: -0.01em;
+}
+
+button {
+  font-size: var(--text-base);
+  font-weight: 500;
+  letter-spacing: 0.005em;
+}
+
+/* Tabular figures everywhere a number appears in the ledger. */
+.amount,
+.numeric {
+  font-family: var(--font-mono);
+  font-variant-numeric: tabular-nums;
+  font-feature-settings: "tnum" 1;
+  letter-spacing: -0.01em;
+}
+
+/* Small-caps style label used for stat labels, table heads, eyebrows. */
+.eyebrow {
+  font-family: var(--font-body);
+  font-size: var(--text-2xs);
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.14em;
+  color: var(--color-text-muted);
+}

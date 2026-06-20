@@ -9,6 +9,7 @@
   (:require
    [finance-aggregator.web.hiccup :as h]
    [finance-aggregator.web.layout :as layout]
+   [finance-aggregator.web.pages.setup :as setup]
    [starfederation.datastar.clojure.api :as d*]
    [starfederation.datastar.clojure.adapter.http-kit :as hk]))
 
@@ -79,7 +80,8 @@
   "Reitit route tree for the server-rendered hypermedia pages, mirroring the
    shape of finance-aggregator.http.routes.api/api-routes. `deps` (db-conn etc.)
    is closed over by page handlers as real pages are added."
-  [_deps]
+  [deps]
   [""
+   ["/setup"          {:get  {:handler (setup/page deps) :name ::setup}}]
    ["/_scaffold"      {:get  {:handler scaffold-page :name ::scaffold}}]
    ["/_scaffold/sync" {:post {:handler scaffold-sync :name ::scaffold-sync}}]])

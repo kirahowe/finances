@@ -30,7 +30,18 @@
       [:head
        [:meta {:charset "utf-8"}]
        [:meta {:name "viewport" :content "width=device-width, initial-scale=1"}]
+       [:meta {:name "theme-color" :content "#f6f3ec" :media "(prefers-color-scheme: light)"}]
+       [:meta {:name "theme-color" :content "#15130d" :media "(prefers-color-scheme: dark)"}]
        [:title (or title "Finance Aggregator")]
+       ;; Ledger typefaces (Fraunces / Hanken Grotesk / IBM Plex Mono), as React loaded them.
+       [:link {:rel "preconnect" :href "https://fonts.googleapis.com"}]
+       [:link {:rel "preconnect" :href "https://fonts.gstatic.com" :crossorigin "anonymous"}]
+       [:link {:rel "stylesheet"
+               :href (str "https://fonts.googleapis.com/css2?"
+                          "family=Fraunces:ital,opsz,wght@0,9..144,400;0,9..144,500;0,9..144,600;1,9..144,400"
+                          "&family=Hanken+Grotesk:wght@400;500;600;700"
+                          "&family=IBM+Plex+Mono:wght@400;500;600"
+                          "&display=swap")}]
        [:link {:rel "stylesheet" :href "/css/app.css"}]
        [:script {:type "module" :src "/js/datastar.js"}]
        head]

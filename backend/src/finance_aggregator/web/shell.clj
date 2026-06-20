@@ -1,0 +1,43 @@
+(ns finance-aggregator.web.shell
+  "Shared page chrome (the masthead) for server-rendered pages."
+  (:require
+   [clojure.string :as str]))
+
+(def ^:private nav-tabs
+  [{:href "/"           :label "Transactions" :key :transactions}
+   {:href "/setup"      :label "Setup"        :key :setup}
+   {:href "/plaid-test" :label "Plaid"        :key :plaid :quiet true}])
+
+(defn- fmt-int [n]
+  (format "%,d" (long n)))
+
+(defn masthead
+  "The top chrome: wordmark, primary nav tabs, and the live stats bar.
+
+   opts:
+     :active — the active tab key (:transactions/:setup/:plaid)
+     :stats  — {:institutions :accounts :transactions} (optional)"
+  [{:keys [active stats]}]
+  [:header.masthead
+   [:div.masthead-bar
+    [:a.wordmark {:href "/"}
+     [:span.wordmark-mark {:aria-hidden "true"}
+      [:svg {:viewBox "0 0 24 24" :fill "none" :stroke "currentColor"
+             :stroke-width "2" :stroke-linecap "round" :stroke-linejoin "round"}
+       [:polyline {:points "22 7 13.5 15.5 8.5 10.5 2 17"}]
+       [:polyline {:points "16 7 22 7 22 13"}]]]
+     [:h1.wordmark-text "Finance Aggregator"]]
+    [:nav.view-tabs {:aria-label "Primary"}
+     (for [{:keys [href label key quiet]} nav-tabs]
+       [:a {:href href
+            :class (str/join " " (cond-> ["view-tab"]
+                                   quiet (conj "view-tab--quiet")
+                                   (= key active) (conj "is-active")))}
+        label])]
+    (when stats
+      [:div.masthead-stats
+       [:span [:b (fmt-int (:institutions stats))] " inst."]
+       [:span.dot "·"]
+       [:span [:b (fmt-int (:accounts stats))] " acct."]
+       [:span.dot "·"]
+       [:span [:b (fmt-int (:transactions stats))] " txns"]])]])
