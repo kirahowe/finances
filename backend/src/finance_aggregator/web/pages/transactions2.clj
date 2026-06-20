@@ -282,6 +282,66 @@
        " : ($sortCol = '" col "', $sortDir = 'asc');"
        " $page = 0; @get('/v2/rows')"))
 
+;; --- Header-filter funnels -------------------------------------------------
+;; Account/Institution/Category headers carry a funnel that opens a floating popover
+;; (rendered outside the table so its clicks don't reach the sort handler). Selecting boxes
+;; updates the persistent filter.<col> array and @get's the rows (the view engine filters
+;; server-side). Open/query state is ephemeral (_-prefixed). Options + counts are computed
+;; server-side per load.
+
+(def ^:private funnel-cols #{"account" "institution" "category"})
+
+(defn- tx-account-id [tx] (get-in tx [:transaction/account :db/id]))
+(defn- tx-institution-id [tx] (get-in tx [:transaction/account :account/institution :db/id]))
+(defn- tx-category-ids [tx]
+  (distinct (if-let [parts (seq (:transaction/splits tx))]
+              (keep #(get-in % [:split/category :db/id]) parts)
+              (when-let [id (get-in tx [:transaction/category :db/id])] [id]))))
+
+(defn- count-options [txs id-fn label-fn]
+  (->> txs
+       (keep (fn [tx] (when-let [id (id-fn tx)] [id (label-fn tx)])))
+       (reduce (fn [m [id label]]
+                 (-> m (assoc-in [id :label] label) (update-in [id :count] (fnil inc 0)))) {})
+       (map (fn [[id {:keys [label count]}]] {:id id :label label :count count}))
+       (sort-by :label)))
+
+(defn- account-options [txs]
+  (count-options txs tx-account-id #(or (get-in % [:transaction/account :account/external-name]) "Unknown")))
+(defn- institution-options [txs]
+  (count-options txs tx-institution-id #(or (get-in % [:transaction/account :account/institution :institution/name]) "Unknown")))
+(defn- category-funnel-options
+  "Real categories present this month with the number of transactions touching each
+   (split-aware). Uncategorized is excluded — the toolbar chip owns it."
+  [txs]
+  (let [name-of (fn [tx]
+                  (concat (when-let [c (:transaction/category tx)] (when (:db/id c) [[(:db/id c) (:category/name c)]]))
+                          (mapcat (fn [p] (when-let [c (:split/category p)] (when (:db/id c) [[(:db/id c) (:category/name c)]])))
+                                  (:transaction/splits tx))))
+        names (into {} (mapcat name-of txs))
+        counts (frequencies (mapcat tx-category-ids txs))]
+    (->> counts (map (fn [[id n]] {:id id :label (get names id "Unknown") :count n})) (sort-by :label))))
+
+(defn- funnel-icon []
+  [:svg.th-filter-icon {:width "12" :height "12" :viewBox "0 0 24 24" :fill "none" :stroke "currentColor"
+                        :stroke-width "2" :stroke-linecap "round" :stroke-linejoin "round" :aria-hidden "true"}
+   [:polygon {:points "22 3 2 3 10 12.46 10 19 14 21 14 12.46 22 3"}]])
+
+(defn- funnel-open-js [col]
+  (str "$_openFunnel = ($_openFunnel === '" col "' ? '' : '" col "'); $_funnelQuery = ''; "
+       "$_funnelX = Math.max(8, Math.min(el.getBoundingClientRect().left, window.innerWidth - 300)); "
+       "$_funnelY = el.getBoundingClientRect().bottom + 4"))
+
+(defn- funnel-button [col label]
+  (let [active (str "$filter." col ".filter(x=>x).length")]
+    [:button.th-filter-btn
+     {:type "button" :aria-haspopup "dialog" :aria-label (str "Filter " label) :aria-expanded "false"
+      "data-on:click__stop" (funnel-open-js col)
+      "data-attr" (str "{'aria-expanded': $_openFunnel === '" col "' ? 'true' : 'false'}")
+      "data-class" (str "{'is-active': " active " > 0}")}
+     (funnel-icon)
+     [:span.th-filter-count {"data-show" (str active " > 0") "data-text" active}]]))
+
 (defn- th [{:keys [id label sortable]}]
   (if sortable
     [:th {"class" "th-sortable" "data-col-id" id
@@ -291,7 +351,8 @@
      [:span.th-content
       [:span.th-label label]
       [:span.th-sort-indicator
-       {"data-text" (str "$sortCol === '" id "' ? ($sortDir === 'asc' ? ' ↑' : ' ↓') : ''")}]]]
+       {"data-text" (str "$sortCol === '" id "' ? ($sortDir === 'asc' ? ' ↑' : ' ↓') : ''")}]
+      (when (funnel-cols id) (funnel-button id label))]]
     [:th {:data-col-id id} [:span.th-content [:span.th-label label]]]))
 
 (defn- table [rows]
@@ -470,6 +531,43 @@
               " page: $page, pageSize: $pageSize, cols: $cols,"
               " fa: $filter.account, fi: $filter.institution, fc: $filter.category})")}])
 
+(defn- funnel-popover
+  "One header-filter popover (floating, position:fixed via .header-filter-popover so it
+   escapes the table's overflow). Rendered outside the table so clicks inside don't reach the
+   sort handler. Each checkbox binds the persistent $filter.<col> array and @get's the rows;
+   the in-funnel search filters the options client-side (label JSON-encoded so a name with a
+   quote can't break the expression). Clear empties the selection."
+  [col options]
+  [:div.header-filter-popover
+   {"data-show" (str "$_openFunnel === '" col "'")
+    "data-style" "{left: $_funnelX + 'px', top: $_funnelY + 'px'}"
+    "data-on:click__outside" (str "$_openFunnel === '" col "' && ($_openFunnel = '')")}
+   [:div.filter-dropdown.filter-dropdown--bare
+    [:div.filter-dropdown-header
+     [:input.filter-dropdown-search
+      {:type "search" :placeholder "Search…" "data-bind" "_funnelQuery" :aria-label "Filter options"}]]
+    [:ul.filter-dropdown-list
+     (if (empty? options)
+       [:li.filter-dropdown-item.empty "No values"]
+       (for [{:keys [id label count]} options]
+         [:li.filter-dropdown-item
+          {"data-show" (str "$_funnelQuery === '' || "
+                            (r/signals (str/lower-case label)) ".includes($_funnelQuery.toLowerCase())")}
+          [:label.filter-dropdown-checkbox-label
+           [:input.filter-dropdown-checkbox
+            {:type "checkbox" :value (str id) "data-bind" (str "filter." col)
+             "data-on:change" "$page = 0; @get('/v2/rows')"}]
+           [:span.filter-dropdown-label-text label]
+           [:span.filter-dropdown-count count]]]))]
+    [:div.filter-dropdown-footer
+     [:button.button.button-secondary.filter-dropdown-clear
+      {:type "button" "data-on:click" (str "$filter." col " = []; $page = 0; @get('/v2/rows')")} "Clear"]]]])
+
+(defn- funnel-popovers [account-opts institution-opts category-opts]
+  (list (funnel-popover "account" account-opts)
+        (funnel-popover "institution" institution-opts)
+        (funnel-popover "category" category-opts)))
+
 (def ^:private undo-key-js
   ;; Cmd/Ctrl+Z = undo, +Shift = redo. Static literal (no server data).
   (str "(evt.metaKey || evt.ctrlKey) && (evt.key === 'z' || evt.key === 'Z')"
@@ -503,6 +601,8 @@
            (if (empty? txs)
              (empty-state)
              (list (table (:rows result)) (pagination-bar result)))]]
+         (when (seq txs)
+           (funnel-popovers (account-options txs) (institution-options txs) (category-funnel-options txs)))
          (category-options categories)
          (url-sync)])})))
 
