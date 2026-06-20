@@ -1,6 +1,6 @@
 # Datastar server-authoritative rewrite — architecture & plan
 
-**Status:** R0 (renderer) + R1 (view engine) + **R2 cp1 (read-only `/v2` page)** done. **Branch:** `spike/replicant-datastar`. Next: R2 cp1b (funnels) / cp2 (edits + lingering + undo).
+**Status:** R0 (renderer) + R1 (view engine) + R2 cp1 (read-only `/v2`) + **R2 cp2 core (command-log undo + lingering, reviewed edit)** done. **Branch:** `spike/replicant-datastar`. Next: cp2 description + category edits, then cp1b funnels, then R3.
 Supersedes the client-heavy approach in `replicant-datastar-progress.md` for the
 transactions workspace. Memory: `project_replicant_datastar_spike`.
 
@@ -85,6 +85,36 @@ New seam = `web/render.clj`: `render`, `render-page`, `signals` (JSON), `raw`,
 - Fragment renderers (`tbody`, `counts`, active toolbar states) + `GET /transactions/rows`;
   existing mutation PUTs re-render the affected fragments.
 
+## cp2 design: edits + command-log undo + lingering
+
+**Edits are commands.** Every user mutation (reviewed / category / description / split) is a
+`Command` data map: `{:type :tx-id :before :after :label}`. Applying runs the existing db
+mutation to `:after`; undo runs it to `:before`. The db stays the source of truth (commands
+are *how to reverse*, not a parallel store) — this rides on the append-only-overlay model
+([[feedback_append_only_overlays]]).
+
+**`web/commands.clj`** — a per-user (single-user for now, `auth/user-id`) in-memory log:
+`{:undo [cmd…] :redo [cmd…] :linger #{tx-id…}}` in a `defonce` atom. `apply!` runs + pushes
+to undo + marks the tx lingering + clears redo; `undo!`/`redo!` move between stacks and run
+the inverse/forward mutation. In-memory (ephemeral, session-scoped) is deliberate — undo is
+a UI affordance, not durable state; the `Command` is plain data so it *could* be persisted
+later (audit trail) without changing callers. Not over-engineered into event-sourcing.
+
+**Lingering is server-side.** The edit re-render composes the view steps with a linger
+injection: `matched = filter-txs`; `lingered = month txs whose id ∈ linger-set but ∉ matched`;
+render `sort(matched ∪ lingered)` with the lingered rows tagged `is-stale`. Any pure view
+change (`/v2/rows`) clears the linger set. No per-row `$linger` signals, no signal-patch reset.
+
+**Undo affordance** = a server-rendered `#toast` ("Marked reviewed · Undo"), patched on every
+edit; the Undo button `@post('/v2/undo')`. Plus a global `Cmd/Ctrl+Z` (`data-on:keydown__window`).
+Lingering keeps the mistake *visible*; undo *reverses* it — both, per the user's "going too
+fast" concern.
+
+**Edit round-trip** patches three fragments: `#tx-tbody` (with lingering), the count badges
+(reviewing a row drops the unreviewed count), and `#toast`. Reviewed is the first slice
+(checkbox → `@put('/v2/tx/:id/reviewed/:v')`); description (input) and category (combobox
+island) follow the same `apply!` path.
+
 ## Considered & deferred: server-owns-all streaming CQRS (core.async.flow)
 
 Evaluated an architecture where the server owns all UI state through a core.async.flow
@@ -128,9 +158,14 @@ noticeable; undo lets you *reverse* a spotted mistake (ideally surfaced inline, 
     300 ms (the one latency-sensitive control — measure on the VPS).
   - **cp1b** — header-filter funnels (account/institution/category). `view.clj` already
     filters them; needs the popover UI with `_`-prefixed ephemeral open/query state.
-  - **cp2** — edits: reviewed/description/category re-render fragments (server-confirmed);
-    **lingering** (server tags just-edited rows `is-stale` and keeps them) + **undo**
-    (command log; see decision below); reuse grid-nav/combobox/col-resize islands.
+  - **cp2 core ✅ DONE.** `web/commands.clj` (per-user undo/redo/linger log) + the
+    server-confirmed **reviewed** edit on `/v2`: `@put('/v2/tx/:id/reviewed/:v')` applies a
+    command, morphs `#tx-tbody` (lingering just-edited rows `is-stale`) + count badges +
+    `#toast`. Undo via toast button or Cmd/Ctrl+Z (Shift = redo). `/e2e/reset` clears the
+    log. Browser-verified `e2e/v2-edit.mjs` 9/9; `commands_test` 3 tests.
+  - **cp2 rest** — **description** edit (input → `set-user-description!` command) and
+    **category** edit (combobox island → `update-category!` command) via the same `apply!`
+    path; wire grid-nav/combobox/col-resize islands against the new markup.
 - **R3 — Column vis/width persistence** via URL + client CSS; thin `replaceState` reflector.
 - **R4 — Delete the old.** Replicant dep, `web/hiccup.clj`, `web/layout.clj`, the old
   transactions page, dead islands, the scaffold. Convert `/setup` to the hiccup2 seam.
