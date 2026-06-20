@@ -279,9 +279,18 @@
    :role "gridcell"
    :tabindex "-1"})
 
+(defn- sort-keys
+  "Numeric sort keys baked on a transaction's leader <tr> for the client sort island
+   (date as epoch ms, amount as a number). The string columns (account/institution/
+   payee/category) are read from the rendered cell text instead — so arbitrary text
+   can't break an attribute (Replicant doesn't escape quotes in attribute values)."
+  [{:transaction/keys [posted-date amount]}]
+  {:data-sort-date (str (if posted-date (.getTime ^java.util.Date posted-date) 0))
+   :data-sort-amount (str (or amount 0))})
+
 (defn- normal-row [show {:transaction/keys [posted-date account payee effective-description
                                             amount category] :as tx}]
-  [:tr (merge show {:role "row"})
+  [:tr (merge show {:role "row"} (sort-keys tx))
    [:td [:span.numeric (fmt/date posted-date)]]
    [:td (or (:account/external-name account) "—")]
    [:td (or (get-in account [:account/institution :institution/name]) "—")]
@@ -298,8 +307,8 @@
    [:td.actions-cell]
    [:td.table-spacer-cell {:aria-hidden "true"}]])
 
-(defn- split-parent-row [show {:transaction/keys [posted-date account payee effective-description]}]
-  [:tr (merge show {:role "row" :class "is-split-parent"})
+(defn- split-parent-row [show {:transaction/keys [posted-date account payee effective-description] :as tx}]
+  [:tr (merge show {:role "row" :class "is-split-parent"} (sort-keys tx))
    [:td [:span.numeric (fmt/date posted-date)]]
    [:td (or (:account/external-name account) "—")]
    [:td (or (get-in account [:account/institution :institution/name]) "—")]
@@ -346,6 +355,18 @@
 (defn- th-class [id]
   (->> [(cell-class id) "th-static"] (remove nil?) (str/join " ")))
 
+(def ^:private sortable-cols
+  "Columns the client sort island sorts by (clicking the header). Reviewed/actions aren't."
+  #{"date" "account" "institution" "payee" "amount" "category"})
+
+(defn- th-cell [{:keys [id label]}]
+  (if (sortable-cols id)
+    [:th (h/a {"class" (->> [(cell-class id) "th-sortable"] (remove nil?) (str/join " "))
+               "data-sort-col" id "aria-sort" "none"})
+     [:span.th-label label]
+     [:span.th-sort-indicator {:aria-hidden "true"}]]
+    [:th {:class (th-class id)} label]))
+
 ;; --- Column visibility -----------------------------------------------------
 ;; The read-only columns are hideable via the toolbar picker: a `cols.<id>` signal per
 ;; column, a `hide-<id>` class toggled on the table by data-class, and a CSS rule that
@@ -371,8 +392,7 @@
       [[:col.table-spacer-col]])]
     [:thead
      [:tr
-      (for [{:keys [id label]} columns]
-        [:th {:class (th-class id)} label])
+      (for [c columns] (th-cell c))
       [:th.table-spacer-cell {:aria-hidden "true"}]]]
     [:tbody (mapcat tx-rows txs)]]])
 
@@ -522,7 +542,7 @@
        :body
        (layout/base-page
         {:title "Finance Aggregator"
-         :islands ["combobox" "grid-nav"]
+         :islands ["combobox" "grid-nav" "sort"]
          :signals {:reviewed (reviewed-signals txs)
                    :desc (description-signals txs)
                    :descOrig ""

@@ -16,6 +16,7 @@ const ISLANDS = [
   'src/hello.ts',
   'src/combobox.ts',
   'src/grid-nav.ts',
+  'src/sort.ts',
 ];
 
 await build({

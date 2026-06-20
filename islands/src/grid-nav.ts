@@ -35,8 +35,7 @@ if (scroll && table) {
   // their row key (DOM order = visual order) into the {key, kind, cols} rows the
   // reducer reasons over (gotcha §2: no JSON in a <script>).
   const cellEls = new Map<string, HTMLElement>();
-  const rows: NavigableRow[] = [];
-  let lastRowKey: string | null = null;
+  const model: GridModel = { rows: [] };
 
   const parseKey = (dc: string): { key: RowKey; col: ColId } => {
     const [txStr, splitStr, col] = dc.split(':');
@@ -46,23 +45,30 @@ if (scroll && table) {
     };
   };
 
-  for (const td of table.querySelectorAll<HTMLElement>('[data-cell]')) {
-    const dc = td.dataset.cell!;
-    cellEls.set(dc, td);
-    const { key, col } = parseKey(dc);
-    const rowKeyStr = `${key.txId}:${key.splitId ?? 'tx'}`;
-    if (rowKeyStr !== lastRowKey) {
-      rows.push({ key, kind: key.splitId !== null ? 'split-child' : 'normal', cols: [] });
-      lastRowKey = rowKeyStr;
+  // (Re)build the navigable grid from the current DOM order — called on load and again
+  // whenever the table is re-rendered client-side (e.g. the sort island reorders rows).
+  function buildModel() {
+    cellEls.clear();
+    model.rows.length = 0;
+    let lastRowKey: string | null = null;
+    for (const td of table!.querySelectorAll<HTMLElement>('[data-cell]')) {
+      const dc = td.dataset.cell!;
+      cellEls.set(dc, td);
+      const { key, col } = parseKey(dc);
+      const rowKeyStr = `${key.txId}:${key.splitId ?? 'tx'}`;
+      if (rowKeyStr !== lastRowKey) {
+        model.rows.push({ key, kind: key.splitId !== null ? 'split-child' : 'normal', cols: [] });
+        lastRowKey = rowKeyStr;
+      }
+      model.rows[model.rows.length - 1].cols.push(col);
     }
-    rows[rows.length - 1].cols.push(col);
-  }
-  for (const r of rows) {
-    if (r.key.splitId === null && r.cols.length === 1 && r.cols[0] === 'description') {
-      r.kind = 'split-parent';
+    for (const r of model.rows) {
+      if (r.key.splitId === null && r.cols.length === 1 && r.cols[0] === 'description') {
+        r.kind = 'split-parent';
+      }
     }
   }
-  const model: GridModel = { rows };
+  buildModel();
 
   let state: NavState = { active: null, mode: 'navigation' };
   (window as unknown as { __gridState?: () => NavState }).__gridState = () => state;
@@ -70,7 +76,7 @@ if (scroll && table) {
   const elFor = (active: NavState['active']): HTMLElement | null =>
     active ? cellEls.get(cellKey(active.key, active.col)) ?? null : null;
   const rowFor = (key: RowKey): NavigableRow | undefined =>
-    rows.find((r) => r.key.txId === key.txId && r.key.splitId === key.splitId);
+    model.rows.find((r) => r.key.txId === key.txId && r.key.splitId === key.splitId);
 
   // An editor owns the keyboard while open: the floating combobox, or a focused
   // description input.
@@ -214,6 +220,14 @@ if (scroll && table) {
       paint();
       focusActive();
     }
+  });
+
+  // A client-side re-render of the table (the sort island reordering rows) → rebuild the
+  // model from the new DOM order. The active cell is keyed by RowKey, so it survives the
+  // reorder (its <td> moved, but cellEls re-points to it); repaint to reflect the order.
+  scroll.addEventListener('grid-refresh', () => {
+    buildModel();
+    paint();
   });
 
   console.log(`grid-nav island ready: ${model.rows.length} navigable rows`);
