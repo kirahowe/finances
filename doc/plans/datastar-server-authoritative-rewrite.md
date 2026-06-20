@@ -164,9 +164,13 @@ noticeable; undo lets you *reverse* a spotted mistake (ideally surfaced inline, 
     `#undo-redo`. Undo/redo are **toolbar buttons** (↶/↷, enabled-state tracks the log) +
     Cmd/Ctrl+Z (Shift = redo) — no toast (obtrusive). `/e2e/reset` clears the log.
     Browser-verified `e2e/v2-edit.mjs` 10/10; `commands_test` 3 tests.
-  - **cp2 rest** — **description** edit (input → `set-user-description!` command) and
-    **category** edit (combobox island → `update-category!` command) via the same `apply!`
-    path; wire grid-nav/combobox/col-resize islands against the new markup.
+  - **cp2 description ✅ DONE.** Inline editor (class-swap, `@put('/v2/tx/:id/description')`
+    → `:set-description` command capturing the prior override via `db.transactions/user-description`).
+    Single `$editValue` courier, no per-row signals. `e2e/v2-desc.mjs` 5/5.
+  - **cp2 category** (next) — combobox island (`combobox.ts`) → `@put('/v2/tx/:id/category')`
+    → `:update-category!` command (capture prior category id for undo). The high-value undo
+    case (mis-categorizing while filtered). Then wire grid-nav/col-resize against /v2 markup.
+  - Row-height density fix: `.table-dense` (was `.table-resizable`-only). Matches `/` (37px).
 - **R3 — Column vis/width persistence** via URL + client CSS; thin `replaceState` reflector.
 - **R4 — Delete the old.** Replicant dep, `web/hiccup.clj`, `web/layout.clj`, the old
   transactions page, dead islands, the scaffold. Convert `/setup` to the hiccup2 seam.
