@@ -39,6 +39,15 @@ const uncatBefore = Number((await uncat()).trim());
 await catCell().click();
 await page.locator('.category-dropdown.is-floating').waitFor({ state: 'visible', timeout: 5000 });
 check('combobox opens', await page.locator('.category-dropdown.is-floating').isVisible());
+
+// Typing auto-highlights the top match (so Enter selects it without arrowing).
+await page.locator('.category-dropdown-input').type('gro');
+await page.waitForTimeout(150);
+check('typing auto-highlights the matched option',
+  (await page.locator('.category-dropdown-item.highlighted').first().innerText().catch(() => '')).trim() === 'Groceries');
+await page.locator('.category-dropdown-input').fill('');
+await page.waitForTimeout(100);
+
 await page.locator('.category-dropdown-item', { hasText: /^Groceries$/ }).first().click();
 
 // Gate on the LAST patch of the response (the undo-redo controls) so the earlier tbody +

@@ -63,8 +63,25 @@ function readCategories(): Category[] {
 
 const categories = readCategories();
 
-const itemsForFilter = (filter: string): Item[] =>
-  buildCategoryDropdownModel(categories, filter).entries.map(entryToItem);
+// The filtered option list plus the value Zag should highlight: the closest
+// (typeahead) match, so Enter selects it without arrowing. Zag's own
+// `inputBehavior: 'autohighlight'` highlights the collection's *first* value,
+// which is always "Uncategorized" here — so we drive the highlight ourselves
+// from the model's `firstMatchIndex`.
+interface FilterResult {
+  items: Item[];
+  /** Value (`Item.code`) of the best match to highlight, or null for none. */
+  highlight: string | null;
+}
+
+const itemsForFilter = (filter: string): FilterResult => {
+  const { entries, firstMatchIndex } = buildCategoryDropdownModel(categories, filter);
+  const items = entries.map(entryToItem);
+  // firstMatchIndex is 0 (Uncategorized) when nothing matches; only highlight a
+  // real match so an empty query / no-match doesn't preselect Uncategorized.
+  const highlight = firstMatchIndex > 0 ? (items[firstMatchIndex]?.code ?? null) : null;
+  return { items, highlight };
+};
 
 const collectionOf = (items: Item[]) =>
   combobox.collection({
@@ -82,7 +99,7 @@ let committedViaKeyboard = false;
 function open(cell: HTMLElement, seed?: string | null) {
   close();
   committedViaKeyboard = false;
-  let items = itemsForFilter(seed ?? '');
+  let { items, highlight } = itemsForFilter(seed ?? '');
 
   // The current category name leads as the placeholder (the input opens empty so the
   // first keystroke filters), mirroring the React dropdown.
@@ -113,17 +130,36 @@ function open(cell: HTMLElement, seed?: string | null) {
     },
     open: true,
     openOnClick: true,
-    inputBehavior: 'autohighlight',
+    // We don't use `inputBehavior: 'autohighlight'`: it highlights the
+    // collection's first value, which is always "Uncategorized" here. Instead we
+    // re-filter on each keystroke and explicitly highlight the model's best
+    // (typeahead) match via `applyHighlight` below, so Enter selects it.
     onOpenChange(d: any) {
       if (!d.open) close('cancel');
     },
     onInputValueChange({ inputValue }: any) {
-      items = itemsForFilter(inputValue ?? '');
+      ({ items, highlight } = itemsForFilter(inputValue ?? ''));
+      applyHighlight();
     },
     onValueChange({ value }: any) {
       if (value[0] != null) commit(cell, value[0], items);
     },
   });
+
+  // Highlight the best match in the freshly-filtered collection. Deferred a
+  // microtask: `onInputValueChange` fires mid-INPUT.CHANGE transition (which
+  // clears the highlight and rebuilds the collection), so we set the highlight
+  // after that settles. Setting `null` is a no-op — we leave Zag's cleared
+  // highlight as-is when nothing matches.
+  const applyHighlight = () => {
+    const value = highlight;
+    if (value == null) return;
+    queueMicrotask(() => {
+      if (current?.machine === machine) {
+        combobox.connect(machine.service, normalizeProps).setHighlightValue(value);
+      }
+    });
+  };
 
   const get = (sel: string) => root.querySelector<HTMLElement>(sel)!;
   const render = () => {
