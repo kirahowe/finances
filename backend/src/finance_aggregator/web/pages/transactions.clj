@@ -696,6 +696,70 @@
       [:span]
       [:button.button.button-secondary {:type "button" "data-on:click" close-modal-js} "Done"]]]]])
 
+;; --- Category rollup pane --------------------------------------------------
+;; Whole-month breakdown (web.view/category-rollup) rendered beside the table. A row's filter is
+;; "active" when $filter.category exactly matches its ids (or $uncat for the Uncategorized row);
+;; clicking toggles that filter (set/clear) — pure reuse of the funnel filter signals. The pane
+;; reflects edits (a recategorize moves money between rows), so it's re-patched by id on edits,
+;; not on filter/sort changes (whole-month → a filter change leaves the breakdown unchanged; the
+;; active highlight updates client-side via data-class).
+
+(defn- rollup-active-expr [{:keys [uncategorized? ids]}]
+  (if uncategorized?
+    "$uncat"
+    (str "$filter.category.length === " (count ids)
+         (apply str (map #(str " && $filter.category.includes('" % "')") ids)))))
+
+(defn- rollup-click-expr [{:keys [uncategorized? ids] :as row}]
+  ;; Toggle this row's filter. The ternary branches are single expressions, so the assignments
+  ;; inside them are joined with the comma operator (a `;` there is a JS syntax error); the
+  ;; trailing page-reset + @get are `;`-separated statements at the top level.
+  (let [active   (rollup-active-expr row)
+        set-it   (if uncategorized?
+                   "$uncat = true, $filter.category = []"
+                   (str "$filter.category = [" (str/join ", " (map #(str "'" % "'") ids)) "], $uncat = false"))
+        clear-it (if uncategorized? "$uncat = false" "$filter.category = []")]
+    (str active " ? (" clear-it ") : (" set-it "); $page = 0; @get('/transactions/rows')")))
+
+(defn- rollup-row [{:keys [name depth group?] :as row}]
+  [:li {:class (str/trim (str "rollup-row rollup-row--depth" depth (when group? " rollup-row--group")))
+        "data-class" (str "{'is-active': " (rollup-active-expr row) "}")}
+   [:button.rollup-row-button
+    {:type "button" "data-on:click" (rollup-click-expr row)
+     "data-attr" (str "{'aria-pressed': " (rollup-active-expr row) "}")}
+    [:span.rollup-row-name
+     (when (= 1 depth) [:span.rollup-branch {:aria-hidden "true"} "└"])
+     name]
+    [:span.rollup-amount (fmt/amount (:amount row))]]])
+
+(def ^:private rollup-section-labels {:income "Income" :expense "Expenses" :transfer "Transfers"})
+
+(defn- rollup-section [{:keys [type rows total]}]
+  [:section.rollup-section
+   [:h3.rollup-section-title (rollup-section-labels type)]
+   (into [:ul.rollup-rows] (map rollup-row rows))
+   [:div.rollup-subtotal
+    [:span.rollup-row-name (str (rollup-section-labels type) " total")]
+    [:span.rollup-amount (fmt/amount total)]]])
+
+(defn- rollup-pane [{:keys [income expenses transfers grand-total]}]
+  (let [sections (filter #(seq (:rows %)) [income expenses transfers])]
+    [:aside.rollup-pane {:id "category-rollup" :aria-label "Category summary"}
+     [:div.rollup-scroll
+      (if (empty? sections)
+        [:p.rollup-empty "No activity to summarize."]
+        (map rollup-section sections))
+      [:div.rollup-net
+       [:span.rollup-net-label "Net"]
+       [:span {:class (str "rollup-amount " (if (neg? grand-total) "negative" "positive"))}
+        (fmt/amount grand-total)]]]]))
+
+(defn- rollup-fragment
+  "The #category-rollup pane for `txs` (whole month) + `categories` — rendered on load and
+   re-patched after edits."
+  [txs categories]
+  (rollup-pane (view/category-rollup txs categories)))
+
 (defn page
   "GET / — full page. Seeds the view-state from the URL; a fresh load clears lingering."
   [{:keys [db-conn]}]
@@ -727,7 +791,8 @@
            (active-filters acct inst cat view-st)
            (if (empty? txs)
              (empty-state)
-             (list (table (:rows result)) (pagination-bar result)))]]
+             (list (table (:rows result)) (pagination-bar result)))]
+          (rollup-fragment txs categories)]
          (when (seq txs) (list (funnel-popovers acct inst cat) (row-actions-menu)))
          (category-options categories)
          (url-sync)
@@ -775,6 +840,8 @@
         (d*/patch-elements! sse (r/render (pagination-bar result)))
         (patch-filter-feedback! sse txs view-st)
         (d*/patch-elements! sse (r/render (undo-redo-controls)))
+        ;; A recategorize/split moves money between rollup rows, so re-patch the whole-month pane.
+        (d*/patch-elements! sse (r/render (rollup-fragment txs (db-categories/list-all db-conn))))
         (when close-modal? (d*/patch-elements! sse (r/render [:div {:id "modal-root"}])))
         (when after-patch (after-patch sse))
         (d*/patch-signals! sse (r/signals {:page (:page result)}))
