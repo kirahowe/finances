@@ -17,6 +17,7 @@
    This namespace also owns the column configuration (`columns` / `hideable-columns` etc.),
    since the codec (`parse-cols`) and the page's rendering both need it — one home, no copy."
   (:require
+   [charred.api :as json]
    [clojure.string :as str]))
 
 ;; ---------------------------------------------------------------------------
@@ -69,6 +70,18 @@
   (cond (number? raw) (long raw)
         (string? raw) (some-> raw not-empty parse-long)
         :else nil))
+
+(defn parse-splits-value
+  "Coerce the `$splitValue` courier (a JSON string of [{amount, categoryId, memo?}] the
+   split-editor island serializes) into the db.transactions/set-splits! input shape
+   [{:amount string :category-id long :memo string?}]. Blank / nil / \"[]\" → [] (un-split)."
+  [raw]
+  (if (str/blank? raw)
+    []
+    (->> (json/read-json raw :key-fn keyword)
+         (mapv (fn [{:keys [amount categoryId memo]}]
+                 (cond-> {:amount (str amount) :category-id (some-> categoryId long)}
+                   (not (str/blank? memo)) (assoc :memo (str/trim memo))))))))
 
 ;; ---------------------------------------------------------------------------
 ;; View-state assembly (the web.view input map)
@@ -140,7 +153,8 @@
    :pageSize      (:page-size result)
    :month         month-str
    :editValue     ""
-   :catValue      ""})
+   :catValue      ""
+   :splitValue    ""})
 
 (defn client-signals
   "Full initial signal set: persistent view-state + column visibility + header-funnel
@@ -155,4 +169,10 @@
          :_openFunnel ""
          :_funnelX 0
          :_funnelY 0
-         :_funnelQuery ""))
+         :_funnelQuery ""
+         ;; Row-actions menu (shared floating popover): which row's menu is open (0 = none),
+         ;; whether that row is already split (drives the menu label), and its position.
+         :_rowMenu 0
+         :_rowMenuSplit false
+         :_rowMenuX 0
+         :_rowMenuY 0))

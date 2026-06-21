@@ -94,6 +94,14 @@
                :where [?e :transaction/external-id _]]
              (d/db conn) transaction-pull-pattern)))
 
+(defn by-id
+  "A single transaction pulled with the canonical pattern + derived fields, or nil when the
+   id isn't a real transaction. Used by the split-editor modal (which needs the parent amount,
+   payee, and current parts)."
+  [conn tx-id]
+  (let [tx (d/pull (d/db conn) transaction-pull-pattern tx-id)]
+    (when (:transaction/external-id tx) (with-derived-fields tx))))
+
 (defn user-description
   "The transaction's current user-description override (\"\" when none) — for capturing the
    before-value of an inline-description-edit command so undo can restore it."
@@ -105,6 +113,19 @@
    before-value of a recategorize command so undo can restore it."
   [conn tx-id]
   (get-in (d/pull (d/db conn) [{:transaction/category [:db/id]}] tx-id) [:transaction/category :db/id]))
+
+(defn current-splits
+  "The transaction's current splits in set-splits! input shape
+   ({:amount string :category-id long :memo string?}), ordered by :split/order, or [] when
+   unsplit — for capturing the before-value of a split command so undo restores the prior
+   parts (re-applying [] un-splits)."
+  [conn tx-id]
+  (->> (:transaction/splits (d/pull (d/db conn) [{:transaction/splits split-pull}] tx-id))
+       (sort-by :split/order)
+       (mapv (fn [{:split/keys [amount category memo]}]
+               (cond-> {:amount (.toPlainString (bigdec amount))
+                        :category-id (:db/id category)}
+                 memo (assoc :memo memo))))))
 
 (defn needs-category?
   "True when a transaction still needs a category: a split needs work when any part

@@ -225,3 +225,22 @@
     (->> labels
          (map (fn [[id label]] {:id id :label label :count (get counts id 0)}))
          (sort-by :label))))
+
+;; --- Split editor seed ------------------------------------------------------
+
+(defn split-editor-seed
+  "Seed rows for the split-editor island: each existing split part rendered as
+   {:amount <magnitude, 2-dp string> :category-id <id|nil> :memo <string|nil>
+    :seed-cents <signed integer cents>}, ordered by :split/order. [] when the transaction
+   is unsplit (the island opens with blank rows). seed-cents carries the stored signed value
+   so a mixed-sign part survives a round-trip until its magnitude is edited (matching the
+   islands/lib/splitMath rowSignedCents contract)."
+  [tx]
+  (->> (:transaction/splits tx)
+       (sort-by :split/order)
+       (mapv (fn [{:split/keys [amount category memo]}]
+               (let [scaled (.setScale (bigdec amount) 2 java.math.RoundingMode/HALF_UP)]
+                 {:amount      (.toPlainString (.abs scaled))
+                  :category-id (:db/id category)
+                  :memo        memo
+                  :seed-cents  (.longValueExact (.movePointRight scaled 2))})))))

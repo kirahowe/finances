@@ -33,6 +33,20 @@
     (is (instance? Long (vs/parse-category-value "7")) "string result is a long too")
     (is (nil? (vs/parse-category-value "not-a-number")) "non-numeric string → nil")))
 
+(deftest splits-value-coercion
+  (testing "$splitValue JSON string → set-splits! input shape"
+    (is (= [{:amount "-60.00" :category-id 5}
+            {:amount "-40.00" :category-id 7 :memo "tip"}]
+           (vs/parse-splits-value
+            "[{\"amount\":\"-60.00\",\"categoryId\":5},{\"amount\":\"-40.00\",\"categoryId\":7,\"memo\":\"tip\"}]"))
+        "categoryId → :category-id (long); memo kept only when present")
+    (is (instance? Long (:category-id (first (vs/parse-splits-value "[{\"amount\":\"-1.00\",\"categoryId\":5}]"))))
+        "category-id is a long"))
+  (testing "blank / nil / empty array → [] (un-split)"
+    (is (= [] (vs/parse-splits-value "")))
+    (is (= [] (vs/parse-splits-value nil)))
+    (is (= [] (vs/parse-splits-value "[]")))))
+
 ;; --- query → view-state -----------------------------------------------------
 
 (deftest query->view-state-defaults

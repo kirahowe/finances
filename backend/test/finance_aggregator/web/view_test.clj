@@ -259,3 +259,27 @@
       (is (= 2 (:total fc)) "All = uncategorized rows (scope neutralized)")
       (is (= 2 (:unreviewed fc)) "Needs review = those also unreviewed")
       (is (= 2 (:uncategorized fc)) "Uncategorized = needs-review rows that are uncategorized"))))
+
+;; --- Split editor seed ------------------------------------------------------
+
+(deftest split-editor-seed-rows
+  (testing "parts seed in :split/order; magnitude string + signed seed-cents + category/memo"
+    (let [seed (view/split-editor-seed
+                {:transaction/splits
+                 [{:split/order 1 :split/amount -8.00M :split/memo "household"
+                   :split/category {:db/id 11 :category/name "Groceries"}}
+                  {:split/order 0 :split/amount -42.00M :split/memo nil
+                   :split/category nil}]})]
+      (is (= 2 (count seed)))
+      (is (= {:amount "42.00" :category-id nil :memo nil :seed-cents -4200} (first seed))
+          "order 0 leads; outflow magnitude positive, seed-cents signed")
+      (is (= {:amount "8.00" :category-id 11 :memo "household" :seed-cents -800} (second seed)))))
+  (testing "a positive (inflow) split keeps its sign in seed-cents but shows magnitude"
+    (is (= {:amount "15.50" :category-id 7 :memo nil :seed-cents 1550}
+           (first (view/split-editor-seed
+                   {:transaction/splits [{:split/order 0 :split/amount 15.50M
+                                          :split/category {:db/id 7}}]}))))))
+
+(deftest split-editor-seed-empty-when-unsplit
+  (is (= [] (view/split-editor-seed {:transaction/splits []})))
+  (is (= [] (view/split-editor-seed {}))))

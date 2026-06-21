@@ -27,7 +27,10 @@
   (case type
     :set-reviewed    (db/set-reviewed! conn tx-id (boolean value))
     :set-category    (db/update-category! conn tx-id value)
-    :set-description (db/set-user-description! conn tx-id (or value ""))))
+    :set-description (db/set-user-description! conn tx-id (or value ""))
+    ;; value is the full split vector ({:amount :category-id :memo?}); [] un-splits. Undo
+    ;; re-applies :before (the prior parts, or [] when the row wasn't split). Full-replace.
+    :set-splits      (db/set-splits! conn tx-id (vec value))))
 
 (defn apply!
   "Run a command (to its :after), push it onto the undo stack, mark its tx lingering, and
