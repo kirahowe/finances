@@ -1,17 +1,14 @@
 (ns finance-aggregator.web.pages.transactions2
-  "Server-authoritative transactions workspace (Phase R2), served at /v2 while the old
-   client-heavy / page stays up for comparison (both deleted/renamed at R4).
+  "Server-authoritative transactions workspace at `/` (the dumb-view layer — all data logic
+   lives in the pure, tested web.view + web.view-state).
 
-   Checkpoint 1 (this file): read-only table + toolbar, all view changes server-driven.
-   Every control (search / scope / chips / sort / paginate) sets its signal and
-   @get('/v2/rows'); the server runs the pure view engine (web.view) and morphs
-   `#tx-tbody` + `#pagination-bar` by id, patching $page back to the clamped value. No
-   per-row signals, no baked data-show, no client-side filter/sort/paginate islands.
-
-   Deferred to later checkpoints: header-filter funnels (cp1b — view.clj already supports
-   account/institution/category, just needs the popover UI), inline edits + lingering +
-   undo (cp2), column visibility/width + URL write-back (R3). The view-state seeds from
-   the URL on load; until R3's URL reflector lands, interacting then reloading resets it."
+   Every control (search / scope / chips / funnels / sort / paginate) sets its signal and
+   @get('/transactions/rows'); the server runs the pure view engine (web.view) and morphs
+   `#tx-tbody` + `#pagination-bar` by id, patching $page back to the clamped value. Edits
+   (reviewed/description/category) @put a command (web.commands) and morph the tbody (with
+   lingering) + counts + the undo/redo controls. No per-row signals, no baked data-show,
+   no client-side filter/sort/paginate islands. Persistent view-state lives in the URL;
+   ephemeral UI state is `_`-prefixed. Islands: combobox (Zag), grid-nav, v2-url, v2-resize."
   (:require
    [clojure.string :as str]
    [finance-aggregator.auth :as auth]
@@ -60,7 +57,7 @@
   [tx-id reviewed? editable?]
   (if editable?
     [:input {:type "checkbox" :class "reviewed-checkbox" :checked (boolean reviewed?)
-             "data-on:change" (str "@put('/v2/tx/" tx-id "/reviewed/' + el.checked)")}]
+             "data-on:change" (str "@put('/transactions/" tx-id "/reviewed/' + el.checked)")}]
     [:input {:type "checkbox" :class "reviewed-checkbox" :checked (boolean reviewed?) :disabled true}]))
 
 (defn- row-class [base stale?]
@@ -79,7 +76,7 @@
 
 (defn- desc-commit-js [tx-id]
   (str "el.previousElementSibling.textContent = el.value || '—',"
-       " $editValue = el.value, @put('/v2/tx/" tx-id "/description'),"
+       " $editValue = el.value, @put('/transactions/" tx-id "/description'),"
        " el.closest('.description-cell').classList.remove('editing')"))
 
 (defn- desc-keydown-js [tx-id]
@@ -117,7 +114,7 @@
     {:type "button" :tabindex "-1" :id (str "cat-view-tx" tx-id) :aria-haspopup "listbox"}
     (or (:category/name category) "Uncategorized")]
    [:input {:type "hidden"
-            "data-on:change" (str "$catValue = el.value; @put('/v2/tx/" tx-id "/category')")}]))
+            "data-on:change" (str "$catValue = el.value; @put('/transactions/" tx-id "/category')")}]))
 
 (defn- category-options
   "Hidden source-of-truth list the combobox island reconstructs its Category[] from
@@ -187,7 +184,7 @@
   (str "$sortCol === '" col "'"
        " ? ($sortDir === 'asc' ? ($sortDir = 'desc') : ($sortCol = '', $sortDir = 'asc'))"
        " : ($sortCol = '" col "', $sortDir = 'asc');"
-       " $page = 0; @get('/v2/rows')"))
+       " $page = 0; @get('/transactions/rows')"))
 
 ;; --- Header-filter funnels -------------------------------------------------
 ;; Account/Institution/Category headers carry a funnel that opens a floating popover
@@ -255,33 +252,33 @@
   [:div.month-navigator
    [:div.month-navigator-controls
     [:a.button.button-secondary.month-nav-button
-     {:href (str "/v2?month=" (month/serialize (month/prev-month m))) :title "Previous month"} "‹"]
+     {:href (str "/?month=" (month/serialize (month/prev-month m))) :title "Previous month"} "‹"]
     [:span.month-navigator-display (month/display m)]
     [:a.button.button-secondary.month-nav-button
-     {:href (str "/v2?month=" (month/serialize (month/next-month m))) :title "Next month"} "›"]]])
+     {:href (str "/?month=" (month/serialize (month/next-month m))) :title "Next month"} "›"]]])
 
 (defn- search-box []
   [:div.table-search
    [:input.table-search-input
     {:type "search" :placeholder "Search payee, description…" :aria-label "Search transactions"
      "data-bind" "search"
-     "data-on:input__debounce.300ms" "$page = 0; @get('/v2/rows')"}]])
+     "data-on:input__debounce.300ms" "$page = 0; @get('/transactions/rows')"}]])
 
 (defn- scope-toggle [{:keys [unreviewed total]}]
   [:div.scope-toggle {:role "group" :aria-label "Review scope"}
    [:button.scope-toggle-btn
-    {"type" "button" "data-on:click" "$scope = 'needs-review'; $page = 0; @get('/v2/rows')"
+    {"type" "button" "data-on:click" "$scope = 'needs-review'; $page = 0; @get('/transactions/rows')"
      "data-class" "{'is-active': $scope === 'needs-review'}"}
     "Needs review" [:span#count-unreviewed.filter-count unreviewed]]
    [:button.scope-toggle-btn
-    {"type" "button" "data-on:click" "$scope = 'all'; $page = 0; @get('/v2/rows')"
+    {"type" "button" "data-on:click" "$scope = 'all'; $page = 0; @get('/transactions/rows')"
      "data-class" "{'is-active': $scope === 'all'}"}
     "All" [:span#count-total.filter-count total]]])
 
 (defn- count-chip [label signal span-id count]
   [:button.count-chip
    {"type" "button"
-    "data-on:click" (str "$" signal " = !$" signal "; $page = 0; @get('/v2/rows')")
+    "data-on:click" (str "$" signal " = !$" signal "; $page = 0; @get('/transactions/rows')")
     "data-class" (str "{'is-active': $" signal "}")}
    label [:span.filter-count {:id span-id} count]])
 
@@ -316,14 +313,14 @@
         [:button {:type "button"
                   :class (str "button pagination-size-button "
                               (if (= n page-size) "button-primary" "button-secondary"))
-                  "data-on:click" (str "$pageSize = " n "; $page = 0; @get('/v2/rows')")}
+                  "data-on:click" (str "$pageSize = " n "; $page = 0; @get('/transactions/rows')")}
          (str n)])]
      [:div.pagination-navigation
-      (nav-btn {:title "First page"    :disabled? first? :js "$page = 0; @get('/v2/rows')"} "«")
-      (nav-btn {:title "Previous page" :disabled? first? :js "$page = Math.max(0, $page - 1); @get('/v2/rows')"} "‹")
+      (nav-btn {:title "First page"    :disabled? first? :js "$page = 0; @get('/transactions/rows')"} "«")
+      (nav-btn {:title "Previous page" :disabled? first? :js "$page = Math.max(0, $page - 1); @get('/transactions/rows')"} "‹")
       [:span.pagination-status (str "Page " (inc page) " of " page-count)]
-      (nav-btn {:title "Next page" :disabled? last? :js "$page = $page + 1; @get('/v2/rows')"} "›")
-      (nav-btn {:title "Last page" :disabled? last? :js (str "$page = " (dec page-count) "; @get('/v2/rows')")} "»")]]))
+      (nav-btn {:title "Next page" :disabled? last? :js "$page = $page + 1; @get('/transactions/rows')"} "›")
+      (nav-btn {:title "Last page" :disabled? last? :js (str "$page = " (dec page-count) "; @get('/transactions/rows')")} "»")]]))
 
 ;; ---------------------------------------------------------------------------
 ;; Lingering + edit fragments
@@ -349,12 +346,12 @@
     [:div.undo-redo {:id "undo-redo" :role "group" :aria-label "Undo and redo"}
      [:button (cond-> {:class "button button-secondary undo-redo-btn" :type "button"
                        :aria-label "Undo" :title (if undoable (str "Undo: " undoable) "Nothing to undo")
-                       "data-on:click" "@post('/v2/undo')"}
+                       "data-on:click" "@post('/transactions/undo')"}
                 (not undoable) (assoc :disabled true))
       "↶"]
      [:button (cond-> {:class "button button-secondary undo-redo-btn" :type "button"
                        :aria-label "Redo" :title (if redoable (str "Redo: " redoable) "Nothing to redo")
-                       "data-on:click" "@post('/v2/redo')"}
+                       "data-on:click" "@post('/transactions/redo')"}
                 (not redoable) (assoc :disabled true))
       "↷"]]))
 
@@ -433,12 +430,12 @@
           [:label.filter-dropdown-checkbox-label
            [:input.filter-dropdown-checkbox
             {:type "checkbox" :value (str id) "data-bind" (str "filter." col)
-             "data-on:change" "$page = 0; @get('/v2/rows')"}]
+             "data-on:change" "$page = 0; @get('/transactions/rows')"}]
            [:span.filter-dropdown-label-text label]
            [:span.filter-dropdown-count count]]]))]
     [:div.filter-dropdown-footer
      [:button.button.button-secondary.filter-dropdown-clear
-      {:type "button" "data-on:click" (str "$filter." col " = []; $page = 0; @get('/v2/rows')")} "Clear"]]]])
+      {:type "button" "data-on:click" (str "$filter." col " = []; $page = 0; @get('/transactions/rows')")} "Clear"]]]])
 
 (defn- funnel-popovers [account-opts institution-opts category-opts]
   (list (funnel-popover "account" account-opts)
@@ -448,10 +445,10 @@
 (def ^:private undo-key-js
   ;; Cmd/Ctrl+Z = undo, +Shift = redo. Static literal (no server data).
   (str "(evt.metaKey || evt.ctrlKey) && (evt.key === 'z' || evt.key === 'Z')"
-       " && (evt.preventDefault(), evt.shiftKey ? @post('/v2/redo') : @post('/v2/undo'))"))
+       " && (evt.preventDefault(), evt.shiftKey ? @post('/transactions/redo') : @post('/transactions/undo'))"))
 
 (defn page
-  "GET /v2 — full page. Seeds the view-state from the URL; a fresh load clears lingering."
+  "GET / — full page. Seeds the view-state from the URL; a fresh load clears lingering."
   [{:keys [db-conn]}]
   (fn [req]
     (commands/clear-linger! auth/user-id)
@@ -484,7 +481,7 @@
          (url-sync)])})))
 
 (defn rows
-  "GET /v2/rows — a pure view change: clear lingering, re-run the view, morph the tbody +
+  "GET /transactions/rows — a pure view change: clear lingering, re-run the view, morph the tbody +
    pagination bar, patch $page back to the clamped value."
   [{:keys [db-conn]}]
   (fn [req]
@@ -524,7 +521,7 @@
         (d*/close-sse! sse))})))
 
 (defn toggle-reviewed
-  "PUT /v2/tx/:id/reviewed/:v — record + apply a reviewed command, then re-render."
+  "PUT /transactions/:id/reviewed/:v — record + apply a reviewed command, then re-render."
   [{:keys [db-conn]}]
   (fn [req]
     (let [tx-id (-> req :path-params :id parse-long)
@@ -535,7 +532,7 @@
       (edit-response db-conn req (r/read-signals req)))))
 
 (defn set-description
-  "PUT /v2/tx/:id/description — record + apply an inline-description-edit command (the new
+  "PUT /transactions/:id/description — record + apply an inline-description-edit command (the new
    value rides in the $editValue courier signal), then re-render."
   [{:keys [db-conn]}]
   (fn [req]
@@ -549,7 +546,7 @@
       (edit-response db-conn req signals))))
 
 (defn set-category
-  "PUT /v2/tx/:id/category — record + apply an :update-category command (the chosen id rides
+  "PUT /transactions/:id/category — record + apply an :update-category command (the chosen id rides
    in the $catValue courier; empty = clear), then re-render (counts move)."
   [{:keys [db-conn]}]
   (fn [req]
@@ -563,14 +560,14 @@
       (edit-response db-conn req signals))))
 
 (defn undo
-  "POST /v2/undo — reverse the last edit (keeping the row lingering), then re-render."
+  "POST /transactions/undo — reverse the last edit (keeping the row lingering), then re-render."
   [{:keys [db-conn]}]
   (fn [req]
     (commands/undo! db-conn auth/user-id)
     (edit-response db-conn req (r/read-signals req))))
 
 (defn redo
-  "POST /v2/redo — re-apply the last undone edit, then re-render."
+  "POST /transactions/redo — re-apply the last undone edit, then re-render."
   [{:keys [db-conn]}]
   (fn [req]
     (commands/redo! db-conn auth/user-id)

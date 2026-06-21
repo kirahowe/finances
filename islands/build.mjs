@@ -13,13 +13,8 @@ const root = dirname(fileURLToPath(import.meta.url));
 const outdir = resolve(root, '../backend/resources/public/js/islands');
 
 const ISLANDS = [
-  'src/hello.ts',
   'src/combobox.ts',
   'src/grid-nav.ts',
-  'src/sort.ts',
-  'src/col-resize.ts',
-  'src/url-state.ts',
-  'src/pagination.ts',
   'src/v2-url.ts',
   'src/v2-resize.ts',
 ];

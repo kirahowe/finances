@@ -23,7 +23,7 @@ page.on('pageerror', (e) => logs.push('PAGEERROR: ' + e.message));
 const rows = () => page.locator('#tx-tbody tr').count();
 const accountPopover = () => page.locator('.header-filter-popover', { hasText: 'Chequing' });
 
-await page.goto(`${BASE}/v2?month=2025-01`, { waitUntil: 'networkidle' });
+await page.goto(`${BASE}/?month=2025-01`, { waitUntil: 'networkidle' });
 await page.waitForTimeout(300);
 check('no page errors', !logs.length, logs.join('; '));
 check('starts at 10 rows', (await rows()) === 10, `rows=${await rows()}`);
@@ -48,7 +48,7 @@ check('URL fa cleared', !new URL(page.url()).searchParams.get('fa'), page.url())
 
 // A funnel URL is server-seeded (= what a reload/shared link restores): Visa (id 4) → 2 rows,
 // with its checkbox pre-checked.
-await page.goto(`${BASE}/v2?month=2025-01&fa=4`, { waitUntil: 'networkidle' });
+await page.goto(`${BASE}/?month=2025-01&fa=4`, { waitUntil: 'networkidle' });
 await page.waitForTimeout(300);
 check('URL-seeded funnel filters server-side (Visa → 2 rows)', (await rows()) === 2, `rows=${await rows()}`);
 check('seeded funnel button shows active count 1',

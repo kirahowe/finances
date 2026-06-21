@@ -28,7 +28,7 @@ const catCell = () => page.locator('#tx-tbody tr', { has: page.getByText('Transf
 const catText = () => catCell().innerText();
 const uncat = () => page.locator('#count-uncategorized').innerText();
 
-await page.goto(`${BASE}/v2?month=2025-01`, { waitUntil: 'networkidle' });
+await page.goto(`${BASE}/?month=2025-01`, { waitUntil: 'networkidle' });
 await page.waitForTimeout(400); // Datastar + combobox island init
 
 check('no page errors', !logs.length, logs.join('; '));

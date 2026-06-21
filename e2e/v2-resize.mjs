@@ -25,7 +25,7 @@ page.on('pageerror', (e) => logs.push('PAGEERROR: ' + e.message));
 const colW = (n) => page.locator('colgroup col').nth(n).evaluate((c) => parseFloat(c.style.width) || 0);
 const colDisplay = (n) => page.locator('colgroup col').nth(n).evaluate((c) => c.style.display);
 
-await page.goto(`${BASE}/v2?month=2025-01`, { waitUntil: 'networkidle' });
+await page.goto(`${BASE}/?month=2025-01`, { waitUntil: 'networkidle' });
 await page.waitForTimeout(500);
 check('no page errors', !logs.length, logs.join('; '));
 check('auto-fit set column widths on load', (await colW(3)) > 0 && (await colW(4)) > 0,

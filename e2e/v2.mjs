@@ -26,7 +26,7 @@ const rowCount = () => page.locator('#tx-tbody tr').count();
 const firstAmount = () =>
   page.locator('#tx-tbody tr').first().locator('.amount-cell .numeric').innerText();
 
-await page.goto(`${BASE}/v2?month=2025-01`, { waitUntil: 'networkidle' });
+await page.goto(`${BASE}/?month=2025-01`, { waitUntil: 'networkidle' });
 await page.waitForTimeout(300);
 
 check('no page errors', !logs.some((l) => l.startsWith('PAGEERROR')),

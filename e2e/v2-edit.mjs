@@ -28,7 +28,7 @@ const undoBtn = () => page.getByRole('button', { name: 'Undo' });
 const redoBtn = () => page.getByRole('button', { name: 'Redo' });
 
 // Start in Needs-review scope so a reviewed row would normally drop out.
-await page.goto(`${BASE}/v2?month=2025-01&scope=needs-review`, { waitUntil: 'networkidle' });
+await page.goto(`${BASE}/?month=2025-01&scope=needs-review`, { waitUntil: 'networkidle' });
 await page.waitForTimeout(300);
 
 check('no page errors', !logs.length, logs.join('; '));

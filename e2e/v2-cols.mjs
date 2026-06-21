@@ -23,7 +23,7 @@ page.on('pageerror', (e) => logs.push('PAGEERROR: ' + e.message));
 
 const instHeader = () => page.locator('thead th', { hasText: 'Institution' });
 
-await page.goto(`${BASE}/v2?month=2025-01`, { waitUntil: 'networkidle' });
+await page.goto(`${BASE}/?month=2025-01`, { waitUntil: 'networkidle' });
 await page.waitForTimeout(300);
 check('no page errors', !logs.length, logs.join('; '));
 check('Institution column visible initially', await instHeader().isVisible());

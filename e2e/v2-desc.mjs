@@ -24,7 +24,7 @@ page.on('pageerror', (e) => logs.push('PAGEERROR: ' + e.message));
 const firstCell = () => page.locator('#tx-tbody tr').first().locator('.description-cell');
 const btnText = () => firstCell().locator('.description-button').innerText();
 
-await page.goto(`${BASE}/v2?month=2025-01`, { waitUntil: 'networkidle' });
+await page.goto(`${BASE}/?month=2025-01`, { waitUntil: 'networkidle' });
 await page.waitForTimeout(300);
 check('no page errors', !logs.length, logs.join('; '));
 

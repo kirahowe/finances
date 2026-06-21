@@ -24,7 +24,7 @@ page.on('pageerror', (e) => logs.push('PAGEERROR: ' + e.message));
 
 const active = () => page.evaluate(() => document.querySelector('.grid-cell-active')?.getAttribute('data-cell') ?? null);
 
-await page.goto(`${BASE}/v2?month=2025-01&scope=all`, { waitUntil: 'networkidle' });
+await page.goto(`${BASE}/?month=2025-01&scope=all`, { waitUntil: 'networkidle' });
 await page.waitForTimeout(400);
 check('no page errors', !logs.length, logs.join('; '));
 
