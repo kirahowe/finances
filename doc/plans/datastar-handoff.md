@@ -10,16 +10,29 @@ The React→Datastar migration is structurally **done**. The server-authoritativ
 canonical `/` (server renders + SSE-morphs fragments; client holds only ephemeral UI state).
 **Replicant is gone — hiccup2 is the only renderer.** The old client-heavy page, the spike, the
 scaffold, and the dead islands are deleted. Views are strictly presentational; all data logic is
-in pure, tested fns. Filter counts are faceted and compose. **Suite 309/0; 10 browser specs green.**
+in pure, tested fns. Filter counts are faceted and compose. **Suite 313/0; 11 browser specs green.**
 
 Done: R0 (hiccup2 seam) · R1 (pure view engine) · R2 (table + toolbar + edits with undo/lingering)
 · cp1b (funnels) · cp2-tail (grid-nav + resize) · R3 (column chooser + URL state) · R4 (delete old
-stack, flip `/v2`→`/`) · 2 UI-polish rounds (8 bugs + faceted counts + active-filter chips).
+stack, flip `/v2`→`/`) · 2 UI-polish rounds (8 bugs + faceted counts + active-filter chips) ·
+**R5a (split editor + row-actions menu)**.
 
-**Next:** **R5** = split editor + transfer match/review modals + category rollup + row-actions
-menu (net-new feature work, on the established pattern; `splitMath`/`categoryRollup` pure modules
-already exist + tested). Then **Phase 5** = delete the old React `frontend/` (relocate Playwright
-first — see gotchas).
+**R5a is DONE** — a row's caret (trailing always-on chrome column, not a hideable data column)
+opens a shared floating menu → "Split transaction" @get's the split-editor modal into `#modal-root`.
+The `split-editor` island (built on the already-tested `lib/splitMath`) runs the live balance math
+in a native-`<select>` editor; Save serialises the signed payload through `#split-courier` →
+`PUT /transactions/:id/splits` → `:set-splits` command (undo/redo + lingering + faceted counts for
+free) → response re-patches `#modal-root` empty (closes the modal). Cancel/Esc/backdrop close
+client-side. Files: `view/split-editor-seed`, `view-state/parse-splits-value`,
+`db.transactions/{current-splits,by-id}`, `commands/:set-splits`, `pages/transactions`
+(row-actions-menu + split-editor-modal + split-editor/set-splits handlers), `islands/split-editor.ts`,
+`css/components/{row-actions,split-modal}.css`, `e2e/v2-split.mjs`.
+
+**Next:** **R5b** = transfer match/review modals (same modal idiom; `db.transfers/{suggest-matches,
+match-candidates, confirm-match!, unmatch!, reject-match!}` already exist — add a menu item +
+modals). **R5c** = category rollup summary (port `frontend/app/lib/categoryRollup.ts` → a pure
+Clojure fn + a server-rendered panel). Then **Phase 5** = delete the old React `frontend/` (relocate
+Playwright first — see gotchas).
 
 ## Run & verify
 
@@ -46,7 +59,8 @@ backend/src/finance_aggregator/web/
   render.clj      hiccup2 seam: render / render-page / signals(JSON) / raw / read-signals
   layout.clj      base HTML document (fonts, datastar.js, per-page islands)
   shell.clj       masthead
-  routes.clj      / (page) + /transactions/{rows,:id/reviewed/:v,:id/description,:id/category,undo,redo} + /setup
+  routes.clj      / (page) + /transactions/{rows,:id/reviewed/:v,:id/description,:id/category,
+                  :id/split-editor,:id/splits,undo,redo} + /setup
   view.clj        PURE engine: filter-txs / sort-txs / paginate / view / view-with-linger (lingering)
                   + facet-counts + account/institution/category-funnel-options (all take a view-state)
   view_state.clj  PURE codec: query-params ↔ view-state ↔ Datastar signals (+ parse-category-value); column config
@@ -55,7 +69,7 @@ backend/src/finance_aggregator/web/
   format.clj month.clj   PURE formatters / month date-math (all tested)
   pages/transactions.clj  THE page — dumb: hiccup renderers + static Datastar-attr JS strings + thin handlers
   pages/setup.clj         dumb /setup
-islands/src/   combobox.ts (Zag) · grid-nav.ts · url.ts (window.__syncUrl) · resize.ts (window.__resetWidths) · lib/* (pure, vitest)
+islands/src/   combobox.ts (Zag) · grid-nav.ts · url.ts (window.__syncUrl) · resize.ts (window.__resetWidths) · split-editor.ts · lib/* (pure, vitest)
 e2e/           v2*.mjs + setup.mjs  (filenames still say "v2" — cosmetic; URLs are canonical /)
 ```
 
@@ -90,12 +104,23 @@ e2e/           v2*.mjs + setup.mjs  (filenames still say "v2" — cosmetic; URLs
 - **Playwright for e2e lives in `frontend/node_modules`** (`createRequire(resolve(root,'frontend'))`).
   Phase 5 deletes `frontend/` → move Playwright into `e2e/` (or `islands/`) first or the harness breaks.
 
-## R5 starting point
+## R5 starting point (R5a done; R5b/R5c next)
 
-The hard pure logic is already there + tested: `islands/src/lib/splitMath.ts`,
-`categoryHierarchy.ts`, and (in the old frontend) `categoryRollup`/transfer-matching logic to port.
-Server reads: `db.transfers/{suggest-matches, match-candidates, confirm-match!, unmatch!,
-reject-match!}`, `db.transactions/{set-splits!, set-split-reviewed!}`. Build modals as
-server-rendered fragments toggled by `_`-prefixed signals (ephemeral open state), edits via the
-command log (extend `commands/mutate!` with `:set-splits` etc.). Split rows aren't keyboard-navigable
-or editable yet (no `data-cell` on split cells) — that's R5 too.
+**The modal idiom is now established (copy it for R5b).** A row's caret sets `$_rowMenu` and the
+shared `#row-actions-menu` item `@get`s a fragment into `#modal-root`; the fragment carries data
+for an island via `data-*`; a hidden courier input's `data-on:change` @put's the edit through the
+command log; the PUT response re-patches `#modal-root` empty to close. Cancel/Esc/backdrop close
+client-side (island wipes `#modal-root`). See `pages/transactions` (`row-actions-menu`,
+`split-editor-modal`, `set-splits`) + `islands/split-editor.ts` as the template.
+
+- **R5b — transfer modals.** Add row-actions items ("Match transfer" / "Review transfers") that
+  open modals the same way. Server reads already exist: `db.transfers/{suggest-matches,
+  match-candidates, confirm-match!, unmatch!, reject-match!}`. Confirm/reject/unmatch are mutations
+  — route them through a new command type (`:set-transfer` or similar) so they get undo/redo too.
+  The auto-review modal lists `suggest-matches`; the per-row match modal lists `match-candidates`.
+- **R5c — category rollup.** Port `frontend/app/lib/categoryRollup.ts` → a pure Clojure fn in
+  `web.view` (kaocha-tested), rendered as a server-side summary panel (split-aware; income/expense/
+  transfer sections; click a row → set the category funnel filter).
+- **Still pending (any of R5):** split *child* rows aren't keyboard-navigable or inline-editable
+  (no `data-cell` on split cells); split-part reviewed checkboxes are read-only
+  (`db.transactions/set-split-reviewed!` exists for when they become editable).

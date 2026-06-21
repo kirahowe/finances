@@ -1,12 +1,13 @@
 # Datastar server-authoritative rewrite — architecture & plan
 
-**Status:** R0–R4 **DONE** + two UI-polish rounds — the server-authoritative workspace is the
-canonical `/`; Replicant + the old page/spike/dead-islands are deleted; hiccup2 is the only
-renderer; views are strictly presentational; **filter counts are faceted and compose**.
-**Branch:** `spike/replicant-datastar`. Suite **309/0**; **10 browser specs** (`e2e/v2*.mjs` +
-`setup`) green. **Next: R5** (split editor + transfer modals + rollup + row actions) and
-**Phase 5** (delete the old React `frontend/` — the e2e harness borrows Playwright from
-`frontend/node_modules`, so relocate that first). **Resume doc:** `datastar-handoff.md`.
+**Status:** R0–R4 **DONE** + two UI-polish rounds + **R5a (split editor + row-actions menu)** —
+the server-authoritative workspace is the canonical `/`; Replicant + the old page/spike/dead-islands
+are deleted; hiccup2 is the only renderer; views are strictly presentational; **filter counts are
+faceted and compose**. **Branch:** `spike/replicant-datastar`. Suite **313/0**; **11 browser specs**
+(`e2e/v2*.mjs` + `setup`) green. **Next: R5b** (transfer match/review modals — same modal idiom as
+R5a) + **R5c** (category rollup panel), then **Phase 5** (delete the old React `frontend/` — the
+e2e harness borrows Playwright from `frontend/node_modules`, so relocate that first).
+**Resume doc:** `datastar-handoff.md`.
 
 `/` now has: server-side filter/scope/chips/funnels/sort/paginate; undoable reviewed /
 description / category edits with lingering (rows hold position); column chooser (all columns);
@@ -160,6 +161,36 @@ in the pagination footer**. Header-funnel selections render as removable `.activ
 lists (`#funnel-list-<col>`) + the chips on every view change via `patch-filter-feedback!`.
 (Note: `filter-txs` now treats scope as needs-review only when *explicitly* `:needs-review`, so a
 partial faceting view-state defaults to show-all.) Verified `e2e/v2-counts.mjs` 7/7.
+
+## R5a — split editor + row-actions menu (DONE — 2026-06-21)
+
+First R5 slice, and the **template for every R5 modal**. A row's caret (a trailing always-on
+chrome column — *not* a hideable data column, so it stays out of the `cols`/URL/picker machinery,
+and the resize island skips it because it has no `data-col-id`) sets `$_rowMenu` + `$_rowMenuSplit`
+and opens one shared floating `#row-actions-menu`. Its item `@get`s
+`/transactions/:id/split-editor`, which patches the modal into `#modal-root`. The modal idiom:
+
+- **Open** = `@get` patches a server-rendered fragment into `#modal-root`; the dialog
+  (`[data-split-editor]`) carries `data-amount` + a JSON `data-seed` (`view/split-editor-seed`,
+  pure + tested — magnitude string + signed `seed-cents` so a mixed-sign part round-trips).
+- **Interact** = the `split-editor` island (MutationObserver on `#modal-root`) owns the rich
+  client widget: builds rows from the seed, runs the live balance math via the already-tested
+  `lib/splitMath`, a native hierarchical category `<select>` (no second Zag instance), add/remove/
+  fill. Pure ephemeral UI — no round-trips while typing.
+- **Save** = the island serialises the *signed* payload into the `#split-courier` hidden input;
+  its `data-on:change` sets `$splitValue` + `@put`s `/transactions/:id/splits`. The handler parses
+  it (`view-state/parse-splits-value`), captures the prior parts (`db.transactions/current-splits`)
+  as the command `:before`, and applies a **`:set-splits` command** (full-replace via
+  `db/set-splits!`; `[]` un-splits) — so splits inherit undo/redo + lingering + faceted counts for
+  free. The PUT response runs the shared `edit-response` **with `:close-modal?`**, which re-patches
+  `#modal-root` empty → the modal closes server-side. Cancel/Esc/backdrop close client-side (the
+  island wipes `#modal-root`).
+
+New routes: `GET /transactions/:id/split-editor`, `PUT /transactions/:id/splits`. Verified
+`e2e/v2-split.mjs` 12/12 (menu → modal → live balance → save morphs to split parent+parts + closes
+→ undo un-splits); full v2 suite stays green (90 checks / 11 specs). **Deferred to later R5:** split
+*child* rows aren't keyboard-navigable / inline-editable (no `data-cell`); split-part reviewed
+checkboxes are read-only (`db.transactions/set-split-reviewed!` exists for when they aren't).
 
 ## Small follow-ups (low priority)
 
