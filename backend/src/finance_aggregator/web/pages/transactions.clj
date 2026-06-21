@@ -15,6 +15,7 @@
    [finance-aggregator.db.categories :as db-categories]
    [finance-aggregator.db.stats :as db-stats]
    [finance-aggregator.db.transactions :as db-transactions]
+   [finance-aggregator.db.transfers :as db-transfers]
    [finance-aggregator.web.commands :as commands]
    [finance-aggregator.web.format :as fmt]
    [finance-aggregator.web.layout :as layout]
@@ -141,14 +142,15 @@
 ;; rendered outside the table so it escapes overflow), carrying the row's id + split state +
 ;; position into the ephemeral _rowMenu signals.
 
-(defn- row-actions-cell [tx-id split?]
+(defn- row-actions-cell [tx-id split? matched?]
   [:td.actions-cell
    [:div.row-actions
     [:button.row-actions-trigger
      {:type "button" :aria-haspopup "menu" :aria-label "Row actions"
       "data-attr" (str "{'aria-expanded': $_rowMenu === " tx-id " ? 'true' : 'false'}")
       "data-on:click__stop"
-      (str "$_rowMenu = ($_rowMenu === " tx-id " ? 0 : " tx-id "); $_rowMenuSplit = " (boolean split?) ";"
+      (str "$_rowMenu = ($_rowMenu === " tx-id " ? 0 : " tx-id ");"
+           " $_rowMenuSplit = " (boolean split?) "; $_rowMenuMatched = " (boolean matched?) ";"
            " $_rowMenuX = Math.max(8, window.innerWidth - el.getBoundingClientRect().right);"
            " $_rowMenuY = el.getBoundingClientRect().bottom + 4")}
      "⋯"]]])
@@ -164,7 +166,7 @@
    [:td.amount-cell (amount-span amount false)]
    [:td.category-cell (grid-cell (:db/id tx) "category") (editable-category (:db/id tx) category)]
    [:td.reviewed-cell (grid-cell (:db/id tx) "reviewed") (reviewed-checkbox (:db/id tx) reviewed true)]
-   (row-actions-cell (:db/id tx) false)])
+   (row-actions-cell (:db/id tx) false (some? (:transaction/transfer-pair tx)))])
 
 (defn- split-parent-row [stale? {:transaction/keys [posted-date account payee effective-description] :as tx}]
   [:tr {:role "row" :class (row-class "is-split-parent" stale?)}
@@ -174,7 +176,7 @@
    [:td payee]
    [:td.description-cell (if (str/blank? effective-description) "—" effective-description)]
    [:td.amount-cell] [:td.category-cell] [:td.reviewed-cell]
-   (row-actions-cell (:db/id tx) true)])
+   (row-actions-cell (:db/id tx) true (some? (:transaction/transfer-pair tx)))])
 
 (defn- split-child-row [stale? {:split/keys [amount memo category reviewed]}]
   [:tr {:role "row" :class (row-class "split-child-row" stale?)}
@@ -314,7 +316,11 @@
     (scope-toggle counts)
     (count-chip "Uncategorized" "uncat" "count-uncategorized" (:uncategorized counts))
     (count-chip "Hide transfers" "hideTransfers" "count-transfers" (:transfers-hidden counts))]
-   [:div.toolbar-actions (undo-redo-controls) (column-picker)]])
+   [:div.toolbar-actions
+    [:button.button.button-secondary
+     {:type "button" :aria-haspopup "dialog" "data-on:click" "@get('/transactions/review-transfers')"}
+     "Review transfers"]
+    (undo-redo-controls) (column-picker)]])
 
 ;; ---------------------------------------------------------------------------
 ;; Pagination (fully server-rendered each response → disabled states stay correct)
@@ -516,11 +522,25 @@
 
 ;; --- Row-actions menu + split-editor modal ---------------------------------
 
+(def ^:private close-modal-js
+  ;; Pure-client modal close: empty #modal-root. Used by modals without an island (the match +
+  ;; review modals); the split modal's island wipes it the same way.
+  "document.getElementById('modal-root').replaceChildren()")
+
+(defn- backdrop-attrs
+  "Backdrop close behaviour for an island-less modal: a click on the backdrop itself
+   (not a bubbled click from inside the dialog — `evt.target === el`) closes, as does Escape."
+  []
+  {:role "presentation"
+   "data-on:click" (str "evt.target === el && (" close-modal-js ")")
+   "data-on:keydown__window" (str "evt.key === 'Escape' && (" close-modal-js ")")})
+
 (defn- row-actions-menu
   "The single floating menu shared by every row's caret (rendered outside the table so it
-   escapes overflow). $_rowMenu holds the open row's id (0 = closed) and $_rowMenuSplit its
-   split state (so the one item reads \"Edit split\" vs \"Split transaction\"). Selecting it
-   opens that row's split editor (@get builds the url from $_rowMenu before it's cleared)."
+   escapes overflow). $_rowMenu holds the open row's id (0 = closed); $_rowMenuSplit and
+   $_rowMenuMatched carry that row's split/matched state so the items read \"Edit split\" vs
+   \"Split transaction\" and \"Matched transfer\" vs \"Match transfer\". Each item @get's the
+   relevant modal for $_rowMenu (the url is built before $_rowMenu is cleared)."
   []
   [:ul.row-actions-menu {:id "row-actions-menu" :role "menu" :aria-label "Row actions"
                          "data-show" "$_rowMenu"
@@ -532,7 +552,13 @@
      {:type "button" :role "menuitem"
       "data-text" "$_rowMenuSplit ? 'Edit split' : 'Split transaction'"
       "data-on:click" "@get('/transactions/' + $_rowMenu + '/split-editor'); $_rowMenu = 0"}
-     "Split transaction"]]])
+     "Split transaction"]]
+   [:li {:role "none"}
+    [:button.row-actions-item
+     {:type "button" :role "menuitem"
+      "data-text" "$_rowMenuMatched ? 'Matched transfer' : 'Match transfer'"
+      "data-on:click" "@get('/transactions/' + $_rowMenu + '/match'); $_rowMenu = 0"}
+     "Match transfer"]]])
 
 (defn- split-editor-modal
   "The split-editor modal, patched into #modal-root by GET /transactions/:id/split-editor.
@@ -572,6 +598,103 @@
          [:button.button.button-primary.split-save {:type "button" :disabled true} "Save split"]]]
        [:input {:id "split-courier" :type "hidden"
                 "data-on:change" (str "$splitValue = el.value; @put('/transactions/" tx-id "/splits')")}]]]]))
+
+(defn- match-modal
+  "The transfer match/unmatch modal, patched into #modal-root by GET /transactions/:id/match.
+   No island needed: a matched row shows its partner + an Unmatch button; an unmatched row
+   lists candidate counterparts (each a button that @put's the confirm). Both @put's apply a
+   :set-match command (so undo/redo works) and close the modal (re-patch #modal-root empty).
+   Cancel/Esc/backdrop close client-side."
+  [tx candidates]
+  (let [tx-id (:db/id tx)
+        partner (:transaction/transfer-pair tx)
+        acct (fn [t] (or (get-in t [:transaction/account :account/external-name]) "—"))
+        leg (fn [t static?]
+              (let [body [:span.transfer-suggestion-body
+                          [:span.transfer-suggestion-route (acct t)]
+                          [:span.transfer-suggestion-meta
+                           (if static?
+                             (fmt/date (:transaction/posted-date t))
+                             (str (:transaction/payee t) " · " (fmt/date (:transaction/posted-date t))))]]
+                    amt [:span.transfer-suggestion-amount.numeric (fmt/amount (:transaction/amount t))]]
+                (if static?
+                  [:div.transfer-candidate.is-static body amt]
+                  [:button.transfer-candidate
+                   {:type "button" :role "listitem"
+                    "data-on:click" (str "@put('/transactions/" tx-id "/match/" (:db/id t) "')")}
+                   body amt])))]
+    [:div {:id "modal-root"}
+     [:div.modal-backdrop.transfer-modal-backdrop (backdrop-attrs)
+      [:div.modal-content.transfer-modal-content
+       {:role "dialog" :aria-modal "true" :aria-labelledby "match-modal-title"}
+       (if partner
+         (list
+          [:h2#match-modal-title "Matched transfer"]
+          [:p.transfer-modal-hint "This transaction is linked to its counterpart on another account."]
+          (leg partner true)
+          [:div.transfer-modal-actions
+           [:button.button.button-secondary.transfer-unmatch-button
+            {:type "button" "data-on:click" (str "@put('/transactions/" tx-id "/unmatch')")}
+            "Unmatch transfer"]
+           [:button.button.button-secondary {:type "button" "data-on:click" close-modal-js} "Close"]])
+         (list
+          [:h2#match-modal-title "Match transfer"]
+          [:p.transfer-modal-hint "Pick the matching transaction on another account."]
+          (if (empty? candidates)
+            [:div.transfer-empty "No matching transactions found."]
+            (into [:div.transfer-suggestion-list {:role "list"}] (map #(leg % false) candidates)))
+          [:div.transfer-modal-actions
+           [:span]
+           [:button.button.button-secondary {:type "button" "data-on:click" close-modal-js} "Close"]]))]]]))
+
+;; --- Bulk transfer-review modal --------------------------------------------
+
+(defn- suggestion-row
+  "One suggested pair: Confirm links it; \"Not a transfer\" rejects it. Both @put a review
+   action that refreshes #review-list in place (the acted-on pair drops out)."
+  [{:keys [outflow inflow amount day-diff]}]
+  (let [out-id (:db/id outflow)
+        in-id (:db/id inflow)
+        acct (fn [t] (or (get-in t [:transaction/account :account/external-name]) "—"))]
+    [:div.transfer-suggestion
+     [:button.button.button-primary.transfer-confirm-button
+      {:type "button" "data-on:click" (str "@put('/transactions/review/" out-id "/confirm/" in-id "')")}
+      "Confirm"]
+     [:div.transfer-suggestion-body
+      [:div.transfer-suggestion-route
+       [:span (acct outflow)] [:span.transfer-arrow "→"] [:span (acct inflow)]]
+      [:div.transfer-suggestion-meta
+       (str (fmt/date (:transaction/posted-date outflow)) " · "
+            day-diff (if (= 1 day-diff) " day apart" " days apart"))]]
+     [:span.transfer-suggestion-amount.numeric (fmt/amount amount)]
+     [:button.transfer-reject-button
+      {:type "button" "data-on:click" (str "@put('/transactions/review/" out-id "/reject/" in-id "')")}
+      "Not a transfer"]]))
+
+(defn- review-list
+  "The suggestion list (its own #review-list id is the morph target so a confirm/reject can
+   re-patch the now-smaller list in place without closing the modal)."
+  [suggestions]
+  [:div {:id "review-list"}
+   (if (empty? suggestions)
+     [:div.transfer-empty "No suggested transfers — you're all caught up."]
+     (into [:div.transfer-suggestion-list {:role "list"}] (map suggestion-row suggestions)))])
+
+(defn- review-modal
+  "GET /transactions/review-transfers patches this into #modal-root: the auto-suggested transfer
+   pairs, each confirmable/rejectable in place. No island — actions are plain @put's."
+  [suggestions]
+  [:div {:id "modal-root"}
+   [:div.modal-backdrop.transfer-modal-backdrop (backdrop-attrs)
+    [:div.modal-content.transfer-modal-content
+     {:role "dialog" :aria-modal "true" :aria-labelledby "review-modal-title"}
+     [:h2#review-modal-title "Review transfers"]
+     [:p.transfer-modal-hint
+      "Likely transfer pairs across your accounts. Confirm the real ones; mark the rest \"Not a transfer\"."]
+     (review-list suggestions)
+     [:div.transfer-modal-actions
+      [:span]
+      [:button.button.button-secondary {:type "button" "data-on:click" close-modal-js} "Done"]]]]])
 
 (defn page
   "GET / — full page. Seeds the view-state from the URL; a fresh load clears lingering."
@@ -635,8 +758,10 @@
 (defn- edit-response
   "Shared SSE response after any edit/undo/redo: re-render the tbody (lingering the touched
    rows), the pagination bar, the server-authoritative counts, and the undo/redo controls.
-   `:close-modal?` also re-patches #modal-root empty (a split save closes its modal)."
-  [db-conn req signals & {:keys [close-modal?]}]
+   `:close-modal?` also re-patches #modal-root empty (a split save closes its modal);
+   `:after-patch` (fn of sse) patches an extra fragment (the review modal refreshes its list
+   in place instead of closing)."
+  [db-conn req signals & {:keys [close-modal? after-patch]}]
   (let [user auth/user-id
         month-str (month/serialize (month/parse (:month signals)))
         txs (db-transactions/list-for-month db-conn month-str)
@@ -651,6 +776,7 @@
         (patch-filter-feedback! sse txs view-st)
         (d*/patch-elements! sse (r/render (undo-redo-controls)))
         (when close-modal? (d*/patch-elements! sse (r/render [:div {:id "modal-root"}])))
+        (when after-patch (after-patch sse))
         (d*/patch-signals! sse (r/signals {:page (:page result)}))
         (d*/close-sse! sse))})))
 
@@ -722,6 +848,87 @@
                                      (seq before)     "Edited split"
                                      :else            "Split transaction")})
       (edit-response db-conn req signals :close-modal? true))))
+
+(defn match-editor
+  "GET /transactions/:id/match — render the transfer match/unmatch modal into #modal-root.
+   A pure read (matched → partner + Unmatch; unmatched → match candidates)."
+  [{:keys [db-conn]}]
+  (fn [req]
+    (let [tx-id (-> req :path-params :id parse-long)
+          tx (db-transactions/by-id db-conn tx-id)
+          candidates (when-not (:transaction/transfer-pair tx)
+                       (db-transfers/match-candidates db-conn tx-id))]
+      (hk/->sse-response
+       req
+       {hk/on-open
+        (fn [sse]
+          (d*/patch-elements! sse (r/render (match-modal tx candidates)))
+          (d*/close-sse! sse))}))))
+
+(defn confirm-match
+  "PUT /transactions/:id/match/:partner — link the two legs as a transfer (a :set-match command,
+   so undo unlinks), then re-render and close the modal."
+  [{:keys [db-conn]}]
+  (fn [req]
+    (let [tx-id (-> req :path-params :id parse-long)
+          partner (-> req :path-params :partner parse-long)]
+      (commands/apply! db-conn auth/user-id
+                       {:type :set-match :tx-id tx-id :before nil :after partner :label "Matched transfer"})
+      (edit-response db-conn req (r/read-signals req) :close-modal? true))))
+
+(defn unmatch
+  "PUT /transactions/:id/unmatch — remove the transfer link (a :set-match command capturing the
+   prior partner as :before, so undo relinks), then re-render and close the modal."
+  [{:keys [db-conn]}]
+  (fn [req]
+    (let [tx-id (-> req :path-params :id parse-long)
+          before (get-in (db-transactions/by-id db-conn tx-id) [:transaction/transfer-pair :db/id])]
+      (commands/apply! db-conn auth/user-id
+                       {:type :set-match :tx-id tx-id :before before :after nil :label "Unmatched transfer"})
+      (edit-response db-conn req (r/read-signals req) :close-modal? true))))
+
+(defn review-transfers
+  "GET /transactions/review-transfers — render the bulk transfer-review modal (auto-suggested
+   pairs) into #modal-root."
+  [{:keys [db-conn]}]
+  (fn [req]
+    (let [suggestions (db-transfers/suggest-matches db-conn)]
+      (hk/->sse-response
+       req
+       {hk/on-open
+        (fn [sse]
+          (d*/patch-elements! sse (r/render (review-modal suggestions)))
+          (d*/close-sse! sse))}))))
+
+(defn- refresh-review-list!
+  "Re-patch #review-list with the recomputed suggestions (after a confirm/reject, the acted-on
+   pair drops out and the modal stays open)."
+  [db-conn sse]
+  (d*/patch-elements! sse (r/render (review-list (db-transfers/suggest-matches db-conn)))))
+
+(defn review-confirm
+  "PUT /transactions/review/:out/confirm/:in — confirm a suggested pair (:set-match command),
+   then re-render the table + refresh the suggestion list in place."
+  [{:keys [db-conn]}]
+  (fn [req]
+    (let [out (-> req :path-params :out parse-long)
+          in (-> req :path-params :in parse-long)]
+      (commands/apply! db-conn auth/user-id
+                       {:type :set-match :tx-id out :before nil :after in :label "Matched transfer"})
+      (edit-response db-conn req (r/read-signals req)
+                     :after-patch (fn [sse] (refresh-review-list! db-conn sse))))))
+
+(defn review-reject
+  "PUT /transactions/review/:a/reject/:b — reject a suggested pair (:reject-match command, so
+   undo un-rejects), then re-render the table + refresh the suggestion list in place."
+  [{:keys [db-conn]}]
+  (fn [req]
+    (let [a (-> req :path-params :a parse-long)
+          b (-> req :path-params :b parse-long)]
+      (commands/apply! db-conn auth/user-id
+                       {:type :reject-match :tx-id a :partner b :before false :after true :label "Rejected transfer"})
+      (edit-response db-conn req (r/read-signals req)
+                     :after-patch (fn [sse] (refresh-review-list! db-conn sse))))))
 
 (defn undo
   "POST /transactions/undo — reverse the last edit (keeping the row lingering), then re-render."

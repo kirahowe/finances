@@ -18,6 +18,12 @@
    ["/transactions/:id/category"    {:put  {:handler (transactions/set-category deps) :name ::category}}]
    ["/transactions/:id/split-editor" {:get {:handler (transactions/split-editor deps) :name ::split-editor}}]
    ["/transactions/:id/splits"      {:put  {:handler (transactions/set-splits deps) :name ::splits}}]
+   ["/transactions/:id/match"          {:get {:handler (transactions/match-editor deps) :name ::match-editor}}]
+   ["/transactions/:id/match/:partner" {:put {:handler (transactions/confirm-match deps) :name ::confirm-match}}]
+   ["/transactions/:id/unmatch"        {:put {:handler (transactions/unmatch deps) :name ::unmatch}}]
+   ["/transactions/review-transfers"        {:get {:handler (transactions/review-transfers deps) :name ::review-transfers}}]
+   ["/transactions/review/:out/confirm/:in" {:put {:handler (transactions/review-confirm deps) :name ::review-confirm}}]
+   ["/transactions/review/:a/reject/:b"     {:put {:handler (transactions/review-reject deps) :name ::review-reject}}]
    ["/transactions/undo"            {:post {:handler (transactions/undo deps) :name ::undo}}]
    ["/transactions/redo"            {:post {:handler (transactions/redo deps) :name ::redo}}]
    ["/setup"   {:get {:handler (setup/page deps) :name ::setup}}]])
