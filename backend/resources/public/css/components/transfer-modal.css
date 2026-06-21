@@ -141,6 +141,24 @@
   margin-top: var(--spacing-lg);
 }
 
+/* Compact Confirm action in a suggestion row (it shares the row with the route + amount). */
+.transfer-confirm-button {
+  padding: 0.3rem 0.7rem;
+  font-size: var(--text-sm);
+  white-space: nowrap;
+}
+
+/* Unmatch is destructive — tint it without a whole new button variant. */
+.transfer-unmatch-button {
+  color: var(--color-negative);
+}
+
+.transfer-unmatch-button:hover {
+  background: var(--color-error-bg);
+  border-color: var(--color-negative);
+  color: var(--color-negative);
+}
+
 /* ── Transfer status (in the transactions table category cell) ───────────────── */
 
 /* The category cell lays the category out beside its transfer marker (transfer rows
