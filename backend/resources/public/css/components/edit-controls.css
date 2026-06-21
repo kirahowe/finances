@@ -5,16 +5,22 @@
   gap: 0.25rem;
 }
 
-/* Real <button>s. Base .button gives them --control-pad-y (0.5rem) block
-   padding, which makes them taller than the icon-button footprint wants —
-   trim the block padding to the small step and let --control-square-sm carry
-   the hit target. Bump the glyph past the shared icon step so the ↶/↷ arrows
-   read clearly. */
+/* Larger-glyph icon-button footprint, shared with the month-navigator carets
+   (.month-nav-button, see month-navigator.css). Base .button gives --control-pad-y
+   (0.5rem) block padding, taller than this footprint wants — the small block step
+   plus --control-square-sm carry a square-ish hit target, and the glyph is bumped
+   past the shared --glyph step so the ↶/↷ arrows / ‹ › carets read clearly. Each
+   component keeps its own inline padding (carets: 0; undo/redo: --spacing-sm). */
+.month-nav-button,
 .undo-redo-btn {
   min-width: var(--control-square-sm);
-  padding: var(--control-pad-y-sm) var(--spacing-sm);
   font-size: var(--text-xl);
   line-height: 1;
+}
+
+/* Real <button>s. */
+.undo-redo-btn {
+  padding: var(--control-pad-y-sm) var(--spacing-sm);
 }
 
 .undo-redo-btn:disabled {
