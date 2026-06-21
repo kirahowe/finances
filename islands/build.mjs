@@ -17,6 +17,7 @@ const ISLANDS = [
   'src/grid-nav.ts',
   'src/url.ts',
   'src/resize.ts',
+  'src/split-editor.ts',
 ];
 
 await build({

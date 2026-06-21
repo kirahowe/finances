@@ -186,3 +186,21 @@
   opacity: 0.3;
   cursor: default;
 }
+
+/* Native hierarchical category picker — splits require a category, so the field reads as a
+   form control alongside the amount/description inputs (no second combobox island). */
+.split-category-select {
+  width: 100%;
+}
+
+/* The right cluster (Cancel / Save) sits opposite the optional Un-split on the left. */
+.split-modal-actions-right {
+  display: flex;
+  align-items: center;
+  gap: var(--spacing-sm);
+}
+
+.split-modal-payee {
+  font-weight: 600;
+  color: var(--color-ink);
+}

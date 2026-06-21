@@ -68,9 +68,31 @@
   color: var(--color-error-text);
 }
 
-/* Trailing actions column hugs its content on the right. */
+/* Trailing actions column: always-on chrome (not a hideable data column), narrow and
+   right-hugging. The <col> fixes its width under the table's fixed layout; the header is
+   intentionally blank. */
+.actions-col {
+  width: 2.75rem;
+}
+
 .actions-cell {
-  width: 1px;
   text-align: right;
   white-space: nowrap;
+}
+
+.actions-th {
+  padding: 0;
+}
+
+/* The caret only surfaces on row hover/focus so it stays quiet at rest. */
+.table tbody tr .row-actions-trigger {
+  opacity: 0;
+  transition: opacity 0.12s var(--ease-out), color 0.15s var(--ease-out),
+    background-color 0.15s var(--ease-out);
+}
+
+.table tbody tr:hover .row-actions-trigger,
+.row-actions-trigger:focus-visible,
+.row-actions-trigger[aria-expanded='true'] {
+  opacity: 1;
 }
