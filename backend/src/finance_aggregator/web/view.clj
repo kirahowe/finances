@@ -244,3 +244,89 @@
                   :category-id (:db/id category)
                   :memo        memo
                   :seed-cents  (.longValueExact (.movePointRight scaled 2))})))))
+
+;; --- Category rollup --------------------------------------------------------
+;; A per-category breakdown of a month for the summary pane (ports frontend categoryRollup.ts).
+;; Splits attribute to each part's own category; an unsplit tx to its category; a missing/unknown
+;; category falls into an Uncategorized bucket split by sign. Single-level parent hierarchy.
+
+(defn- mag
+  "Unsigned magnitude (works for bigdec, long, and 0)."
+  [n]
+  (if (neg? n) (- n) n))
+
+(defn category-rollup
+  "Build the category rollup for `txs` (a whole month) given `categories`. Returns
+   {:income S :expenses S :transfers S :grand-total <signed>} where each S is
+   {:type kw :total <magnitude> :rows [row…]} and a row is
+   {:ids [cat-id…] :name str :depth 0|1 :group? bool :uncategorized? bool :amount <magnitude>}.
+   A group row carries its parent + every same-type child (so a click filters the whole group);
+   a leaf carries just itself; an Uncategorized row carries [] (the click toggles the $uncat
+   chip). The grand total is signed (income + expense; transfers excluded)."
+  [txs categories]
+  (let [present (set (map :db/id categories))
+        parent-of (fn [c] (let [pid (get-in c [:category/parent :db/id])]
+                            (when (and pid (present pid)) pid)))
+        info (into {} (map (fn [c] [(:db/id c) {:name (:category/name c)
+                                                :type (:category/type c)
+                                                :parent-id (parent-of c)
+                                                :sort-order (or (:category/sort-order c) Long/MAX_VALUE)}])
+                           categories))
+        children-of (reduce (fn [m c] (if-let [pid (parent-of c)]
+                                        (update m pid (fnil conj []) (:db/id c)) m))
+                            {} categories)
+        attribute (fn [[sums uinc uexp] cat-id amount]
+                    (cond
+                      (and cat-id (info cat-id)) [(update sums cat-id (fnil + 0) amount) uinc uexp]
+                      (>= amount 0)              [sums (+ uinc amount) uexp]
+                      :else                      [sums uinc (+ uexp amount)]))
+        [sums uinc uexp]
+        (reduce (fn [acc tx]
+                  (if-let [parts (seq (:transaction/splits tx))]
+                    (reduce (fn [a s] (attribute a (get-in s [:split/category :db/id]) (or (:split/amount s) 0))) acc parts)
+                    (attribute acc (get-in tx [:transaction/category :db/id]) (or (:transaction/amount tx) 0))))
+                [{} 0 0] txs)
+        signed-for (fn [type] (reduce-kv (fn [acc id sum] (cond-> acc (= type (:type (info id))) (+ sum))) 0 sums))
+        income-signed   (+ uinc (signed-for :income))
+        expense-signed  (+ uexp (signed-for :expense))
+        transfer-signed (signed-for :transfer)
+        sort-key (fn [id] (get-in info [id :sort-order]))
+        by-sort (fn [ids] (sort-by (juxt sort-key identity) ids))
+        top-level-sorted (by-sort (filter #(nil? (:parent-id (info %))) (keys info)))
+        section-rows
+        (fn [type uncategorized]
+          (let [head-ids (filter #(= type (:type (info %))) top-level-sorted)
+                groups (keep
+                        (fn [head-id]
+                          (let [same-type-children (filter #(= type (:type (info %))) (get children-of head-id []))
+                                group-ids (vec (cons head-id same-type-children))
+                                active-children (by-sort (filter #(contains? sums %) same-type-children))
+                                head-sum (get sums head-id 0)]
+                            (cond
+                              (and (not (contains? sums head-id)) (empty? active-children)) nil
+                              (seq active-children)
+                              {:emitted (cons head-id active-children)
+                               :rows (cons {:ids group-ids :name (:name (info head-id)) :depth 0 :group? true
+                                            :uncategorized? false
+                                            :amount (mag (+ head-sum (reduce + 0 (map #(get sums % 0) active-children))))}
+                                           (map (fn [cid] {:ids [cid] :name (:name (info cid)) :depth 1 :group? false
+                                                           :uncategorized? false :amount (mag (get sums cid 0))})
+                                                active-children))}
+                              :else
+                              {:emitted [head-id]
+                               :rows [{:ids group-ids :name (:name (info head-id)) :depth 0 :group? false
+                                       :uncategorized? false :amount (mag head-sum)}]})))
+                        head-ids)
+                emitted (set (mapcat :emitted groups))
+                orphan-ids (by-sort (filter #(and (= type (:type (info %))) (not (emitted %))) (keys sums)))
+                orphan-rows (map (fn [id] {:ids [id] :name (:name (info id)) :depth 0 :group? false
+                                           :uncategorized? false :amount (mag (get sums id 0))}) orphan-ids)]
+            (concat (mapcat :rows groups)
+                    orphan-rows
+                    (when-not (zero? uncategorized)
+                      [{:ids [] :name "Uncategorized" :depth 0 :group? false
+                        :uncategorized? true :amount (mag uncategorized)}]))))]
+    {:income      {:type :income   :rows (section-rows :income uinc)    :total (mag income-signed)}
+     :expenses    {:type :expense  :rows (section-rows :expense uexp)   :total (mag expense-signed)}
+     :transfers   {:type :transfer :rows (section-rows :transfer 0)     :total (mag transfer-signed)}
+     :grand-total (+ income-signed expense-signed)}))

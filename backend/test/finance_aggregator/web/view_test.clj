@@ -283,3 +283,103 @@
 (deftest split-editor-seed-empty-when-unsplit
   (is (= [] (view/split-editor-seed {:transaction/splits []})))
   (is (= [] (view/split-editor-seed {}))))
+
+;; --- Category rollup (ported from frontend categoryRollup.test.ts) -----------
+
+(defn- rcat
+  ([id nm type] (rcat id nm type nil nil))
+  ([id nm type parent sort]
+   (cond-> {:db/id id :category/name nm :category/type type}
+     parent (assoc :category/parent {:db/id parent})
+     sort   (assoc :category/sort-order sort))))
+
+(defn- rtx [id amount cat-id]
+  (cond-> {:db/id id :transaction/amount amount}
+    cat-id (assoc :transaction/category {:db/id cat-id})))
+
+(defn- rsplit-tx [id parts]
+  {:db/id id
+   :transaction/amount (reduce + 0 (map :amount parts))
+   :transaction/splits (map-indexed (fn [i p] (cond-> {:split/order i :split/amount (:amount p)}
+                                                (:cat p) (assoc :split/category {:db/id (:cat p)})))
+                                    parts)})
+
+(defn- ≈ [a b] (< (abs (- (double a) (double b))) 0.005))
+(defn- row-ok? [{:keys [ids name depth group? amount]} actual]
+  (and (= ids (:ids actual)) (= name (:name actual)) (= depth (:depth actual))
+       (= (boolean group?) (boolean (:group? actual))) (≈ amount (:amount actual))))
+
+(deftest rollup-groups-children-under-parent-with-subtotal
+  (let [cats [(rcat 1 "Housing" :expense nil 1) (rcat 2 "Mortgage" :expense 1 1) (rcat 3 "Property tax" :expense 1 2)]
+        rows (get-in (view/category-rollup [(rtx 10 -1854M 2) (rtx 11 -3390.93M 3)] cats) [:expenses :rows])]
+    (is (row-ok? {:ids [1 2 3] :name "Housing" :depth 0 :group? true :amount 5244.93} (nth rows 0)))
+    (is (row-ok? {:ids [2] :name "Mortgage" :depth 1 :amount 1854} (nth rows 1)))
+    (is (= "Property tax" (:name (nth rows 2))))))
+
+(deftest rollup-parent-own-txns-in-subtotal
+  (let [cats [(rcat 1 "Housing" :expense nil 1) (rcat 2 "Mortgage" :expense 1 1)]
+        r (view/category-rollup [(rtx 10 -100M 1) (rtx 11 -50M 2)] cats)
+        rows (get-in r [:expenses :rows])]
+    (is (row-ok? {:ids [1 2] :name "Housing" :depth 0 :group? true :amount 150} (nth rows 0)))
+    (is (row-ok? {:ids [2] :name "Mortgage" :depth 1 :amount 50} (nth rows 1)))
+    (is (≈ 150 (get-in r [:expenses :total])))))
+
+(deftest rollup-inactive-children-in-group-ids-not-rows
+  (let [cats [(rcat 1 "Housing" :expense nil 1) (rcat 2 "Mortgage" :expense 1 1) (rcat 3 "Repairs" :expense 1 2)]
+        rows (get-in (view/category-rollup [(rtx 10 -1854M 2)] cats) [:expenses :rows])]
+    (is (= [1 2 3] (:ids (nth rows 0))) "the inactive child still rides the group's filter ids")
+    (is (= ["Housing" "Mortgage"] (map :name rows)) "but is not rendered as its own row")))
+
+(deftest rollup-childless-leaf
+  (let [rows (get-in (view/category-rollup [(rtx 10 -43.76M 1)] [(rcat 1 "Groceries" :expense nil 1)]) [:expenses :rows])]
+    (is (row-ok? {:ids [1] :name "Groceries" :depth 0 :group? false :amount 43.76} (nth rows 0)))))
+
+(deftest rollup-splits-attribute-to-part-categories
+  (let [cats [(rcat 1 "Groceries" :expense nil 1) (rcat 2 "Home supplies" :expense nil 2)]
+        r (view/category-rollup [(rsplit-tx 10 [{:amount -30M :cat 1} {:amount -20M :cat 2}])] cats)
+        rows (get-in r [:expenses :rows])]
+    (is (≈ 30 (:amount (first (filter #(= "Groceries" (:name %)) rows)))))
+    (is (≈ 20 (:amount (first (filter #(= "Home supplies" (:name %)) rows)))))
+    (is (≈ 50 (get-in r [:expenses :total])))))
+
+(deftest rollup-separates-types-and-excludes-transfers-from-net
+  (let [cats [(rcat 1 "Paycheck" :income nil 1) (rcat 2 "Groceries" :expense nil 1) (rcat 3 "CC Payment" :transfer nil 1)]
+        r (view/category-rollup [(rtx 10 5000M 1) (rtx 11 -3000M 2) (rtx 12 -2000M 3)] cats)]
+    (is (≈ 5000 (get-in r [:income :total])))
+    (is (≈ 3000 (get-in r [:expenses :total])))
+    (is (≈ 2000 (get-in r [:transfers :total])))
+    (is (= "CC Payment" (:name (first (get-in r [:transfers :rows])))))
+    (is (≈ 2000 (:grand-total r)) "net = income − expenses; transfers excluded")))
+
+(deftest rollup-uncategorized-bucketed-by-sign
+  (let [r (view/category-rollup [(rtx 10 5000M 1) (rtx 11 -200M nil) (rtx 12 300M nil)] [(rcat 1 "Paycheck" :income nil 1)])
+        inc-uncat (first (filter #(= "Uncategorized" (:name %)) (get-in r [:income :rows])))
+        exp-uncat (first (filter #(= "Uncategorized" (:name %)) (get-in r [:expenses :rows])))]
+    (is (and (:uncategorized? inc-uncat) (= [] (:ids inc-uncat)) (≈ 300 (:amount inc-uncat))))
+    (is (and (:uncategorized? exp-uncat) (= [] (:ids exp-uncat)) (≈ 200 (:amount exp-uncat))))
+    (is (≈ 5100 (:grand-total r)) "uncategorized real money still counts toward net")))
+
+(deftest rollup-signed-net-negative-when-expenses-exceed-income
+  (let [r (view/category-rollup [(rtx 10 4740.66M 1) (rtx 11 -5244.93M 2)]
+                                [(rcat 1 "Paycheck" :income nil 1) (rcat 2 "Housing" :expense nil 1)])]
+    (is (≈ -504.27 (:grand-total r)))))
+
+(deftest rollup-group-ids-stay-within-section
+  (let [cats [(rcat 1 "Misc" :expense nil 1) (rcat 2 "Supplies" :expense 1 1) (rcat 3 "Refunds" :income 1 2)]
+        r (view/category-rollup [(rtx 10 -40M 2) (rtx 11 25M 3)] cats)
+        misc (first (filter #(= "Misc" (:name %)) (get-in r [:expenses :rows])))
+        refunds (first (filter #(= "Refunds" (:name %)) (get-in r [:income :rows])))]
+    (is (= [1 2] (:ids misc)) "the cross-type income child is excluded from the expense group")
+    (is (row-ok? {:ids [3] :name "Refunds" :depth 0 :group? false :amount 25} refunds)
+        "and surfaces as a standalone income leaf")))
+
+(deftest rollup-empty
+  (let [r (view/category-rollup [] [])]
+    (is (= [] (get-in r [:income :rows]) (get-in r [:expenses :rows]) (get-in r [:transfers :rows])))
+    (is (zero? (get-in r [:income :total])))
+    (is (zero? (:grand-total r)))))
+
+(deftest rollup-orders-by-sort-order
+  (let [cats [(rcat 1 "Transportation" :expense nil 2) (rcat 2 "Housing" :expense nil 1)]
+        rows (get-in (view/category-rollup [(rtx 10 -50M 1) (rtx 11 -100M 2)] cats) [:expenses :rows])]
+    (is (= ["Housing" "Transportation"] (map :name rows)))))
