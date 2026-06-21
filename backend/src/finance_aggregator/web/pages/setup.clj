@@ -4,32 +4,20 @@
    CSV import) and the category manager are deferred to later phases and rendered
    disabled so the layout matches the React original."
   (:require
-   [clojure.string :as str]
    [finance-aggregator.db.accounts :as db-accounts]
    [finance-aggregator.db.stats :as db-stats]
+   [finance-aggregator.web.accounts :as accounts]
+   [finance-aggregator.web.format :as fmt]
    [finance-aggregator.web.layout :as layout]
    [finance-aggregator.web.shell :as shell]))
-
-(defn- fmt-int [n] (format "%,d" (long n)))
-
-(defn- provider-label [provider]
-  (if provider (str/capitalize (name provider)) "Unknown"))
-
-(defn- account-type
-  "Provider-native type[/subtype] when present, else the internal account type."
-  [{:account/keys [provider-type provider-subtype type]}]
-  (cond
-    provider-type   (if provider-subtype (str provider-type " / " provider-subtype) provider-type)
-    type            (name type)
-    :else           "—"))
 
 (defn- account-row [{:account/keys [external-name currency provider mask institution] :as acct}]
   [:tr
    [:td [:span {:class (str "badge badge-" (if provider (name provider) "unknown"))}
-         (provider-label provider)]]
+         (accounts/provider-label provider)]]
    [:td (or (:institution/name institution) "—")]
    [:td external-name]
-   [:td (account-type acct)]
+   [:td (accounts/display-type acct)]
    [:td [:span.numeric (if mask (str "••••" mask) "—")]]
    [:td currency]
    [:td (when (= provider :manual)
@@ -55,7 +43,7 @@
       [:thead
        [:tr [:th "Source"] [:th "Institution"] [:th "Name"] [:th "Type"]
         [:th "Mask"] [:th "Currency"] [:th "Actions"]]]
-      [:tbody (map account-row (sort-by :account/external-name accounts))]])])
+      [:tbody (map account-row (accounts/sort-accounts accounts))]])])
 
 (defn- stat-card [value label]
   [:div.stat-card
@@ -82,7 +70,7 @@
            "Connect institutions, manage accounts, and curate the category system "
            "your transactions are sorted into."]]
          [:div.stats-grid
-          (stat-card (fmt-int (:institutions stats)) "Institutions")
-          (stat-card (fmt-int (:accounts stats)) "Accounts")
-          (stat-card (fmt-int (:transactions stats)) "Transactions")]
+          (stat-card (fmt/integer (:institutions stats)) "Institutions")
+          (stat-card (fmt/integer (:accounts stats)) "Accounts")
+          (stat-card (fmt/integer (:transactions stats)) "Transactions")]
          (accounts-section accounts)])})))

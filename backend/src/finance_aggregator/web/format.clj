@@ -30,3 +30,9 @@
   (let [ld (-> (.toInstant d) (.atZone ZoneOffset/UTC) .toLocalDate)]
     (str (nth month-abbrevs (dec (.getMonthValue ld))) " "
          (.getDayOfMonth ld) ", " (.getYear ld))))
+
+(defn integer
+  "Format an integer with grouping separators (e.g. 1,234). Shared by the masthead stats
+   and the /setup stat cards."
+  [n]
+  (format "%,d" (long n)))

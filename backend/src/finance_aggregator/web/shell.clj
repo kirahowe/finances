@@ -1,15 +1,13 @@
 (ns finance-aggregator.web.shell
   "Shared page chrome (the masthead) for server-rendered pages."
   (:require
-   [clojure.string :as str]))
+   [clojure.string :as str]
+   [finance-aggregator.web.format :as fmt]))
 
 (def ^:private nav-tabs
   [{:href "/"           :label "Transactions" :key :transactions}
    {:href "/setup"      :label "Setup"        :key :setup}
    {:href "/plaid-test" :label "Plaid"        :key :plaid :quiet true}])
-
-(defn- fmt-int [n]
-  (format "%,d" (long n)))
 
 (defn masthead
   "The top chrome: wordmark, primary nav tabs, and the live stats bar.
@@ -36,8 +34,8 @@
         label])]
     (when stats
       [:div.masthead-stats
-       [:span [:b (fmt-int (:institutions stats))] " inst."]
+       [:span [:b (fmt/integer (:institutions stats))] " inst."]
        [:span.dot "·"]
-       [:span [:b (fmt-int (:accounts stats))] " acct."]
+       [:span [:b (fmt/integer (:accounts stats))] " acct."]
        [:span.dot "·"]
-       [:span [:b (fmt-int (:transactions stats))] " txns"]])]])
+       [:span [:b (fmt/integer (:transactions stats))] " txns"]])]])
