@@ -1,11 +1,12 @@
 # Datastar server-authoritative rewrite — architecture & plan
 
-**Status:** R0–R4 **DONE** — the server-authoritative workspace is the canonical `/`; Replicant,
-the old client-heavy page, the spike, and the dead islands are all deleted; hiccup2 is the only
-renderer; views are strictly presentational. **Branch:** `spike/replicant-datastar`. Suite
-**309/0**; 9 browser specs green. **Next: R5** (split editor + transfer modals + rollup + row
-actions) and **Phase 5** (delete the old React `frontend/` — note the e2e harness currently
-borrows Playwright from `frontend/node_modules`, so move that first).
+**Status:** R0–R4 **DONE** + two UI-polish rounds — the server-authoritative workspace is the
+canonical `/`; Replicant + the old page/spike/dead-islands are deleted; hiccup2 is the only
+renderer; views are strictly presentational; **filter counts are faceted and compose**.
+**Branch:** `spike/replicant-datastar`. Suite **309/0**; **10 browser specs** (`e2e/v2*.mjs` +
+`setup`) green. **Next: R5** (split editor + transfer modals + rollup + row actions) and
+**Phase 5** (delete the old React `frontend/` — the e2e harness borrows Playwright from
+`frontend/node_modules`, so relocate that first). **Resume doc:** `datastar-handoff.md`.
 
 `/` now has: server-side filter/scope/chips/funnels/sort/paginate; undoable reviewed /
 description / category edits with lingering (rows hold position); column chooser (all columns);
@@ -133,6 +134,33 @@ the hiccup2 seam. Dropped the `2`/`v2` suffixes: `transactions2`→`transactions
 Suite 309/0; 9 specs green against `/`. Final `web/` stack: `view`/`view_state`/`commands`/
 `accounts`/`format`/`month`/`render`/`layout`/`shell`/`routes` + `pages/{transactions,setup}`.
 
+## UI-polish rounds (DONE — 2026-06-21)
+
+**Round 1** (8 bugs, each subagent-chased + browser-verified): combobox auto-highlights the
+typed match; month carets / undo-redo glyph sizing; all columns hideable + Reset-widths; **column
+resize is local** (freeze-then-local model, the architectural one); double-click autosize; and
+**lingered rows hold their position** (the `concat`-appends bug). Plus a view-logic cleanup pass:
+all data logic extracted into pure tested fns (`web/view`, `web/view_state`, `web/accounts`),
+`month`/`format` got tests.
+
+**Round 2** (this session): combobox doubled border (removed a redundant focus-ring box-shadow);
+toolbar controls share one `--toolbar-control-height` token (chips + icon buttons all 29px); and
+**faceted filter counts**.
+
+### Faceted counts (`web/view.clj` `facet-counts` + the funnel-options take a view-state)
+
+The chips/scope/funnel-option counts were full-month and never re-patched on a filter change, so
+composing filters showed mismatched numbers. Now **faceted-search semantics**: each count reflects
+toggling *that* control given the *other* active filters (its own facet neutralized via
+`drop-facet`) — `All`/`Needs-review` drop scope; `Uncategorized`/`Hide-transfers` drop their own
+chip (the chip + category funnel are one OR-dimension, `:category-dim`); each funnel option drops
+its own funnel. So counts stay consistent with the displayed rows, and the **displayed total lives
+in the pagination footer**. Header-funnel selections render as removable `.active-chip` tokens
+(`#active-filters`). The `rows` + edit handlers re-patch the count badges + the three funnel option
+lists (`#funnel-list-<col>`) + the chips on every view change via `patch-filter-feedback!`.
+(Note: `filter-txs` now treats scope as needs-review only when *explicitly* `:needs-review`, so a
+partial faceting view-state defaults to show-all.) Verified `e2e/v2-counts.mjs` 7/7.
+
 ## Small follow-ups (low priority)
 
 - **Unused/dead CSS**: the `.table-dense` rule (cp1) is now unused (the table is `.table-resizable`);
@@ -142,8 +170,11 @@ Suite 309/0; 9 specs green against `/`. Final `web/` stack: `view`/`view_state`/
   borrows Playwright from `frontend/node_modules` (move before Phase 5 deletes `frontend/`).
 - **Known small gaps**: column widths aren't URL-persisted (auto-fit on load only); the description
   editor opens via grid-nav but doesn't Enter-walk-the-column; page index is 0-based in the URL.
-- **SSE multi-patch ordering**: edit responses patch tbody → pagination → counts → undo-redo as
-  separate events (applied in order; imperceptible). e2e gates on the last patch where it matters.
+- **SSE multi-patch ordering**: edit responses patch tbody → pagination → counts → funnel lists →
+  chips → undo-redo as separate events (applied in order; imperceptible). e2e gates on the last
+  patch where it matters.
+- **Faceting cost**: `facet-counts` + the 3 funnel options each run an extra `filter-txs` pass per
+  view change (`patch-filter-feedback!`). Trivial at a month's size; revisit if months get huge.
 
 ## cp2 design: edits + command-log undo + lingering
 

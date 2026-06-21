@@ -1,0 +1,101 @@
+# Datastar workspace — resume-here handoff
+
+**Read this first.** Single entry point for continuing the server-authoritative transactions
+workspace. Depth/why is in `datastar-server-authoritative-rewrite.md`; memory entry
+`project_replicant_datastar_spike`. **Branch:** `spike/replicant-datastar`.
+
+## Where we are (2026-06-21)
+
+The React→Datastar migration is structurally **done**. The server-authoritative workspace is the
+canonical `/` (server renders + SSE-morphs fragments; client holds only ephemeral UI state).
+**Replicant is gone — hiccup2 is the only renderer.** The old client-heavy page, the spike, the
+scaffold, and the dead islands are deleted. Views are strictly presentational; all data logic is
+in pure, tested fns. Filter counts are faceted and compose. **Suite 309/0; 10 browser specs green.**
+
+Done: R0 (hiccup2 seam) · R1 (pure view engine) · R2 (table + toolbar + edits with undo/lingering)
+· cp1b (funnels) · cp2-tail (grid-nav + resize) · R3 (column chooser + URL state) · R4 (delete old
+stack, flip `/v2`→`/`) · 2 UI-polish rounds (8 bugs + faceted counts + active-filter chips).
+
+**Next:** **R5** = split editor + transfer match/review modals + category rollup + row-actions
+menu (net-new feature work, on the established pattern; `splitMath`/`categoryRollup` pure modules
+already exist + tested). Then **Phase 5** = delete the old React `frontend/` (relocate Playwright
+first — see gotchas).
+
+## Run & verify
+
+JDK is jabba-managed; set it once per shell (`jabba use zulu@25.0.3`, or export `JAVA_HOME`):
+```bash
+export JAVA_HOME=/opt/homebrew/Cellar/jabba/0.15.0/jdk/zulu@25.0.3/Contents/Home
+export PATH="$JAVA_HOME/bin:$PATH"
+```
+- **Backend tests:** `cd backend && clojure -M:test -m kaocha.runner`  → 309/0
+- **Build the islands** (NOT automatic; gitignored output; a fresh checkout has none):
+  `cd islands && npm install && npm run build`  → `backend/resources/public/js/islands/*.js`
+- **Seeded server** (no secrets; seed lives in 2025-01): `cd backend &&
+  E2E_PORT=8099 clojure -M:e2e -m finance-aggregator.dev.e2e-server` → http://localhost:8099/?month=2025-01
+  - `POST /e2e/reset` re-seeds + clears the in-memory command log.
+- **Browser specs** (real Chromium; Playwright is borrowed from `frontend/node_modules`):
+  `for s in v2 v2-edit v2-desc v2-category v2-cols v2-funnels v2-grid v2-resize v2-counts setup; do
+   BASE_URL=http://localhost:8099 node e2e/$s.mjs; done`
+- **Real data:** the main dev server serves the same pages: `cd backend && clojure -M:dev -m finance-aggregator.main` → :8080.
+
+## File map (the canonical stack)
+
+```
+backend/src/finance_aggregator/web/
+  render.clj      hiccup2 seam: render / render-page / signals(JSON) / raw / read-signals
+  layout.clj      base HTML document (fonts, datastar.js, per-page islands)
+  shell.clj       masthead
+  routes.clj      / (page) + /transactions/{rows,:id/reviewed/:v,:id/description,:id/category,undo,redo} + /setup
+  view.clj        PURE engine: filter-txs / sort-txs / paginate / view / view-with-linger (lingering)
+                  + facet-counts + account/institution/category-funnel-options (all take a view-state)
+  view_state.clj  PURE codec: query-params ↔ view-state ↔ Datastar signals (+ parse-category-value); column config
+  commands.clj    per-user in-memory undo/redo/linger log (apply!/undo!/redo!/linger); NOT event-sourced
+  accounts.clj    PURE /setup display rules (display-type, provider-label, sort)
+  format.clj month.clj   PURE formatters / month date-math (all tested)
+  pages/transactions.clj  THE page — dumb: hiccup renderers + static Datastar-attr JS strings + thin handlers
+  pages/setup.clj         dumb /setup
+islands/src/   combobox.ts (Zag) · grid-nav.ts · url.ts (window.__syncUrl) · resize.ts (window.__resetWidths) · lib/* (pure, vitest)
+e2e/           v2*.mjs + setup.mjs  (filenames still say "v2" — cosmetic; URLs are canonical /)
+```
+
+## Conventions (FOLLOW THESE)
+
+- **Dumb views.** Views render hiccup + thin handlers only. ALL data fetch/rearrange/parse lives
+  in pure, kaocha-tested fns (`view`, `view_state`, `accounts`). A bug once hid in a private view
+  fn and escaped the tests — don't repeat it.
+- **Two axes of state.** (survives reload? → URL) × (server renders it vs client applies it).
+  Filter/sort/paginate/edits = URL + SSE-morph. Ephemeral UI (popover open, active cell, in-funnel
+  query) = `_`-prefixed signals (Datastar omits them from requests), pure client, no round-trip.
+- **Server data NEVER goes into a client expression** — it lives in morphed HTML; expressions are
+  tiny static literals. (Where a label must go into an expression — funnel search — JSON-encode it.)
+- **Round-trip:** control sets a signal + `@get` (reads) / `@put`/`@post` (mutations) → server reads
+  signals (or URL) → renders fragment → morph **by id**. GET for reads (no body → sidesteps the
+  wrap-json-request body gotcha). Every patch target has a stable id.
+- **Edits = commands** (`commands.clj`): apply runs the db mutation to `:after`, undo to `:before`.
+  Undo/redo = toolbar buttons + Cmd/Ctrl+Z. **Lingering** keeps a just-edited row visible+`is-stale`
+  in place; **faceted counts** keep filter feedback consistent (`patch-filter-feedback!`).
+- **Persistent view-state in the URL** (server seeds on load; `url.ts` reflects it back). No localStorage.
+
+## Gotchas
+
+- **Islands aren't auto-built.** After any `islands/src/*.ts` change: `cd islands && npm run build`
+  + hard-refresh (browser caches `/js/islands/*.js`). A "missing feature" is usually a stale build.
+- **hiccup2 escapes attribute values** (incl. `'`→`&apos;`) and **sorts attributes alphabetically** —
+  the browser decodes, Datastar fires fine, but don't grep rendered HTML assuming attribute order.
+- **SSE multi-patch ordering**: a response patches several fragments as separate events in order;
+  e2e gates on the LAST patch (undo-redo) where reading a mid-stream value would flake.
+- **grid-nav vs morph**: edits morph `#tx-tbody`, which wipes the active-cell highlight; the island
+  runs a guarded MutationObserver to rebuild+repaint (active cell keyed by stable RowKey).
+- **Playwright for e2e lives in `frontend/node_modules`** (`createRequire(resolve(root,'frontend'))`).
+  Phase 5 deletes `frontend/` → move Playwright into `e2e/` (or `islands/`) first or the harness breaks.
+
+## R5 starting point
+
+The hard pure logic is already there + tested: `islands/src/lib/splitMath.ts`,
+`categoryHierarchy.ts`, and (in the old frontend) `categoryRollup`/transfer-matching logic to port.
+Server reads: `db.transfers/{suggest-matches, match-candidates, confirm-match!, unmatch!,
+reject-match!}`, `db.transactions/{set-splits!, set-split-reviewed!}`. Build modals as
+server-rendered fragments toggled by `_`-prefixed signals (ephemeral open state), edits via the
+command log (extend `commands/mutate!` with `:set-splits` etc.). Split rows aren't keyboard-navigable
+or editable yet (no `data-cell` on split cells) — that's R5 too.
