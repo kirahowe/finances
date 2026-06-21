@@ -28,6 +28,28 @@
 (defn- split-count [tx-id]
   (count (:transaction/splits (d/pull (d/db setup/*test-conn*) '[{:transaction/splits [:db/id]}] tx-id))))
 
+(defn- partner [tx-id]
+  (get-in (d/pull (d/db setup/*test-conn*) '[{:transaction/transfer-pair [:db/id]}] tx-id)
+          [:transaction/transfer-pair :db/id]))
+
+(defn- rejected? [tx-id other-id]
+  (contains? (set (map :db/id (:transaction/transfer-rejected
+                               (d/pull (d/db setup/*test-conn*)
+                                       '[{:transaction/transfer-rejected [:db/id]}] tx-id))))
+             other-id))
+
+(defn- counterpart-tx!
+  "A transaction on a fresh account with the given amount (so it can pair with make-tx!'s -100)."
+  [external-id amount]
+  (d/transact! setup/*test-conn* [{:institution/id (str "inst-" external-id) :institution/name "Test Bank"}])
+  (d/transact! setup/*test-conn* [{:account/external-id (str "acct-" external-id) :account/external-name "Savings"
+                                   :account/institution [:institution/id (str "inst-" external-id)]}])
+  (d/transact! setup/*test-conn* [{:transaction/external-id external-id
+                                   :transaction/account [:account/external-id (str "acct-" external-id)]
+                                   :transaction/amount amount :transaction/payee "Counterpart"
+                                   :transaction/posted-date (java.util.Date.)}])
+  (:db/id (d/pull (d/db setup/*test-conn*) '[:db/id] [:transaction/external-id external-id])))
+
 (deftest apply-undo-redo-reviewed
   (let [conn setup/*test-conn*
         tx-id (make-tx! "c-1")
@@ -66,6 +88,38 @@
 
     (commands/redo! conn user)
     (is (= 2 (split-count tx-id)) "redo re-splits")))
+
+(deftest apply-undo-redo-match
+  (let [conn setup/*test-conn*
+        out (make-tx! "c-out")               ; -100.00 on its own account
+        in (counterpart-tx! "c-in" 100.00M)  ; +100.00 on a different account
+        user :umatch]
+    (is (nil? (partner out)) "starts unmatched")
+
+    (commands/apply! conn user {:type :set-match :tx-id out :before nil :after in :label "Matched transfer"})
+    (is (= in (partner out)) "apply links this leg")
+    (is (= out (partner in)) "and the partner (bidirectional)")
+
+    (commands/undo! conn user)
+    (is (nil? (partner out)) "undo unlinks both legs")
+    (is (nil? (partner in)))
+
+    (commands/redo! conn user)
+    (is (= in (partner out)) "redo relinks")))
+
+(deftest apply-undo-reject
+  (let [conn setup/*test-conn*
+        a (make-tx! "c-rej-a")
+        b (counterpart-tx! "c-rej-b" 100.00M)
+        user :ureject]
+    (commands/apply! conn user {:type :reject-match :tx-id a :partner b
+                                :before false :after true :label "Rejected transfer"})
+    (is (rejected? a b) "apply records the rejection")
+    (is (rejected? b a) "symmetric")
+
+    (commands/undo! conn user)
+    (is (not (rejected? a b)) "undo retracts the rejection")
+    (is (not (rejected? b a)))))
 
 (deftest a-new-edit-clears-redo
   (let [conn setup/*test-conn*

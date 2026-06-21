@@ -131,6 +131,15 @@
                    (conj [:db/retract b-id :transaction/transfer-pair a-id])))
     {:rejected true}))
 
+(defn unreject!
+  "Retract a symmetric transfer rejection between a-id and b-id — the inverse of reject-match!
+   for undo. Idempotent; restores no link (a rejection from a suggestion had none). Returns
+   {:unrejected true}."
+  [conn a-id b-id]
+  (d/transact! conn [[:db/retract a-id :transaction/transfer-rejected b-id]
+                     [:db/retract b-id :transaction/transfer-rejected a-id]])
+  {:unrejected true})
+
 (defn match-candidates
   "Counterpart candidates for manually matching one transaction: inverse amount,
    different account, within a wider window (default 30 days), not already paired.

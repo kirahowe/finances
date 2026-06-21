@@ -12,7 +12,8 @@
    out of an active filter stays visible (is-stale) instead of vanishing; the /v2/rows view
    handler clears it."
   (:require
-   [finance-aggregator.db.transactions :as db]))
+   [finance-aggregator.db.transactions :as db]
+   [finance-aggregator.db.transfers :as db-transfers]))
 
 (defonce ^:private log (atom {}))
 
@@ -23,14 +24,24 @@
 (defn- mutate!
   "Apply command `cmd`'s mutation, setting the field to `value` (the :after on apply, the
    :before on undo)."
-  [conn {:keys [type tx-id]} value]
+  [conn {:keys [type tx-id partner]} value]
   (case type
     :set-reviewed    (db/set-reviewed! conn tx-id (boolean value))
     :set-category    (db/update-category! conn tx-id value)
     :set-description (db/set-user-description! conn tx-id (or value ""))
     ;; value is the full split vector ({:amount :category-id :memo?}); [] un-splits. Undo
     ;; re-applies :before (the prior parts, or [] when the row wasn't split). Full-replace.
-    :set-splits      (db/set-splits! conn tx-id (vec value))))
+    :set-splits      (db/set-splits! conn tx-id (vec value))
+    ;; value is the partner tx-id (link this leg) or nil (unlink). A match touches both legs;
+    ;; undo flips it (after=partner ⇄ before=nil for a match, the reverse for an unmatch).
+    :set-match       (if value
+                       (db-transfers/confirm-match! conn tx-id value)
+                       (db-transfers/unmatch! conn tx-id))
+    ;; "Not a transfer" for a suggested pair: value true = reject (don't re-suggest), false =
+    ;; un-reject (undo). The partner id rides in :partner (value is just the direction).
+    :reject-match    (if value
+                       (db-transfers/reject-match! conn tx-id partner)
+                       (db-transfers/unreject! conn tx-id partner))))
 
 (defn apply!
   "Run a command (to its :after), push it onto the undo stack, mark its tx lingering, and
