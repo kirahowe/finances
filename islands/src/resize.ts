@@ -16,7 +16,7 @@
 // first manual gesture FREEZES every visible column's current rendered width into userWidths,
 // so the layout is fully pinned and only the dragged/fitted column moves afterwards. While
 // pinned, container-resize no longer re-distributes (that would un-localise the resize); the
-// auto-fit returns only via "Reset widths" (window.__v2ResetWidths), which clears userWidths.
+// auto-fit returns only via "Reset widths" (window.__resetWidths), which clears userWidths.
 
 import {
   measureIntrinsicWidths,
@@ -136,7 +136,7 @@ if (scroll && table) {
   new MutationObserver(schedule).observe(tbl, { attributes: true, attributeFilter: ['class'] });
 
   // Reset all manual widths and re-auto-fit (the toolbar "Reset widths" button calls this).
-  (window as unknown as { __v2ResetWidths?: () => void }).__v2ResetWidths = () => {
+  (window as unknown as { __resetWidths?: () => void }).__resetWidths = () => {
     for (const id of Object.keys(userWidths)) delete userWidths[id];
     recompute();
   };
@@ -190,5 +190,5 @@ if (scroll && table) {
     if ((e.target as HTMLElement).closest('.col-resize-handle')) e.stopPropagation();
   }, true);
 
-  console.log('v2-resize island ready');
+  console.log('resize island ready');
 }

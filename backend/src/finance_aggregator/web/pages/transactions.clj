@@ -1,4 +1,4 @@
-(ns finance-aggregator.web.pages.transactions2
+(ns finance-aggregator.web.pages.transactions
   "Server-authoritative transactions workspace at `/` (the dumb-view layer — all data logic
    lives in the pure, tested web.view + web.view-state).
 
@@ -8,7 +8,7 @@
    (reviewed/description/category) @put a command (web.commands) and morph the tbody (with
    lingering) + counts + the undo/redo controls. No per-row signals, no baked data-show,
    no client-side filter/sort/paginate islands. Persistent view-state lives in the URL;
-   ephemeral UI state is `_`-prefixed. Islands: combobox (Zag), grid-nav, v2-url, v2-resize."
+   ephemeral UI state is `_`-prefixed. Islands: combobox (Zag), grid-nav, url, resize."
   (:require
    [clojure.string :as str]
    [finance-aggregator.auth :as auth]
@@ -17,7 +17,7 @@
    [finance-aggregator.db.transactions :as db-transactions]
    [finance-aggregator.web.commands :as commands]
    [finance-aggregator.web.format :as fmt]
-   [finance-aggregator.web.layout2 :as layout]
+   [finance-aggregator.web.layout :as layout]
    [finance-aggregator.web.month :as month]
    [finance-aggregator.web.render :as r]
    [finance-aggregator.web.shell :as shell]
@@ -234,7 +234,7 @@
       [:th meta [:span.th-content [:span.th-label label]] handle])))
 
 (defn- table [rows]
-  ;; .table-resizable = fixed layout; the <colgroup> widths are authoritative and the v2-resize
+  ;; .table-resizable = fixed layout; the <colgroup> widths are authoritative and the resize
   ;; island refines them (auto-fit on load + drag handles). Density/sticky come with the class.
   [:div.transactions-table-scroll {:tabindex "0"}
    [:table.table.table-resizable {:role "grid" "data-class" (cols-hide-class)}
@@ -358,7 +358,7 @@
 (defn- column-picker
   "Toolbar dropdown toggling which columns show. The `cols.<id>` checkboxes flip the table's
    `hide-<id>` class via data-class (pure CSS, no round-trip); the URL reflector persists them.
-   The footer's \"Reset widths\" hands every column back to auto-fit via the v2-resize island's
+   The footer's \"Reset widths\" hands every column back to auto-fit via the resize island's
    window hook (it clears the user-dragged widths and re-measures). `__stop` so the open-click
    isn't also seen as a click-outside."
   []
@@ -379,7 +379,7 @@
          [:span.filter-dropdown-label-text label]]])]
     [:div.filter-dropdown-footer
      [:button.button.button-secondary.filter-dropdown-clear
-      {:type "button" "data-on:click" "window.__v2ResetWidths && window.__v2ResetWidths()"}
+      {:type "button" "data-on:click" "window.__resetWidths && window.__resetWidths()"}
       "Reset widths"]]]])
 
 ;; ---------------------------------------------------------------------------
@@ -392,7 +392,7 @@
    [:p "Use the month controls to browse another period, or import from Setup."]])
 
 (defn- url-sync
-  "Reflect the persistent view-state into the URL on change (the v2-url island owns the
+  "Reflect the persistent view-state into the URL on change (the url island owns the
    serialization). Scoped by the signal-patch filter to the persistent signals so it ignores
    edit + ephemeral-UI signals. The READ side is server-side (query->view-state on load)."
   []
@@ -400,7 +400,7 @@
          "data-on-signal-patch-filter"
          "{include: /^(search|scope|hideTransfers|uncat|sortCol|sortDir|page|pageSize)$|^(cols|filter)\\./}"
          "data-on-signal-patch"
-         (str "window.__v2syncUrl && window.__v2syncUrl({q: $search, scope: $scope,"
+         (str "window.__syncUrl && window.__syncUrl({q: $search, scope: $scope,"
               " ht: $hideTransfers, uncat: $uncat, sortCol: $sortCol, sortDir: $sortDir,"
               " page: $page, pageSize: $pageSize, cols: $cols,"
               " fa: $filter.account, fi: $filter.institution, fc: $filter.category})")}])
@@ -465,7 +465,7 @@
        :body
        (layout/document
         {:title "Finance Aggregator"
-         :islands ["combobox" "v2-url" "grid-nav" "v2-resize"]
+         :islands ["combobox" "url" "grid-nav" "resize"]
          :signals (vs/client-signals view-st month-str result (:query-params req))}
         [:div.container.container--workspace {"data-on:keydown__window" undo-key-js}
          (shell/masthead {:active :transactions :stats stats})

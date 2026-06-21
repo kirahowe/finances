@@ -1,4 +1,4 @@
-(ns finance-aggregator.web.layout2
+(ns finance-aggregator.web.layout
   "hiccup2 document shell for the server-authoritative pages — the replacement for the
    Replicant web.layout (deleted/renamed at Phase R4). Loads the Datastar runtime once
    and any per-page islands as modules after the body."

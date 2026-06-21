@@ -4,7 +4,7 @@
    re-renders and edits are SSE fragment endpoints under `/transactions/*`."
   (:require
    [finance-aggregator.web.pages.setup :as setup]
-   [finance-aggregator.web.pages.transactions2 :as transactions]))
+   [finance-aggregator.web.pages.transactions :as transactions]))
 
 (defn html-routes
   "Reitit route tree for the server-rendered hypermedia pages. `deps` (db-conn etc.) is

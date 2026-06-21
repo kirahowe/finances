@@ -8,7 +8,7 @@
    [finance-aggregator.db.stats :as db-stats]
    [finance-aggregator.web.accounts :as accounts]
    [finance-aggregator.web.format :as fmt]
-   [finance-aggregator.web.layout2 :as layout]
+   [finance-aggregator.web.layout :as layout]
    [finance-aggregator.web.shell :as shell]))
 
 (defn- account-row [{:account/keys [external-name currency provider mask institution] :as acct}]

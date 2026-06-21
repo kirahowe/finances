@@ -3,9 +3,9 @@
 // Persistent view state (search / scope / chips / sort / page / column visibility / header
 // funnels) lives in Datastar signals; this island reflects them into the query string so a
 // reload or shared link restores the view (URL, never localStorage). The READ side is
-// server-side (web/pages/transactions2 query->view-state seeds the signals on load). All the
+// server-side (web/pages/transactions query->view-state seeds the signals on load). All the
 // serialization rules live here in one place; a Datastar `data-on-signal-patch` (scoped to
-// the persistent signals) calls window.__v2syncUrl with the current values.
+// the persistent signals) calls window.__syncUrl with the current values.
 
 export {};
 
@@ -26,7 +26,7 @@ interface ViewState {
 
 const csv = (a: unknown[] | undefined): string => (a ?? []).filter(Boolean).join(',');
 
-(window as unknown as { __v2syncUrl?: (s: ViewState) => void }).__v2syncUrl = (s) => {
+(window as unknown as { __syncUrl?: (s: ViewState) => void }).__syncUrl = (s) => {
   const u = new URL(location.href);
   const p = u.searchParams;
   const set = (k: string, v: string) => (v ? p.set(k, v) : p.delete(k));
