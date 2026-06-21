@@ -23,9 +23,14 @@
   color: var(--color-ink);
 }
 
+/* Rendered as anchors styled as buttons (.button doesn't reset the anchor
+   underline the way .nav-links .button does), so kill the default underline
+   here. The caret glyphs read as nav affordances, so size them up past the
+   shared --glyph step. */
 .month-nav-button {
   min-width: var(--control-square-sm);
   padding: var(--control-pad-y-sm) 0;
-  font-size: var(--glyph);
+  font-size: var(--text-xl);
   line-height: 1;
+  text-decoration: none;
 }

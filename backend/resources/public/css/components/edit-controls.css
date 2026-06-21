@@ -5,10 +5,15 @@
   gap: 0.25rem;
 }
 
+/* Real <button>s. Base .button gives them --control-pad-y (0.5rem) block
+   padding, which makes them taller than the icon-button footprint wants —
+   trim the block padding to the small step and let --control-square-sm carry
+   the hit target. Bump the glyph past the shared icon step so the ↶/↷ arrows
+   read clearly. */
 .undo-redo-btn {
-  min-width: 2rem;
-  padding-inline: 0.5rem;
-  font-size: 1rem;
+  min-width: var(--control-square-sm);
+  padding: var(--control-pad-y-sm) var(--spacing-sm);
+  font-size: var(--text-xl);
   line-height: 1;
 }
 
