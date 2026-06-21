@@ -7,13 +7,18 @@
 
 /* Larger-glyph icon-button footprint, shared with the month-navigator carets
    (.month-nav-button, see month-navigator.css). Base .button gives --control-pad-y
-   (0.5rem) block padding, taller than this footprint wants — the small block step
-   plus --control-square-sm carry a square-ish hit target, and the glyph is bumped
-   past the shared --glyph step so the ↶/↷ arrows / ‹ › carets read clearly. Each
-   component keeps its own inline padding (carets: 0; undo/redo: --spacing-sm). */
+   (0.5rem) block padding, taller than this footprint wants — pinning the height to
+   the shared --toolbar-control-height (29px) lands them on exactly the rule the
+   padding-driven .count-chip / .scope-toggle-btn controls sit on, and the square
+   min-width carries a tidy hit target. The block padding no longer drives height;
+   the glyph is bumped past the shared --glyph step (to --text-xl / 24px, which fits
+   inside the 29px box) so the ↶/↷ arrows / ‹ › carets read clearly, and the base
+   .button's flex centring keeps it vertically centred. Each component keeps its own
+   inline padding (carets: 0; undo/redo: --spacing-sm). */
 .month-nav-button,
 .undo-redo-btn {
-  min-width: var(--control-square-sm);
+  min-width: var(--toolbar-control-height);
+  height: var(--toolbar-control-height);
   font-size: var(--text-xl);
   line-height: 1;
 }

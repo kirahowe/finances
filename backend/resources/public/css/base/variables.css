@@ -168,6 +168,12 @@
   --control-pad-y-sm: 0.32rem;
   --control-pad-x-sm: 0.7rem;
   --control-square-sm: 2rem;
+  /* The single height every toolbar control snaps to, so the dateline carets,
+     undo/redo, scope toggle and binary chips line up on one rule. It matches the
+     padding-driven chip box (text-sm × body line-height + 2 × control-pad-y-sm +
+     2 × 1px border ≈ 29px); pin both the padding-driven chips and the fixed-box
+     icon buttons to it so they stay locked together. */
+  --toolbar-control-height: 1.8125rem; /* 29px */
 
   /* Radius — a crisp, rectilinear ramp. The ledger is a ruled document, so corners
      stay tight; no pills. */

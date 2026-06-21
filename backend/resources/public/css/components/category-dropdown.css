@@ -16,7 +16,9 @@
 .category-dropdown-input {
   width: 100%;
   /* Shares .category-button's box so opening the editor never shifts the row;
-     the active state adds only the pine border + focus ring on top. */
+     the active state adds only a single pine border on top. The combobox is
+     always opened focused, so a separate focus ring on top of this border just
+     reads as a doubled outline — the one pine border is the editing affordance. */
   padding: var(--category-field-padding-y) var(--category-field-padding-x);
   margin: calc(-1 * var(--category-field-padding-y))
     calc(-1 * var(--category-field-padding-x));
@@ -27,7 +29,6 @@
   line-height: inherit;
   color: var(--color-ink);
   background: var(--color-surface);
-  box-shadow: var(--focus-ring);
 }
 
 .category-dropdown-input:focus {
