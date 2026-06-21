@@ -130,3 +130,29 @@
       (filter-txs vs)
       (sort-txs sort)
       (paginate page page-size)))
+
+;; --- Lingering --------------------------------------------------------------
+
+(defn view-with-linger
+  "Like `view`, but keeps just-edited rows visible even after an edit drops them out of the
+   active filter. A tx in `linger-set` that no longer matches is held in its **original
+   position** (not appended at the end) and reported in `:stale-ids` so the page can render
+   it de-emphasised (`is-stale`); the next pure view change clears the linger set.
+
+   The order-preserving trick is to select rows by walking the source `txs` (filter-match OR
+   lingered), so a lingered row stays where it naturally sits. `sort-txs` is a stable sort, so
+   when a sort is active the lingered row sorts into its proper place too. Returns the same
+   shape as `view` plus `:stale-ids` (a set of db ids)."
+  [txs {:keys [sort page page-size] :as vs} linger-set]
+  (let [linger-set  (or linger-set #{})
+        matched-ids (set (map :db/id (filter-txs txs vs)))
+        stale-ids   (into #{} (comp (map :db/id)
+                                    (filter #(and (contains? linger-set %)
+                                                  (not (contains? matched-ids %)))))
+                          txs)
+        visible     (filter #(or (contains? matched-ids (:db/id %))
+                                 (contains? stale-ids (:db/id %)))
+                            txs)]
+    (-> (sort-txs visible sort)
+        (paginate page page-size)
+        (assoc :stale-ids stale-ids))))

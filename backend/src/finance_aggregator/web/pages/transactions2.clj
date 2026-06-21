@@ -465,18 +465,6 @@
 ;; Lingering + edit fragments
 ;; ---------------------------------------------------------------------------
 
-(defn- view-with-linger
-  "Compose filter → linger-inject → sort → paginate. Lingered txs (touched since the last
-   view change, no longer matching the filter) are kept in the result and reported as
-   `:stale-ids` so an edit doesn't make a row vanish under you."
-  [txs vs linger-set]
-  (let [matched     (view/filter-txs txs vs)
-        matched-ids (set (map :db/id matched))
-        lingered    (filter #(and (linger-set (:db/id %)) (not (matched-ids (:db/id %)))) txs)
-        combined    (view/sort-txs (concat matched lingered) (:sort vs))]
-    {:result    (view/paginate combined (:page vs) (:page-size vs))
-     :stale-ids (set (map :db/id lingered))}))
-
 (defn- counts-fragment
   "The toolbar count badges as one HTML string (each morphed by id) — re-patched after an
    edit, since reviewing/categorizing a row moves these server-authoritative counts."
@@ -657,7 +645,8 @@
   (let [user auth/user-id
         month-str (month/serialize (month/parse (:month signals)))
         txs (db-transactions/list-for-month db-conn month-str)
-        {:keys [result stale-ids]} (view-with-linger txs (signals->view-state signals) (commands/linger user))
+        {:keys [stale-ids] :as result} (view/view-with-linger txs (signals->view-state signals)
+                                                              (commands/linger user))
         counts (db-transactions/month-counts txs)]
     (hk/->sse-response
      req
