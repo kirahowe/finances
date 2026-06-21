@@ -10,29 +10,38 @@ The React→Datastar migration is structurally **done**. The server-authoritativ
 canonical `/` (server renders + SSE-morphs fragments; client holds only ephemeral UI state).
 **Replicant is gone — hiccup2 is the only renderer.** The old client-heavy page, the spike, the
 scaffold, and the dead islands are deleted. Views are strictly presentational; all data logic is
-in pure, tested fns. Filter counts are faceted and compose. **Suite 313/0; 11 browser specs green.**
+in pure, tested fns. Filter counts are faceted and compose. **Suite 315/0; 13 browser specs green.**
 
 Done: R0 (hiccup2 seam) · R1 (pure view engine) · R2 (table + toolbar + edits with undo/lingering)
 · cp1b (funnels) · cp2-tail (grid-nav + resize) · R3 (column chooser + URL state) · R4 (delete old
 stack, flip `/v2`→`/`) · 2 UI-polish rounds (8 bugs + faceted counts + active-filter chips) ·
-**R5a (split editor + row-actions menu)**.
+**R5a (split editor + row-actions menu)** · **R5b (transfer match/review modals)**.
 
-**R5a is DONE** — a row's caret (trailing always-on chrome column, not a hideable data column)
-opens a shared floating menu → "Split transaction" @get's the split-editor modal into `#modal-root`.
-The `split-editor` island (built on the already-tested `lib/splitMath`) runs the live balance math
-in a native-`<select>` editor; Save serialises the signed payload through `#split-courier` →
+**R5a DONE** — a row's caret (trailing always-on chrome column, not a hideable data column) opens a
+shared floating menu → "Split transaction" @get's the split-editor modal into `#modal-root`. The
+`split-editor` island (built on the already-tested `lib/splitMath`) runs the live balance math in a
+native-`<select>` editor; Save serialises the signed payload through `#split-courier` →
 `PUT /transactions/:id/splits` → `:set-splits` command (undo/redo + lingering + faceted counts for
 free) → response re-patches `#modal-root` empty (closes the modal). Cancel/Esc/backdrop close
 client-side. Files: `view/split-editor-seed`, `view-state/parse-splits-value`,
 `db.transactions/{current-splits,by-id}`, `commands/:set-splits`, `pages/transactions`
-(row-actions-menu + split-editor-modal + split-editor/set-splits handlers), `islands/split-editor.ts`,
-`css/components/{row-actions,split-modal}.css`, `e2e/v2-split.mjs`.
+(row-actions-menu + split-editor-modal), `islands/split-editor.ts`, `css/{row-actions,split-modal}`,
+`e2e/v2-split.mjs`.
 
-**Next:** **R5b** = transfer match/review modals (same modal idiom; `db.transfers/{suggest-matches,
-match-candidates, confirm-match!, unmatch!, reject-match!}` already exist — add a menu item +
-modals). **R5c** = category rollup summary (port `frontend/app/lib/categoryRollup.ts` → a pure
-Clojure fn + a server-rendered panel). Then **Phase 5** = delete the old React `frontend/` (relocate
-Playwright first — see gotchas).
+**R5b DONE** — transfer match/review, **no island** (interactions are plain @put's). A second
+row-actions item ("Match transfer"/"Matched transfer", driven by `$_rowMenuMatched`) opens
+`GET /:id/match`: unmatched → a `match-candidates` list (each button confirms), matched → the
+partner card + Unmatch. A toolbar "Review transfers" opens `GET /transactions/review-transfers`: the
+`suggest-matches` list, each row Confirm/"Not a transfer" acting in place (refreshes `#review-list`,
+modal stays open). All mutations are commands (`:set-match`, `:reject-match` + `db.transfers/unreject!`)
+so they undo/redo. Island-less modals close on backdrop-click (guarded `evt.target===el` — Datastar
+has **no `__self` modifier**) / Esc / Close. Files: `commands/{:set-match,:reject-match}`,
+`pages/transactions` (match-modal + review-modal + handlers; `edit-response :after-patch`),
+`css/transfer-modal.css`, `e2e/{v2-match,v2-review}.mjs`.
+
+**Next:** **R5c** = category rollup summary (port `frontend/app/lib/categoryRollup.ts` → a pure
+Clojure fn + a server-rendered panel; click a row → set the category funnel filter). Then
+**Phase 5** = delete the old React `frontend/` (relocate Playwright first — see gotchas).
 
 ## Run & verify
 
@@ -60,7 +69,8 @@ backend/src/finance_aggregator/web/
   layout.clj      base HTML document (fonts, datastar.js, per-page islands)
   shell.clj       masthead
   routes.clj      / (page) + /transactions/{rows,:id/reviewed/:v,:id/description,:id/category,
-                  :id/split-editor,:id/splits,undo,redo} + /setup
+                  :id/split-editor,:id/splits,:id/match,:id/match/:partner,:id/unmatch,
+                  review-transfers,review/:out/confirm/:in,review/:a/reject/:b,undo,redo} + /setup
   view.clj        PURE engine: filter-txs / sort-txs / paginate / view / view-with-linger (lingering)
                   + facet-counts + account/institution/category-funnel-options (all take a view-state)
   view_state.clj  PURE codec: query-params ↔ view-state ↔ Datastar signals (+ parse-category-value); column config
@@ -104,23 +114,25 @@ e2e/           v2*.mjs + setup.mjs  (filenames still say "v2" — cosmetic; URLs
 - **Playwright for e2e lives in `frontend/node_modules`** (`createRequire(resolve(root,'frontend'))`).
   Phase 5 deletes `frontend/` → move Playwright into `e2e/` (or `islands/`) first or the harness breaks.
 
-## R5 starting point (R5a done; R5b/R5c next)
+## R5 starting point (R5a + R5b done; R5c next)
 
-**The modal idiom is now established (copy it for R5b).** A row's caret sets `$_rowMenu` and the
-shared `#row-actions-menu` item `@get`s a fragment into `#modal-root`; the fragment carries data
-for an island via `data-*`; a hidden courier input's `data-on:change` @put's the edit through the
-command log; the PUT response re-patches `#modal-root` empty to close. Cancel/Esc/backdrop close
-client-side (island wipes `#modal-root`). See `pages/transactions` (`row-actions-menu`,
-`split-editor-modal`, `set-splits`) + `islands/split-editor.ts` as the template.
+**The modal idiom is established — two flavours.** A row's caret sets `$_rowMenu` and the shared
+`#row-actions-menu` item (or a toolbar button) `@get`s a fragment into `#modal-root`. Two ways to
+wire the interaction:
+- **Island modal** (rich client widget — the split editor): fragment carries data via `data-*`;
+  an island (MutationObserver on `#modal-root`) owns the live UI; a hidden courier input's
+  `data-on:change` @put's; the PUT closes the modal server-side (`edit-response :close-modal?`).
+- **Island-less modal** (the transfer modals): interactions are plain `@put`s on buttons in the
+  fragment; the action either closes the modal (`:close-modal?`) or refreshes a sub-fragment in
+  place (`:after-patch`, e.g. `#review-list`). Backdrop/Esc/Close close client-side via
+  `close-modal-js` (guard backdrop clicks with `evt.target===el` — **no `__self` modifier**).
 
-- **R5b — transfer modals.** Add row-actions items ("Match transfer" / "Review transfers") that
-  open modals the same way. Server reads already exist: `db.transfers/{suggest-matches,
-  match-candidates, confirm-match!, unmatch!, reject-match!}`. Confirm/reject/unmatch are mutations
-  — route them through a new command type (`:set-transfer` or similar) so they get undo/redo too.
-  The auto-review modal lists `suggest-matches`; the per-row match modal lists `match-candidates`.
 - **R5c — category rollup.** Port `frontend/app/lib/categoryRollup.ts` → a pure Clojure fn in
   `web.view` (kaocha-tested), rendered as a server-side summary panel (split-aware; income/expense/
-  transfer sections; click a row → set the category funnel filter).
+  transfer sections; click a row → set the category funnel filter, reusing the `$filter.category`
+  signal the funnels already drive).
 - **Still pending (any of R5):** split *child* rows aren't keyboard-navigable or inline-editable
   (no `data-cell` on split cells); split-part reviewed checkboxes are read-only
-  (`db.transactions/set-split-reviewed!` exists for when they become editable).
+  (`db.transactions/set-split-reviewed!` exists for when they become editable). A matched transfer
+  shows no in-row marker yet — only the row-menu reads "Matched transfer" (the `.transfer-status`
+  CSS is carried over if an in-cell ⇄ marker is wanted later).

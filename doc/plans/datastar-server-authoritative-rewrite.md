@@ -1,13 +1,13 @@
 # Datastar server-authoritative rewrite — architecture & plan
 
-**Status:** R0–R4 **DONE** + two UI-polish rounds + **R5a (split editor + row-actions menu)** —
-the server-authoritative workspace is the canonical `/`; Replicant + the old page/spike/dead-islands
-are deleted; hiccup2 is the only renderer; views are strictly presentational; **filter counts are
-faceted and compose**. **Branch:** `spike/replicant-datastar`. Suite **313/0**; **11 browser specs**
-(`e2e/v2*.mjs` + `setup`) green. **Next: R5b** (transfer match/review modals — same modal idiom as
-R5a) + **R5c** (category rollup panel), then **Phase 5** (delete the old React `frontend/` — the
-e2e harness borrows Playwright from `frontend/node_modules`, so relocate that first).
-**Resume doc:** `datastar-handoff.md`.
+**Status:** R0–R4 **DONE** + two UI-polish rounds + **R5a (split editor)** + **R5b (transfer
+match/review modals)** — the server-authoritative workspace is the canonical `/`; Replicant + the
+old page/spike/dead-islands are deleted; hiccup2 is the only renderer; views are strictly
+presentational; **filter counts are faceted and compose**. **Branch:** `spike/replicant-datastar`.
+Suite **315/0**; **13 browser specs** (`e2e/v2*.mjs` + `setup`) green. **Next: R5c** (category
+rollup panel), then **Phase 5** (delete the old React `frontend/` — the e2e harness borrows
+Playwright from `frontend/node_modules`, so relocate that first). **Resume doc:**
+`datastar-handoff.md`.
 
 `/` now has: server-side filter/scope/chips/funnels/sort/paginate; undoable reviewed /
 description / category edits with lingering (rows hold position); column chooser (all columns);
@@ -191,6 +191,39 @@ New routes: `GET /transactions/:id/split-editor`, `PUT /transactions/:id/splits`
 → undo un-splits); full v2 suite stays green (90 checks / 11 specs). **Deferred to later R5:** split
 *child* rows aren't keyboard-navigable / inline-editable (no `data-cell`); split-part reviewed
 checkboxes are read-only (`db.transactions/set-split-reviewed!` exists for when they aren't).
+
+## R5b — transfer match/review modals (DONE — 2026-06-21)
+
+The second R5 slice, and the **island-less** variant of the modal idiom (interactions are plain
+`@put`s, no client widget needed):
+
+- **Per-row Match/Unmatch.** A second row-actions item reads "Match transfer" / "Matched transfer"
+  off `$_rowMenuMatched` (set by the caret alongside `$_rowMenuSplit`) and `@get`s
+  `GET /transactions/:id/match`. The server renders the right variant: **unmatched** → a
+  `db.transfers/match-candidates` list where each candidate is a button that
+  `@put /transactions/:id/match/:partner`; **matched** → the partner card (from the already-pulled
+  `:transaction/transfer-pair`) + an Unmatch button (`@put /transactions/:id/unmatch`).
+- **Bulk Review.** A toolbar "Review transfers" `@get`s `GET /transactions/review-transfers` → the
+  `db.transfers/suggest-matches` list. Each row Confirms (`review/:out/confirm/:in`) or rejects
+  (`review/:a/reject/:b`, "Not a transfer"); both **act in place** — the handler re-patches
+  `#review-list` with the recomputed (smaller) suggestions while the modal stays open (a new
+  `edit-response :after-patch` hook), so the acted-on pair drops out.
+- **Commands.** All four mutations go through the command log: `:set-match` (value = partner-id to
+  confirm, nil to unmatch; one type, undo flips direction) and `:reject-match` (value true/false;
+  new `db.transfers/unreject!` is the clean inverse since a suggestion-reject had no link). So
+  match/unmatch/reject all undo/redo.
+- **Island-less close.** No island wipes `#modal-root`, so the backdrop/Esc/Close use the
+  `close-modal-js` literal directly. **Gotcha:** Datastar has **no `__self` on-event modifier** —
+  `data-on:click__self` silently no-ops the modifier, so the backdrop closed on *every* bubbled
+  click (including Confirm). Guard the backdrop with `evt.target === el` in the expression instead
+  (`backdrop-attrs`).
+
+New routes: `:id/match` (GET) · `:id/match/:partner` + `:id/unmatch` (PUT) · `review-transfers`
+(GET) · `review/:out/confirm/:in` + `review/:a/reject/:b` (PUT). Verified `e2e/v2-match.mjs` 9/9
+(menu → candidates → confirm → row reads "Matched" → unmatch → undo re-matches) + `e2e/v2-review.mjs`
+9/9 (Confirm and Reject each drop the pair from the list in place). **Deferred:** a matched transfer
+has no in-row marker yet — only the row-menu reflects it (the `.transfer-status` CSS is carried over
+for a future in-cell ⇄ marker).
 
 ## Small follow-ups (low priority)
 
