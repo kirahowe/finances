@@ -156,3 +156,43 @@
     (-> (sort-txs visible sort)
         (paginate page page-size)
         (assoc :stale-ids stale-ids))))
+
+;; --- Funnel options ---------------------------------------------------------
+;; The account/institution/category header funnels each render a checkbox list of the
+;; distinct values present this month with a per-id count. These are pure (txs → option
+;; maps), so they live with the view engine and reuse its id-extracting fns above.
+
+(defn count-options
+  "Tally `txs` by `(id-fn tx)` (skipping rows with no id), labelling each id via `label-fn`,
+   into a label-sorted seq of `{:id :label :count}`. Each tx counts once per option."
+  [txs id-fn label-fn]
+  (->> txs
+       (keep (fn [tx] (when-let [id (id-fn tx)] [id (label-fn tx)])))
+       (reduce (fn [m [id label]]
+                 (-> m (assoc-in [id :label] label) (update-in [id :count] (fnil inc 0)))) {})
+       (map (fn [[id {:keys [label count]}]] {:id id :label label :count count}))
+       (sort-by :label)))
+
+(defn account-options
+  "Account funnel options: each account present this month + its transaction count."
+  [txs]
+  (count-options txs tx-account-id
+                 #(or (get-in % [:transaction/account :account/external-name]) "Unknown")))
+
+(defn institution-options
+  "Institution funnel options: each institution present this month + its transaction count."
+  [txs]
+  (count-options txs tx-institution-id
+                 #(or (get-in % [:transaction/account :account/institution :institution/name]) "Unknown")))
+
+(defn category-funnel-options
+  "Real categories present this month with the number of transactions touching each
+   (split-aware). Uncategorized is excluded — the toolbar chip owns it."
+  [txs]
+  (let [name-of (fn [tx]
+                  (concat (when-let [c (:transaction/category tx)] (when (:db/id c) [[(:db/id c) (:category/name c)]]))
+                          (mapcat (fn [p] (when-let [c (:split/category p)] (when (:db/id c) [[(:db/id c) (:category/name c)]])))
+                                  (:transaction/splits tx))))
+        names (into {} (mapcat name-of txs))
+        counts (frequencies (mapcat tx-category-ids txs))]
+    (->> counts (map (fn [[id n]] {:id id :label (get names id "Unknown") :count n})) (sort-by :label))))

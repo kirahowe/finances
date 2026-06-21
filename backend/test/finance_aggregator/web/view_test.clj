@@ -205,3 +205,42 @@
       (is (= 5 (:total v)) "stale row included in the total")
       (is (= 3 (:page-count v)) "5 rows / 2 = 3 pages")
       (is (= [1 2] (ids (:rows v))) "first page holds t1 then the in-place stale t2"))))
+
+;; --- Funnel options ---------------------------------------------------------
+;; The header funnels list the distinct account/institution/category values present this
+;; month, each with a per-id transaction count, label-sorted. These were duplicated in the
+;; page; they now live here next to the id-extracting fns they share.
+
+(deftest account-funnel-options
+  (testing "one option per account present, with per-account counts, sorted by label"
+    ;; t1,t3 → account 100 (Chequing); t2,t4,t5 → account 101 (Visa).
+    (is (= [{:id 100 :label "Chequing" :count 2}
+            {:id 101 :label "Visa" :count 3}]
+           (view/account-options txs))))
+  (testing "unknown account labelled, missing-account rows skipped"
+    (let [no-acct (tx {:db/id 9 :transaction/amount 1})]
+      (is (= [] (view/account-options [no-acct])) "a tx with no account contributes no option"))))
+
+(deftest institution-funnel-options
+  (testing "all five share the one institution, counted together"
+    (is (= [{:id 1000 :label "Test Bank" :count 5}]
+           (view/institution-options txs)))))
+
+(deftest category-funnel-options-split-aware
+  (testing "real categories present, split-aware counts, Uncategorized excluded, label-sorted"
+    ;; t1→Salary(10), t2→Groceries(11), t3→Housing(12), t4→none, t5 split→Groceries(11)+none.
+    ;; Groceries is touched by t2 and t5's part = count 2. The uncategorized parts of t4/t5
+    ;; contribute no option (the chip owns those).
+    (is (= [{:id 11 :label "Groceries" :count 2}
+            {:id 12 :label "Housing" :count 1}
+            {:id 10 :label "Salary" :count 1}]
+           (view/category-funnel-options txs))))
+  (testing "a fully-uncategorized month yields no category options"
+    (is (= [] (view/category-funnel-options [t4])))))
+
+(deftest count-options-tallies
+  (testing "generic tally: per-id label + count, blank-id rows skipped, label-sorted"
+    (let [rows [{:k 1 :name "Beta"} {:k 1 :name "Beta"} {:k 2 :name "Alpha"} {:k nil :name "skip"}]]
+      (is (= [{:id 2 :label "Alpha" :count 1}
+              {:id 1 :label "Beta" :count 2}]
+             (view/count-options rows :k :name))))))

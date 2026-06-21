@@ -25,127 +25,22 @@
    [finance-aggregator.web.render :as r]
    [finance-aggregator.web.shell :as shell]
    [finance-aggregator.web.view :as view]
+   [finance-aggregator.web.view-state :as vs]
    [starfederation.datastar.clojure.adapter.http-kit :as hk]
    [starfederation.datastar.clojure.api :as d*]))
 
 ;; ---------------------------------------------------------------------------
 ;; Columns
 ;; ---------------------------------------------------------------------------
-
-(def ^:private columns
-  [{:id "date"        :label "Date"        :w 120 :sortable true  :min 80  :protected true}
-   {:id "account"     :label "Account"     :w 150 :sortable true  :min 90}
-   {:id "institution" :label "Institution" :w 160 :sortable true  :min 90}
-   {:id "payee"       :label "Payee"       :w 200 :sortable true  :min 100}
-   {:id "description" :label "Description" :w 240 :sortable false :min 200}
-   {:id "amount"      :label "Amount"      :w 120 :sortable true  :min 90  :protected true}
-   {:id "category"    :label "Category"    :w 180 :sortable true  :min 200 :protected true}
-   {:id "reviewed"    :label "Reviewed"    :w 96  :sortable false :min 80  :protected true}])
-
-;; Columns the resize island gives a drag handle (reviewed is fixed-width).
-(def ^:private resizable-cols #{"date" "account" "institution" "payee" "description" "amount" "category"})
-
-(def ^:private page-size-options [25 50 100 250])
-
-;; Column visibility is persistent-but-client-applied (Lane A, row 2): the `cols.<id>`
-;; signals toggle `hide-<id>` classes on the table (pure CSS, no round-trip), and persist to
-;; the URL. Every column is hideable — the interactive ones (description/category/reviewed)
-;; carry data-cell; grid-nav rebuilds its model from the visible cells, so hiding one just
-;; drops it from keyboard navigation too.
-(def ^:private hideable-columns
-  [["date" "Date"] ["account" "Account"] ["institution" "Institution"]
-   ["payee" "Payee"] ["description" "Description"] ["amount" "Amount"]
-   ["category" "Category"] ["reviewed" "Reviewed"]])
+;; The column config + view-state codec live in web.view-state (pure, tested). This page
+;; consumes `vs/columns` (render order/widths/headers) and `vs/hideable-columns` (the picker).
 
 (defn- cols-hide-class []
-  (str "{" (str/join ", " (map (fn [[id _]] (str "'hide-" id "': !$cols." id)) hideable-columns)) "}"))
+  ;; Static Datastar attribute value — toggles `hide-<id>` classes from the `cols.<id>`
+  ;; signals (no data manipulation; the column ids are render-time literals).
+  (str "{" (str/join ", " (map (fn [[id _]] (str "'hide-" id "': !$cols." id)) vs/hideable-columns)) "}"))
 
 (declare undo-redo-controls column-picker) ; defined later, used by the toolbar/table
-
-;; ---------------------------------------------------------------------------
-;; View-state <-> signals/query mapping
-;; ---------------------------------------------------------------------------
-
-(defn- view-state
-  "Build the web.view view-state from a generic accessor `g` (the signals map's keyword
-   keys, or a query-param getter). Funnels are cp1b; omitting them = no category/account
-   filter."
-  [{:keys [search scope hide-transfers uncat sort-col sort-dir page page-size]}]
-  {:search        (or search "")
-   :scope         (if (= "needs-review" scope) :needs-review :all)
-   :hide-transfers (boolean hide-transfers)
-   :uncat         (boolean uncat)
-   :sort          (when (not (str/blank? sort-col))
-                    {:col (keyword sort-col) :dir (if (= "desc" sort-dir) :desc :asc)})
-   :page          (or page 0)
-   :page-size     (or page-size 25)})
-
-(defn- ->id-set [strs]
-  (into #{} (keep #(some-> % str not-empty parse-long) strs)))
-
-(defn- csv-param [qp k]
-  (let [v (get qp k)] (if (str/blank? v) [] (str/split v #","))))
-
-(defn- with-funnels
-  "Add the header-funnel selections (account/institution/category id sets) to a view-state."
-  [vs accounts institutions categories]
-  (assoc vs
-         :accounts (->id-set accounts)
-         :institutions (->id-set institutions)
-         :categories (->id-set categories)))
-
-(defn- signals->view-state [s]
-  (with-funnels
-    (view-state {:search (:search s) :scope (:scope s) :hide-transfers (:hideTransfers s)
-                 :uncat (:uncat s) :sort-col (:sortCol s) :sort-dir (:sortDir s)
-                 :page (:page s) :page-size (:pageSize s)})
-    (get-in s [:filter :account]) (get-in s [:filter :institution]) (get-in s [:filter :category])))
-
-(defn- query->view-state [qp]
-  (with-funnels
-    (view-state {:search (get qp "q") :scope (get qp "scope")
-                 :hide-transfers (= "1" (get qp "ht")) :uncat (= "1" (get qp "uncat"))
-                 :sort-col (get qp "sortCol") :sort-dir (get qp "sortDir")
-                 :page (some-> (get qp "page") parse-long)
-                 :page-size (some-> (get qp "pageSize") parse-long)})
-    (csv-param qp "fa") (csv-param qp "fi") (csv-param qp "fc")))
-
-(defn- parse-cols
-  "The `cols.<id>` visibility signal map (true = visible) from the URL's `hidecols` csv."
-  [qp]
-  (let [hidden (set (csv-param qp "hidecols"))]
-    (into {} (map (fn [[id _]] [(keyword id) (not (contains? hidden id))]) hideable-columns))))
-
-(defn- vs->signals
-  "Initial client signals derived from a view-state. page/page-size are taken from the
-   clamped view result so the signal matches what's rendered."
-  [vs month-str result]
-  {:search        (:search vs)
-   :scope         (if (= :needs-review (:scope vs)) "needs-review" "all")
-   :hideTransfers (:hide-transfers vs)
-   :uncat         (:uncat vs)
-   :sortCol       (if-let [s (:sort vs)] (name (:col s)) "")
-   :sortDir       (if-let [s (:sort vs)] (name (:dir s)) "asc")
-   :page          (:page result)
-   :pageSize      (:page-size result)
-   :month         month-str
-   :editValue     ""
-   :catValue      ""})
-
-(defn- client-signals
-  "Full initial signal set: persistent view-state + column visibility + header-funnel
-   selections (persistent) + ephemeral UI signals (underscore-prefixed → never sent)."
-  [vs month-str result qp]
-  (assoc (vs->signals vs month-str result)
-         :cols (parse-cols qp)
-         :filter {:account (csv-param qp "fa")
-                  :institution (csv-param qp "fi")
-                  :category (csv-param qp "fc")}
-         :_colsOpen false
-         :_openFunnel ""
-         :_funnelX 0
-         :_funnelY 0
-         :_funnelQuery ""))
 
 ;; ---------------------------------------------------------------------------
 ;; Rows (read-only in cp1; editors arrive in cp2)
@@ -303,37 +198,6 @@
 
 (def ^:private funnel-cols #{"account" "institution" "category"})
 
-(defn- tx-account-id [tx] (get-in tx [:transaction/account :db/id]))
-(defn- tx-institution-id [tx] (get-in tx [:transaction/account :account/institution :db/id]))
-(defn- tx-category-ids [tx]
-  (distinct (if-let [parts (seq (:transaction/splits tx))]
-              (keep #(get-in % [:split/category :db/id]) parts)
-              (when-let [id (get-in tx [:transaction/category :db/id])] [id]))))
-
-(defn- count-options [txs id-fn label-fn]
-  (->> txs
-       (keep (fn [tx] (when-let [id (id-fn tx)] [id (label-fn tx)])))
-       (reduce (fn [m [id label]]
-                 (-> m (assoc-in [id :label] label) (update-in [id :count] (fnil inc 0)))) {})
-       (map (fn [[id {:keys [label count]}]] {:id id :label label :count count}))
-       (sort-by :label)))
-
-(defn- account-options [txs]
-  (count-options txs tx-account-id #(or (get-in % [:transaction/account :account/external-name]) "Unknown")))
-(defn- institution-options [txs]
-  (count-options txs tx-institution-id #(or (get-in % [:transaction/account :account/institution :institution/name]) "Unknown")))
-(defn- category-funnel-options
-  "Real categories present this month with the number of transactions touching each
-   (split-aware). Uncategorized is excluded — the toolbar chip owns it."
-  [txs]
-  (let [name-of (fn [tx]
-                  (concat (when-let [c (:transaction/category tx)] (when (:db/id c) [[(:db/id c) (:category/name c)]]))
-                          (mapcat (fn [p] (when-let [c (:split/category p)] (when (:db/id c) [[(:db/id c) (:category/name c)]])))
-                                  (:transaction/splits tx))))
-        names (into {} (mapcat name-of txs))
-        counts (frequencies (mapcat tx-category-ids txs))]
-    (->> counts (map (fn [[id n]] {:id id :label (get names id "Unknown") :count n})) (sort-by :label))))
-
 (defn- funnel-icon []
   [:svg.th-filter-icon {:width "12" :height "12" :viewBox "0 0 24 24" :fill "none" :stroke "currentColor"
                         :stroke-width "2" :stroke-linecap "round" :stroke-linejoin "round" :aria-hidden "true"}
@@ -358,7 +222,7 @@
 
 (defn- th [{:keys [id label sortable min protected]}]
   (let [meta {"data-col-id" id "data-min" (str min) "data-protected" (str (boolean protected))}
-        handle (when (resizable-cols id) (resize-handle))]
+        handle (when (vs/resizable-cols id) (resize-handle))]
     (if sortable
       [:th (merge meta {"class" "th-sortable"
                         "data-on:click" (sort-click-js id)
@@ -377,8 +241,8 @@
   ;; island refines them (auto-fit on load + drag handles). Density/sticky come with the class.
   [:div.transactions-table-scroll {:tabindex "0"}
    [:table.table.table-resizable {:role "grid" "data-class" (cols-hide-class)}
-    [:colgroup (for [{:keys [w]} columns] [:col {:style (str "width:" w "px")}])]
-    [:thead [:tr (map th columns)]]
+    [:colgroup (for [{:keys [w]} vs/columns] [:col {:style (str "width:" w "px")}])]
+    [:thead [:tr (map th vs/columns)]]
     (tbody rows)]])
 
 ;; ---------------------------------------------------------------------------
@@ -448,7 +312,7 @@
         last?  (>= page (dec page-count))]
     [:div.pagination {:id "pagination-bar"}
      [:div.pagination-size-controls
-      (for [n page-size-options]
+      (for [n vs/page-size-options]
         [:button {:type "button"
                   :class (str "button pagination-size-button "
                               (if (= n page-size) "button-primary" "button-secondary"))
@@ -511,7 +375,7 @@
    [:div.filter-dropdown
     {"data-show" "$_colsOpen" "data-on:click__outside" "$_colsOpen = false"}
     [:ul.filter-dropdown-list
-     (for [[id label] hideable-columns]
+     (for [[id label] vs/hideable-columns]
        [:li.filter-dropdown-item
         [:label.filter-dropdown-checkbox-label
          [:input.filter-dropdown-checkbox {:type "checkbox" "data-bind" (str "cols." id)}]
@@ -597,15 +461,15 @@
           counts (db-transactions/month-counts txs)
           stats (db-stats/entity-counts db-conn)
           categories (db-categories/list-all db-conn)
-          vs (query->view-state (:query-params req))
-          result (view/view txs vs)]
+          view-st (vs/query->view-state (:query-params req))
+          result (view/view txs view-st)]
       {:status 200
        :headers {"Content-Type" "text/html"}
        :body
        (layout/document
         {:title "Finance Aggregator"
          :islands ["combobox" "v2-url" "grid-nav" "v2-resize"]
-         :signals (client-signals vs month-str result (:query-params req))}
+         :signals (vs/client-signals view-st month-str result (:query-params req))}
         [:div.container.container--workspace {"data-on:keydown__window" undo-key-js}
          (shell/masthead {:active :transactions :stats stats})
          [:div.transactions-layout
@@ -615,7 +479,7 @@
              (empty-state)
              (list (table (:rows result)) (pagination-bar result)))]]
          (when (seq txs)
-           (funnel-popovers (account-options txs) (institution-options txs) (category-funnel-options txs)))
+           (funnel-popovers (view/account-options txs) (view/institution-options txs) (view/category-funnel-options txs)))
          (category-options categories)
          (url-sync)])})))
 
@@ -628,7 +492,7 @@
     (let [signals (r/read-signals req)
           month-str (month/serialize (month/parse (:month signals)))
           txs (db-transactions/list-for-month db-conn month-str)
-          result (view/view txs (signals->view-state signals))]
+          result (view/view txs (vs/signals->view-state signals))]
       (hk/->sse-response
        req
        {hk/on-open
@@ -645,7 +509,7 @@
   (let [user auth/user-id
         month-str (month/serialize (month/parse (:month signals)))
         txs (db-transactions/list-for-month db-conn month-str)
-        {:keys [stale-ids] :as result} (view/view-with-linger txs (signals->view-state signals)
+        {:keys [stale-ids] :as result} (view/view-with-linger txs (vs/signals->view-state signals)
                                                               (commands/linger user))
         counts (db-transactions/month-counts txs)]
     (hk/->sse-response
@@ -692,10 +556,7 @@
     (let [tx-id (-> req :path-params :id parse-long)
           signals (r/read-signals req)
           before (db-transactions/category-id db-conn tx-id)
-          raw (:catValue signals)
-          after (cond (number? raw) (long raw)
-                      (string? raw) (some-> raw not-empty parse-long)
-                      :else nil)]
+          after (vs/parse-category-value (:catValue signals))]
       (commands/apply! db-conn auth/user-id
                        {:type :set-category :tx-id tx-id :before before :after after
                         :label "Recategorized"})
