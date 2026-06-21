@@ -1,13 +1,13 @@
 # Datastar server-authoritative rewrite — architecture & plan
 
-**Status:** R0–R4 **DONE** + two UI-polish rounds + **R5a (split editor)** + **R5b (transfer
-match/review modals)** — the server-authoritative workspace is the canonical `/`; Replicant + the
-old page/spike/dead-islands are deleted; hiccup2 is the only renderer; views are strictly
-presentational; **filter counts are faceted and compose**. **Branch:** `spike/replicant-datastar`.
-Suite **315/0**; **13 browser specs** (`e2e/v2*.mjs` + `setup`) green. **Next: R5c** (category
-rollup panel), then **Phase 5** (delete the old React `frontend/` — the e2e harness borrows
-Playwright from `frontend/node_modules`, so relocate that first). **Resume doc:**
-`datastar-handoff.md`.
+**Status:** R0–R4 **DONE** + two UI-polish rounds + **R5 COMPLETE** (R5a split editor · R5b transfer
+match/review modals · R5c category rollup pane) — the server-authoritative workspace is the
+canonical `/`; Replicant + the old page/spike/dead-islands are deleted; hiccup2 is the only
+renderer; views are strictly presentational; **filter counts are faceted and compose**.
+**Branch:** `spike/replicant-datastar`. Suite **326/0**; **14 browser specs** (`e2e/v2*.mjs` +
+`setup`) green. **Next: Phase 5** (delete the old React `frontend/` — now fully dead; but the e2e
+harness borrows Playwright from `frontend/node_modules`, so relocate that first).
+**Resume doc:** `datastar-handoff.md`.
 
 `/` now has: server-side filter/scope/chips/funnels/sort/paginate; undoable reviewed /
 description / category edits with lingering (rows hold position); column chooser (all columns);
@@ -224,6 +224,41 @@ New routes: `:id/match` (GET) · `:id/match/:partner` + `:id/unmatch` (PUT) · `
 9/9 (Confirm and Reject each drop the pair from the list in place). **Deferred:** a matched transfer
 has no in-row marker yet — only the row-menu reflects it (the `.transfer-status` CSS is carried over
 for a future in-cell ⇄ marker).
+
+## R5c — category rollup pane (DONE — 2026-06-21)
+
+The last R5 slice — a server-rendered summary pane, no island, no new routes (clicks reuse the
+existing filter signals + `/transactions/rows`).
+
+- **Pure fn.** `web.view/category-rollup [txs categories]` ports `frontend/lib/categoryRollup.ts`
+  faithfully (all 11 tests ported to kaocha): splits attribute to each part's category; an unsplit
+  tx to its category; a missing category → an Uncategorized bucket split by sign. Single-level
+  hierarchy — a group row carries its parent + every **same-type** child (so one click filters the
+  whole group, and a misconfigured cross-type child stays in its own section). Income/expense/
+  transfer sections with magnitudes + a **signed** grand total (transfers excluded).
+- **Render + place.** `rollup-pane` renders the `#category-rollup` aside (sections → rows →
+  subtotal, then a Net line) as a sibling of the table `.card` in `.transactions-layout`. The
+  carried-over `category-rollup.css` + `dashboard.css` already lay it out as a 300px column that
+  fills the fixed-viewport workspace row and scrolls internally (stacks under the table below
+  1100px) — **zero new CSS**.
+- **Click = filter, reusing the funnel signals.** A row is "active" when `$filter.category` exactly
+  equals its ids (`data-class` → `.is-active`), or `$uncat` for the Uncategorized row. Clicking
+  toggles that filter (set ⇄ clear) and `@get`s the rows. Because it writes the same
+  `$filter.category` the header funnels bind, the funnel checkboxes + the active-filter chips stay
+  in sync for free. **Gotcha:** the ternary branches join their assignments with the **comma
+  operator** — a `;` inside the `(...)` is a JS syntax error that Datastar surfaces as a
+  `GenerateExpression` console error (the trailing `; $page = 0; @get(...)` after the ternary is
+  fine — those are top-level statements).
+- **Whole-month, re-patched on edits.** The pane summarizes the whole month (a stable overview +
+  nav), so a filter/sort change leaves it unchanged (the active highlight updates client-side); a
+  recategorize/split moves money between rows, so `edit-response` re-patches `#category-rollup` by
+  id (fetching categories) alongside the tbody/counts.
+
+Verified `e2e/v2-rollup.mjs` 14/14 (pane renders sections + Net; click a category → table filters
+to it + row highlights + chip appears; click again → clears). One pre-existing spec adjusted:
+`v2-resize` now drags the payee column well past its content width, because the rollup pane narrows
+the table card (so auto-fit squeezes payee to its min on load) and a small drag would no longer
+exceed the content width that double-click fits to.
 
 ## Small follow-ups (low priority)
 

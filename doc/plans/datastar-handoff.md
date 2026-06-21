@@ -10,12 +10,13 @@ The React→Datastar migration is structurally **done**. The server-authoritativ
 canonical `/` (server renders + SSE-morphs fragments; client holds only ephemeral UI state).
 **Replicant is gone — hiccup2 is the only renderer.** The old client-heavy page, the spike, the
 scaffold, and the dead islands are deleted. Views are strictly presentational; all data logic is
-in pure, tested fns. Filter counts are faceted and compose. **Suite 315/0; 13 browser specs green.**
+in pure, tested fns. Filter counts are faceted and compose. **Suite 326/0; 14 browser specs green.**
 
 Done: R0 (hiccup2 seam) · R1 (pure view engine) · R2 (table + toolbar + edits with undo/lingering)
 · cp1b (funnels) · cp2-tail (grid-nav + resize) · R3 (column chooser + URL state) · R4 (delete old
 stack, flip `/v2`→`/`) · 2 UI-polish rounds (8 bugs + faceted counts + active-filter chips) ·
-**R5a (split editor + row-actions menu)** · **R5b (transfer match/review modals)**.
+**R5 COMPLETE** — R5a (split editor + row-actions menu) · R5b (transfer match/review modals) ·
+R5c (category rollup pane).
 
 **R5a DONE** — a row's caret (trailing always-on chrome column, not a hideable data column) opens a
 shared floating menu → "Split transaction" @get's the split-editor modal into `#modal-root`. The
@@ -39,9 +40,20 @@ has **no `__self` modifier**) / Esc / Close. Files: `commands/{:set-match,:rejec
 `pages/transactions` (match-modal + review-modal + handlers; `edit-response :after-patch`),
 `css/transfer-modal.css`, `e2e/{v2-match,v2-review}.mjs`.
 
-**Next:** **R5c** = category rollup summary (port `frontend/app/lib/categoryRollup.ts` → a pure
-Clojure fn + a server-rendered panel; click a row → set the category funnel filter). Then
-**Phase 5** = delete the old React `frontend/` (relocate Playwright first — see gotchas).
+**R5c DONE** — the `#category-rollup` aside (whole-month per-category breakdown: income/expense/
+transfer sections, subtotals, signed Net) renders beside the table (the carried-over
+`category-rollup.css` + `dashboard.css` already style it into the fixed-viewport shell). Built on
+the ported pure `view/category-rollup`. Clicking a row toggles `$filter.category` (or `$uncat` for
+Uncategorized) — pure reuse of the funnel signals, so the funnel checkboxes + active-filter chips
+stay in sync and the row highlights via `data-class`. Whole-month → re-patched by id on edits only.
+Files: `view/category-rollup`, `pages/transactions` (rollup-pane + handlers), `e2e/v2-rollup.mjs`.
+
+**Next:** **Phase 5** = delete the old React `frontend/` (it's now dead — every feature is on the
+new stack). **Relocate Playwright first**: the e2e harness does
+`createRequire(resolve(root,'frontend'))` to borrow `@playwright/test` from `frontend/node_modules`,
+so move that dep into `e2e/` (or `islands/`) and update the `require` in every `e2e/*.mjs` before
+deleting `frontend/`, or the whole browser suite breaks. Then the low-priority cosmetics (rename
+`e2e/v2-*.mjs`, dead CSS rules, measure search debounce on the VPS).
 
 ## Run & verify
 
@@ -114,7 +126,7 @@ e2e/           v2*.mjs + setup.mjs  (filenames still say "v2" — cosmetic; URLs
 - **Playwright for e2e lives in `frontend/node_modules`** (`createRequire(resolve(root,'frontend'))`).
   Phase 5 deletes `frontend/` → move Playwright into `e2e/` (or `islands/`) first or the harness breaks.
 
-## R5 starting point (R5a + R5b done; R5c next)
+## Modal idiom reference (R5 complete) + what's deferred
 
 **The modal idiom is established — two flavours.** A row's caret sets `$_rowMenu` and the shared
 `#row-actions-menu` item (or a toolbar button) `@get`s a fragment into `#modal-root`. Two ways to
@@ -127,12 +139,8 @@ wire the interaction:
   place (`:after-patch`, e.g. `#review-list`). Backdrop/Esc/Close close client-side via
   `close-modal-js` (guard backdrop clicks with `evt.target===el` — **no `__self` modifier**).
 
-- **R5c — category rollup.** Port `frontend/app/lib/categoryRollup.ts` → a pure Clojure fn in
-  `web.view` (kaocha-tested), rendered as a server-side summary panel (split-aware; income/expense/
-  transfer sections; click a row → set the category funnel filter, reusing the `$filter.category`
-  signal the funnels already drive).
-- **Still pending (any of R5):** split *child* rows aren't keyboard-navigable or inline-editable
-  (no `data-cell` on split cells); split-part reviewed checkboxes are read-only
-  (`db.transactions/set-split-reviewed!` exists for when they become editable). A matched transfer
-  shows no in-row marker yet — only the row-menu reads "Matched transfer" (the `.transfer-status`
-  CSS is carried over if an in-cell ⇄ marker is wanted later).
+- **Deferred polish (nice-to-have, not blocking Phase 5):** split *child* rows aren't
+  keyboard-navigable or inline-editable (no `data-cell` on split cells); split-part reviewed
+  checkboxes are read-only (`db.transactions/set-split-reviewed!` exists for when they become
+  editable); a matched transfer shows no in-row marker — only the row-menu reads "Matched transfer"
+  (the `.transfer-status` CSS is carried over if an in-cell ⇄ marker is wanted later).
