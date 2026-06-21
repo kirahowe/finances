@@ -212,35 +212,50 @@
 ;; page; they now live here next to the id-extracting fns they share.
 
 (deftest account-funnel-options
-  (testing "one option per account present, with per-account counts, sorted by label"
-    ;; t1,t3 → account 100 (Chequing); t2,t4,t5 → account 101 (Visa).
+  (testing "no other filter → every account with its full-month count, label-sorted"
     (is (= [{:id 100 :label "Chequing" :count 2}
             {:id 101 :label "Visa" :count 3}]
-           (view/account-options txs))))
-  (testing "unknown account labelled, missing-account rows skipped"
-    (let [no-acct (tx {:db/id 9 :transaction/amount 1})]
-      (is (= [] (view/account-options [no-acct])) "a tx with no account contributes no option"))))
+           (view/account-options txs {}))))
+  (testing "the funnel's OWN selection doesn't affect its option counts (so nothing zeroes out)"
+    (is (= [{:id 100 :label "Chequing" :count 2}
+            {:id 101 :label "Visa" :count 3}]
+           (view/account-options txs {:accounts #{101}}))))
+  (testing "but ANOTHER active filter is faceted in: needs-review drops t2 → Visa 3→2"
+    (is (= [{:id 100 :label "Chequing" :count 2}
+            {:id 101 :label "Visa" :count 2}]
+           (view/account-options txs {:scope :needs-review}))))
+  (testing "missing-account rows contribute no option"
+    (is (= [] (view/account-options [(tx {:db/id 9 :transaction/amount 1})] {})))))
 
 (deftest institution-funnel-options
-  (testing "all five share the one institution, counted together"
-    (is (= [{:id 1000 :label "Test Bank" :count 5}]
-           (view/institution-options txs)))))
+  (is (= [{:id 1000 :label "Test Bank" :count 5}] (view/institution-options txs {}))))
 
 (deftest category-funnel-options-split-aware
-  (testing "real categories present, split-aware counts, Uncategorized excluded, label-sorted"
-    ;; t1→Salary(10), t2→Groceries(11), t3→Housing(12), t4→none, t5 split→Groceries(11)+none.
-    ;; Groceries is touched by t2 and t5's part = count 2. The uncategorized parts of t4/t5
-    ;; contribute no option (the chip owns those).
+  (testing "real categories, split-aware counts, Uncategorized excluded, label-sorted"
     (is (= [{:id 11 :label "Groceries" :count 2}
             {:id 12 :label "Housing" :count 1}
             {:id 10 :label "Salary" :count 1}]
-           (view/category-funnel-options txs))))
+           (view/category-funnel-options txs {}))))
+  (testing "the full category list always shows; counts faceted (hide-transfers zeroes Housing)"
+    (is (= [{:id 11 :label "Groceries" :count 2}
+            {:id 12 :label "Housing" :count 0}
+            {:id 10 :label "Salary" :count 1}]
+           (view/category-funnel-options txs {:hide-transfers true}))))
   (testing "a fully-uncategorized month yields no category options"
-    (is (= [] (view/category-funnel-options [t4])))))
+    (is (= [] (view/category-funnel-options [t4] {})))))
 
-(deftest count-options-tallies
-  (testing "generic tally: per-id label + count, blank-id rows skipped, label-sorted"
-    (let [rows [{:k 1 :name "Beta"} {:k 1 :name "Beta"} {:k 2 :name "Alpha"} {:k nil :name "skip"}]]
-      (is (= [{:id 2 :label "Alpha" :count 1}
-              {:id 1 :label "Beta" :count 2}]
-             (view/count-options rows :k :name))))))
+(deftest facet-counts-compose
+  (testing "no filters → the faceted counts equal the full-month tallies"
+    (let [fc (view/facet-counts txs {})]
+      (is (= 5 (:total fc)))
+      (is (= 4 (:unreviewed fc)) "t2 reviewed")
+      (is (= 2 (:uncategorized fc)) "t4 + t5")
+      (is (= 1 (:transfers-hidden fc)) "t3")))
+  (testing "scope/uncat compose: each count reflects the OTHER active filters, not its own"
+    ;; uncat chip on, scope=needs-review. Category-dim removed for :total/:unreviewed leaves
+    ;; scope, but those use drop scope: All = the 2 uncategorized rows, Needs review = those
+    ;; that are unreviewed (both) = 2.
+    (let [fc (view/facet-counts txs {:scope :needs-review :uncat true})]
+      (is (= 2 (:total fc)) "All = uncategorized rows (scope neutralized)")
+      (is (= 2 (:unreviewed fc)) "Needs review = those also unreviewed")
+      (is (= 2 (:uncategorized fc)) "Uncategorized = needs-review rows that are uncategorized"))))

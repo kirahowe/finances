@@ -405,12 +405,30 @@
               " page: $page, pageSize: $pageSize, cols: $cols,"
               " fa: $filter.account, fi: $filter.institution, fc: $filter.category})")}])
 
+(defn- funnel-list
+  "A header funnel's option list. Its own #funnel-list-<col> id is the morph target so a view
+   change can re-patch the FACETED counts (each = rows matching the OTHER filters with that
+   value). Each checkbox binds $filter.<col>; the in-funnel search filters client-side (label
+   JSON-encoded so a quote can't break the expression)."
+  [col options]
+  [:ul.filter-dropdown-list {:id (str "funnel-list-" col)}
+   (if (empty? options)
+     [:li.filter-dropdown-item.empty "No values"]
+     (for [{:keys [id label count]} options]
+       [:li.filter-dropdown-item
+        {"data-show" (str "$_funnelQuery === '' || "
+                          (r/signals (str/lower-case label)) ".includes($_funnelQuery.toLowerCase())")}
+        [:label.filter-dropdown-checkbox-label
+         [:input.filter-dropdown-checkbox
+          {:type "checkbox" :value (str id) "data-bind" (str "filter." col)
+           "data-on:change" "$page = 0; @get('/transactions/rows')"}]
+         [:span.filter-dropdown-label-text label]
+         [:span.filter-dropdown-count count]]]))])
+
 (defn- funnel-popover
   "One header-filter popover (floating, position:fixed via .header-filter-popover so it
    escapes the table's overflow). Rendered outside the table so clicks inside don't reach the
-   sort handler. Each checkbox binds the persistent $filter.<col> array and @get's the rows;
-   the in-funnel search filters the options client-side (label JSON-encoded so a name with a
-   quote can't break the expression). Clear empties the selection."
+   sort handler. Clear empties the selection."
   [col options]
   [:div.header-filter-popover
    {"data-show" (str "$_openFunnel === '" col "'")
@@ -420,22 +438,35 @@
     [:div.filter-dropdown-header
      [:input.filter-dropdown-search
       {:type "search" :placeholder "Search…" "data-bind" "_funnelQuery" :aria-label "Filter options"}]]
-    [:ul.filter-dropdown-list
-     (if (empty? options)
-       [:li.filter-dropdown-item.empty "No values"]
-       (for [{:keys [id label count]} options]
-         [:li.filter-dropdown-item
-          {"data-show" (str "$_funnelQuery === '' || "
-                            (r/signals (str/lower-case label)) ".includes($_funnelQuery.toLowerCase())")}
-          [:label.filter-dropdown-checkbox-label
-           [:input.filter-dropdown-checkbox
-            {:type "checkbox" :value (str id) "data-bind" (str "filter." col)
-             "data-on:change" "$page = 0; @get('/transactions/rows')"}]
-           [:span.filter-dropdown-label-text label]
-           [:span.filter-dropdown-count count]]]))]
+    (funnel-list col options)
     [:div.filter-dropdown-footer
      [:button.button.button-secondary.filter-dropdown-clear
       {:type "button" "data-on:click" (str "$filter." col " = []; $page = 0; @get('/transactions/rows')")} "Clear"]]]])
+
+;; --- Active-filter chips (removable tokens for the header-funnel selections) ------------------
+
+(defn- active-filter-chip [col field label remove-id]
+  [:span.active-chip
+   [:span.active-chip-field field]
+   [:span.active-chip-value (or label "—")]
+   [:button.active-chip-remove
+    {:type "button" :aria-label (str "Remove " label " filter")
+     "data-on:click" (str "$filter." col " = $filter." col ".filter(x => x !== '" remove-id "');"
+                          " $page = 0; @get('/transactions/rows')")}
+    "×"]])
+
+(defn- active-filters
+  "The active header-funnel selections as removable chips (#active-filters morph target,
+   re-patched on every view change). Labels come from the funnel options. Hidden when empty so
+   it takes no vertical space."
+  [account-opts institution-opts category-opts {:keys [accounts institutions categories]}]
+  (let [label-of (fn [opts id] (some #(when (= (:id %) id) (:label %)) opts))
+        chips (concat
+               (for [id accounts]     (active-filter-chip "account"     "Account"     (label-of account-opts id) id))
+               (for [id institutions] (active-filter-chip "institution" "Institution" (label-of institution-opts id) id))
+               (for [id categories]   (active-filter-chip "category"    "Category"    (label-of category-opts id) id)))]
+    (into [:div.active-chips (cond-> {:id "active-filters"} (empty? chips) (assoc :hidden true))]
+          chips)))
 
 (defn- funnel-popovers [account-opts institution-opts category-opts]
   (list (funnel-popover "account" account-opts)
@@ -447,6 +478,19 @@
   (str "(evt.metaKey || evt.ctrlKey) && (evt.key === 'z' || evt.key === 'Z')"
        " && (evt.preventDefault(), evt.shiftKey ? @post('/transactions/redo') : @post('/transactions/undo'))"))
 
+(defn- patch-filter-feedback!
+  "Re-patch every filter-dependent fragment after a view change or edit: the faceted count
+   badges, the three funnel option lists (faceted counts), and the active-filter chips."
+  [sse txs view-st]
+  (let [acct (view/account-options txs view-st)
+        inst (view/institution-options txs view-st)
+        cat  (view/category-funnel-options txs view-st)]
+    (d*/patch-elements! sse (counts-fragment (view/facet-counts txs view-st)))
+    (d*/patch-elements! sse (r/render (funnel-list "account" acct)))
+    (d*/patch-elements! sse (r/render (funnel-list "institution" inst)))
+    (d*/patch-elements! sse (r/render (funnel-list "category" cat)))
+    (d*/patch-elements! sse (r/render (active-filters acct inst cat view-st)))))
+
 (defn page
   "GET / — full page. Seeds the view-state from the URL; a fresh load clears lingering."
   [{:keys [db-conn]}]
@@ -455,11 +499,14 @@
     (let [m (month/parse (get-in req [:query-params "month"]))
           month-str (month/serialize m)
           txs (db-transactions/list-for-month db-conn month-str)
-          counts (db-transactions/month-counts txs)
           stats (db-stats/entity-counts db-conn)
           categories (db-categories/list-all db-conn)
           view-st (vs/query->view-state (:query-params req))
-          result (view/view txs view-st)]
+          result (view/view txs view-st)
+          counts (view/facet-counts txs view-st)
+          acct (view/account-options txs view-st)
+          inst (view/institution-options txs view-st)
+          cat  (view/category-funnel-options txs view-st)]
       {:status 200
        :headers {"Content-Type" "text/html"}
        :body
@@ -472,11 +519,11 @@
          [:div.transactions-layout
           [:div.card
            (toolbar m counts)
+           (active-filters acct inst cat view-st)
            (if (empty? txs)
              (empty-state)
              (list (table (:rows result)) (pagination-bar result)))]]
-         (when (seq txs)
-           (funnel-popovers (view/account-options txs) (view/institution-options txs) (view/category-funnel-options txs)))
+         (when (seq txs) (funnel-popovers acct inst cat))
          (category-options categories)
          (url-sync)])})))
 
@@ -489,13 +536,15 @@
     (let [signals (r/read-signals req)
           month-str (month/serialize (month/parse (:month signals)))
           txs (db-transactions/list-for-month db-conn month-str)
-          result (view/view txs (vs/signals->view-state signals))]
+          view-st (vs/signals->view-state signals)
+          result (view/view txs view-st)]
       (hk/->sse-response
        req
        {hk/on-open
         (fn [sse]
           (d*/patch-elements! sse (r/render (tbody (:rows result))))
           (d*/patch-elements! sse (r/render (pagination-bar result)))
+          (patch-filter-feedback! sse txs view-st)
           (d*/patch-signals! sse (r/signals {:page (:page result)}))
           (d*/close-sse! sse))}))))
 
@@ -506,16 +555,15 @@
   (let [user auth/user-id
         month-str (month/serialize (month/parse (:month signals)))
         txs (db-transactions/list-for-month db-conn month-str)
-        {:keys [stale-ids] :as result} (view/view-with-linger txs (vs/signals->view-state signals)
-                                                              (commands/linger user))
-        counts (db-transactions/month-counts txs)]
+        view-st (vs/signals->view-state signals)
+        {:keys [stale-ids] :as result} (view/view-with-linger txs view-st (commands/linger user))]
     (hk/->sse-response
      req
      {hk/on-open
       (fn [sse]
         (d*/patch-elements! sse (r/render (tbody (:rows result) stale-ids)))
         (d*/patch-elements! sse (r/render (pagination-bar result)))
-        (d*/patch-elements! sse (counts-fragment counts))
+        (patch-filter-feedback! sse txs view-st)
         (d*/patch-elements! sse (r/render (undo-redo-controls)))
         (d*/patch-signals! sse (r/signals {:page (:page result)}))
         (d*/close-sse! sse))})))

@@ -76,7 +76,9 @@
   [tx {:keys [search scope hide-transfers accounts institutions] :as vs}]
   (and (or (str/blank? search)
            (str/includes? (search-haystack tx) (str/lower-case search)))
-       (or (= scope :all) (not (true? (:transaction/reviewed tx))))
+       ;; scope filters only when explicitly :needs-review (so a partial view-state from the
+       ;; facet helpers, with scope absent, defaults to showing all)
+       (or (not= scope :needs-review) (not (true? (:transaction/reviewed tx))))
        (not (and hide-transfers (:transaction/transfer-hidden tx)))
        (in-selection? (tx-account-id tx) accounts)
        (in-selection? (tx-institution-id tx) institutions)
@@ -157,42 +159,69 @@
         (paginate page page-size)
         (assoc :stale-ids stale-ids))))
 
+;; --- Faceting: counts that compose ------------------------------------------
+;; Faceted-search semantics: a control's count reflects toggling IT given the OTHER active
+;; filters (its own facet neutralized), so the chips / scope / funnel option counts stay
+;; consistent with the displayed rows and each count answers "what happens if I click this".
+;; The total displayed-row count lives in the pagination footer, not here.
+
+(defn- drop-facet
+  "Neutralize one facet of a view-state (so a count can be computed over the OTHER filters)."
+  [vs facet]
+  (case facet
+    :scope          (assoc vs :scope :all)
+    ;; the Uncategorized chip + the category funnel are one OR-dimension — neutralize both
+    :category-dim   (assoc vs :uncat false :categories #{})
+    :hide-transfers (assoc vs :hide-transfers false)
+    :accounts       (assoc vs :accounts #{})
+    :institutions   (assoc vs :institutions #{})))
+
+(defn facet-counts
+  "The four toolbar counts, faceted (each computed with its own control neutralized):
+   :total/:unreviewed reflect every filter except scope; :uncategorized reflects every filter
+   except the category dimension; :transfers-hidden reflects every filter except Hide-transfers."
+  [txs vs]
+  (let [no-scope (filter-txs txs (drop-facet vs :scope))]
+    {:total            (count no-scope)
+     :unreviewed       (count (remove #(true? (:transaction/reviewed %)) no-scope))
+     :uncategorized    (count (filter db-transactions/needs-category?
+                                      (filter-txs txs (drop-facet vs :category-dim))))
+     :transfers-hidden (count (filter :transaction/transfer-hidden
+                                      (filter-txs txs (drop-facet vs :hide-transfers))))}))
+
 ;; --- Funnel options ---------------------------------------------------------
-;; The account/institution/category header funnels each render a checkbox list of the
-;; distinct values present this month with a per-id count. These are pure (txs → option
-;; maps), so they live with the view engine and reuse its id-extracting fns above.
+;; Each header funnel renders EVERY value present this month (so the full choice always shows),
+;; with a FACETED count: how many rows matching the OTHER filters have that value. Pure
+;; (txs + view-state → option maps), reusing the id-extracting fns above.
 
-(defn count-options
-  "Tally `txs` by `(id-fn tx)` (skipping rows with no id), labelling each id via `label-fn`,
-   into a label-sorted seq of `{:id :label :count}`. Each tx counts once per option."
-  [txs id-fn label-fn]
-  (->> txs
-       (keep (fn [tx] (when-let [id (id-fn tx)] [id (label-fn tx)])))
-       (reduce (fn [m [id label]]
-                 (-> m (assoc-in [id :label] label) (update-in [id :count] (fnil inc 0)))) {})
-       (map (fn [[id {:keys [label count]}]] {:id id :label label :count count}))
-       (sort-by :label)))
+(defn- options-with-counts
+  "Option list = every value in `all-txs` (label from there); count per option = how many
+   `faceted-txs` have it (0 when none). Label-sorted seq of {:id :label :count}."
+  [all-txs faceted-txs id-fn label-fn]
+  (let [counts (frequencies (keep id-fn faceted-txs))
+        labels (reduce (fn [m tx] (if-let [id (id-fn tx)] (assoc m id (label-fn tx)) m)) {} all-txs)]
+    (->> labels
+         (map (fn [[id label]] {:id id :label label :count (get counts id 0)}))
+         (sort-by :label))))
 
-(defn account-options
-  "Account funnel options: each account present this month + its transaction count."
-  [txs]
-  (count-options txs tx-account-id
-                 #(or (get-in % [:transaction/account :account/external-name]) "Unknown")))
+(defn account-options [txs vs]
+  (options-with-counts txs (filter-txs txs (drop-facet vs :accounts)) tx-account-id
+                       #(or (get-in % [:transaction/account :account/external-name]) "Unknown")))
 
-(defn institution-options
-  "Institution funnel options: each institution present this month + its transaction count."
-  [txs]
-  (count-options txs tx-institution-id
-                 #(or (get-in % [:transaction/account :account/institution :institution/name]) "Unknown")))
+(defn institution-options [txs vs]
+  (options-with-counts txs (filter-txs txs (drop-facet vs :institutions)) tx-institution-id
+                       #(or (get-in % [:transaction/account :account/institution :institution/name]) "Unknown")))
 
 (defn category-funnel-options
-  "Real categories present this month with the number of transactions touching each
-   (split-aware). Uncategorized is excluded — the toolbar chip owns it."
-  [txs]
-  (let [name-of (fn [tx]
-                  (concat (when-let [c (:transaction/category tx)] (when (:db/id c) [[(:db/id c) (:category/name c)]]))
-                          (mapcat (fn [p] (when-let [c (:split/category p)] (when (:db/id c) [[(:db/id c) (:category/name c)]])))
-                                  (:transaction/splits tx))))
-        names (into {} (mapcat name-of txs))
-        counts (frequencies (mapcat tx-category-ids txs))]
-    (->> counts (map (fn [[id n]] {:id id :label (get names id "Unknown") :count n})) (sort-by :label))))
+  "Real categories present this month (split-aware), each with a faceted touch-count. The
+   Uncategorized chip owns categoryless rows, so it's excluded here."
+  [txs vs]
+  (let [counts (frequencies (mapcat tx-category-ids (filter-txs txs (drop-facet vs :category-dim))))
+        labels (reduce (fn [m tx]
+                         (reduce (fn [m c] (cond-> m (:db/id c) (assoc (:db/id c) (:category/name c))))
+                                 m
+                                 (cons (:transaction/category tx) (map :split/category (:transaction/splits tx)))))
+                       {} txs)]
+    (->> labels
+         (map (fn [[id label]] {:id id :label label :count (get counts id 0)}))
+         (sort-by :label))))
