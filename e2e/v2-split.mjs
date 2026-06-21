@@ -34,9 +34,10 @@ await superstore().hover();
 await superstore().locator('.row-actions-trigger').click();
 const menu = page.locator('#row-actions-menu');
 await menu.waitFor({ state: 'visible' });
+const splitItem = menu.locator('.row-actions-item').first(); // [0]=Split, [1]=Match
 check('menu offers "Split transaction" for an unsplit row',
-  (await menu.locator('.row-actions-item').innerText()).trim() === 'Split transaction');
-await menu.locator('.row-actions-item').click();
+  (await splitItem.innerText()).trim() === 'Split transaction');
+await splitItem.click();
 
 const modal = page.locator('.split-modal-content');
 await modal.waitFor({ state: 'visible' });
