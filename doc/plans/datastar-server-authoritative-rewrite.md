@@ -1,11 +1,13 @@
 # Datastar server-authoritative rewrite — architecture & plan
 
-**Status:** R0–R3 + cp1b + cp2(+tail) done; **8 UI bugs fixed + a view-logic cleanup pass done**
-— `/v2` is feature-complete vs the old `/` except split-row editing, and the views are now
-strictly presentational. **Branch:** `spike/replicant-datastar`. **Next: R4** (delete Replicant
-+ the old page/islands/spike, flip `/v2` → `/`). Suite **315/0**; 9 browser specs green.
+**Status:** R0–R4 **DONE** — the server-authoritative workspace is the canonical `/`; Replicant,
+the old client-heavy page, the spike, and the dead islands are all deleted; hiccup2 is the only
+renderer; views are strictly presentational. **Branch:** `spike/replicant-datastar`. Suite
+**309/0**; 9 browser specs green. **Next: R5** (split editor + transfer modals + rollup + row
+actions) and **Phase 5** (delete the old React `frontend/` — note the e2e harness currently
+borrows Playwright from `frontend/node_modules`, so move that first).
 
-`/v2` now has: server-side filter/scope/chips/funnels/sort/paginate; undoable reviewed /
+`/` now has: server-side filter/scope/chips/funnels/sort/paginate; undoable reviewed /
 description / category edits with lingering (rows hold position); column chooser (all columns);
 keyboard grid-nav (morph-aware, skips hidden cols); column auto-size + local resize + reset-widths;
 URL view-state persistence. Browser specs `e2e/v2*.mjs` + `e2e/setup.mjs`, all green.
@@ -120,21 +122,26 @@ duplication (`tx-account-id`/etc. dup'd `view.clj`; `hideable-columns` hand-sync
 `columns`; `fmt-int` dup'd) and the **inverse latent gap**: `month.clj`/`format.clj` were untested
 pure logic (now tested). +25 tests (290→315).
 
-## Remaining checklist (R4 + small follow-ups)
+## R4 — DONE (2026-06-21)
 
-- **R4 — delete the old stack** (the next work): old client-heavy `/` page
-  (`web/pages/transactions.clj`); old islands (`sort`, `pagination`, `url-state`, `hello`, old
-  `col-resize`); the Replicant seam (`web/hiccup.clj`, `web/layout.clj`) + dep. Convert `/setup`
-  to the hiccup2 seam (`layout2`+`render`). Flip `/v2` → `/` (rename routes/endpoints + the 8 e2e
-  specs; drop the `v2`/`2` suffixes on `transactions2`/`layout2`/`v2-url`/`v2-resize`). Delete the
-  spike (`/spike`, `rows_spike.clj`, `e2e/spike-hiccup2.mjs`) + scaffold (`/_scaffold` + atom).
-- **Unused CSS**: the `.table-dense` rule (cp1) is now unused (`/v2` uses `.table-resizable`).
-  And from the CSS cleanup: `.pagination-nav-button` still re-derives the icon-button footprint
-  (fold into the shared rule), and `.nav-links .button { text-decoration:none }` is now dead
-  (base `.button` carries it).
-- **Known small gaps**: column widths aren't URL-persisted (auto-fit on load only); the
-  description editor opens via grid-nav but doesn't Enter-walk-the-column; page index is 0-based
-  in the URL. **Split-row editing unbuilt** (R5).
+Flipped `/v2` → `/` (page at `/`, SSE/edit endpoints under `/transactions/*`). Deleted the old
+client-heavy page, the spike + scaffold, and the dead islands (`sort`/`pagination`/`url-state`/
+`hello`/old `col-resize`). Removed the Replicant seam (`web/hiccup.clj` + test, `web/layout.clj`)
+and the `no.cjohansen/replicant` dep — **hiccup2 is the only renderer**. Converted `/setup` to
+the hiccup2 seam. Dropped the `2`/`v2` suffixes: `transactions2`→`transactions`, `layout2`→
+`layout`, islands `v2-url`→`url` + `v2-resize`→`resize` (window hooks `__syncUrl`/`__resetWidths`).
+Suite 309/0; 9 specs green against `/`. Final `web/` stack: `view`/`view_state`/`commands`/
+`accounts`/`format`/`month`/`render`/`layout`/`shell`/`routes` + `pages/{transactions,setup}`.
+
+## Small follow-ups (low priority)
+
+- **Unused/dead CSS**: the `.table-dense` rule (cp1) is now unused (the table is `.table-resizable`);
+  `.pagination-nav-button` still re-derives the icon-button footprint (fold into the shared rule);
+  `.nav-links .button { text-decoration:none }` is dead (base `.button` carries it now).
+- **e2e spec filenames** still `v2-*.mjs` (cosmetic; content + URLs are canonical). Harness still
+  borrows Playwright from `frontend/node_modules` (move before Phase 5 deletes `frontend/`).
+- **Known small gaps**: column widths aren't URL-persisted (auto-fit on load only); the description
+  editor opens via grid-nav but doesn't Enter-walk-the-column; page index is 0-based in the URL.
 - **SSE multi-patch ordering**: edit responses patch tbody → pagination → counts → undo-redo as
   separate events (applied in order; imperceptible). e2e gates on the last patch where it matters.
 
@@ -237,9 +244,8 @@ noticeable; undo lets you *reverse* a spotted mistake (ideally surfaced inline, 
 
 - **R3 ✅ DONE** (column chooser + URL view-state persistence via client CSS + a thin
   `replaceState` reflector; the server seeds from the URL on load): `e2e/v2-cols.mjs` 7/7.
-- **R4 — Delete the old (NEXT).** Replicant dep + `web/hiccup.clj` + `web/layout.clj`, the old
-  transactions page + spike + scaffold, dead islands. Convert `/setup` to the hiccup2 seam.
-  Flip `/v2` → `/`. Full backend + e2e suites green.
+- **R4 — Delete the old. ✅ DONE** (see the "R4 — DONE" section above). Replicant + old page +
+  spike + scaffold + dead islands gone; `/setup` on hiccup2; `/v2` → `/`; suffixes dropped.
 - **R5 — split editor + transfer modals + rollup + row actions** on the new pattern
   (split balance via `splitMath`, etc.).
 
