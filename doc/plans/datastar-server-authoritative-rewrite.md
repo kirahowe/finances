@@ -1,14 +1,25 @@
 # Datastar server-authoritative rewrite — architecture & plan
 
-**Status:** R0–R3 + cp1b + cp2(+tail) **all done** — `/v2` is feature-complete vs the old `/`
-except split-row editing. **Branch:** `spike/replicant-datastar`. Next: **R4** (delete Replicant
-+ the old page/islands, flip `/v2` → `/`). A review/cleanup pass is expected before R4.
+**Status:** R0–R3 + cp1b + cp2(+tail) done; **8 UI bugs fixed + a view-logic cleanup pass done**
+— `/v2` is feature-complete vs the old `/` except split-row editing, and the views are now
+strictly presentational. **Branch:** `spike/replicant-datastar`. **Next: R4** (delete Replicant
++ the old page/islands/spike, flip `/v2` → `/`). Suite **315/0**; 9 browser specs green.
 
 `/v2` now has: server-side filter/scope/chips/funnels/sort/paginate; undoable reviewed /
-description / category edits with lingering; column chooser; keyboard grid-nav (morph-aware);
-column auto-size + resize; URL view-state persistence. 8 browser specs (`e2e/v2*.mjs`), all green.
+description / category edits with lingering (rows hold position); column chooser (all columns);
+keyboard grid-nav (morph-aware, skips hidden cols); column auto-size + local resize + reset-widths;
+URL view-state persistence. Browser specs `e2e/v2*.mjs` + `e2e/setup.mjs`, all green.
 Supersedes the client-heavy approach in `replicant-datastar-progress.md` for the
 transactions workspace. Memory: `project_replicant_datastar_spike`.
+
+## Conventions locked in (the dumb-views rule)
+
+Surviving views are **strictly presentational** — hiccup renderers + thin handlers (read
+signals → call pure fns → hit db → render) only. **All data fetching/rearranging/parsing lives
+in pure, kaocha-tested fns**, never in a view (the lingering bug proved logic-in-a-view escapes
+the test net). Pure homes: `web/view.clj` (filter/sort/paginate/linger + funnel options),
+`web/view_state.clj` (query↔view-state↔signals codec + value parsers), `web/accounts.clj`
+(account display rules), `web/format.clj` + `web/month.clj` (formatters/date-math). All tested.
 
 ## Why
 
@@ -91,21 +102,39 @@ New seam = `web/render.clj`: `render`, `render-page`, `signals` (JSON), `raw`,
 - Fragment renderers (`tbody`, `counts`, active toolbar states) + `GET /transactions/rows`;
   existing mutation PUTs re-render the affected fragments.
 
-## Review / cleanup checklist (before/at R4)
+## Bug-fix + cleanup pass (DONE — 2026-06-21)
 
-- **Delete the old stack** (R4): the client-heavy `/` page (`web/pages/transactions.clj`), the
-  old islands (`sort`, `pagination`, `url-state`, `hello`, the old `col-resize` + `grid-nav`
-  usage on `/`), the Replicant seam (`web/hiccup.clj`, `web/layout.clj`), and the Replicant dep.
-  Convert `/setup` to the hiccup2 seam. Then flip `/v2` → `/`.
-- **Delete the spike**: `/spike`, `web/pages/rows_spike.clj`, `e2e/spike-hiccup2.mjs`. And the
-  Phase-1 scaffold (`/_scaffold` route + atom).
-- **Unused CSS**: the `.table-dense` rule (generalized in cp1) is now unused — `/v2` uses
-  `.table-resizable`. Remove (or keep if a non-resizable dense table reappears).
-- **grid-nav island** is shared with the old page; once `/` is gone, the MutationObserver-repaint
-  is the only consumer — consider folding `v2-resize`/`grid-nav` naming back to canonical.
-- **Known small gaps**: column widths aren't URL-persisted (auto-fit on load only — matches old
-  page); the description editor opens via grid-nav but doesn't Enter-walk-the-column (no auto-
-  advance); page index is 0-based in the URL (old page was 1-based). Split-row editing unbuilt.
+8 UI bugs fixed (each chased by a subagent, browser-verified, committed):
+1. Combobox now auto-highlights the typed match (island was discarding the model's `firstMatchIndex`).
+2/3. Month carets (no underline, bigger) + undo/redo glyphs bigger / buttons shorter (CSS).
+4. All columns hideable + **Reset-widths** button; grid-nav skips `display:none` cells.
+5. **Resize is local** (architectural): replaced "auto-fit redistributes all flexible columns"
+   with **freeze-then-local** — the first gesture freezes all widths, then only the touched
+   column moves. 6. Double-click always content-fits a column (was a no-op until dragged).
+7/8. **Lingered rows hold position** (one root cause): linger composition was `(concat matched
+   lingered)` — appended instead of holding source order; now selects by walking source order.
+
+Then a **view-logic cleanup**: extracted all data logic out of the views into pure tested fns
+(see "Conventions locked in" above). `transactions2.clj` 717→577 lines. Found + fixed real
+duplication (`tx-account-id`/etc. dup'd `view.clj`; `hideable-columns` hand-synced → derived from
+`columns`; `fmt-int` dup'd) and the **inverse latent gap**: `month.clj`/`format.clj` were untested
+pure logic (now tested). +25 tests (290→315).
+
+## Remaining checklist (R4 + small follow-ups)
+
+- **R4 — delete the old stack** (the next work): old client-heavy `/` page
+  (`web/pages/transactions.clj`); old islands (`sort`, `pagination`, `url-state`, `hello`, old
+  `col-resize`); the Replicant seam (`web/hiccup.clj`, `web/layout.clj`) + dep. Convert `/setup`
+  to the hiccup2 seam (`layout2`+`render`). Flip `/v2` → `/` (rename routes/endpoints + the 8 e2e
+  specs; drop the `v2`/`2` suffixes on `transactions2`/`layout2`/`v2-url`/`v2-resize`). Delete the
+  spike (`/spike`, `rows_spike.clj`, `e2e/spike-hiccup2.mjs`) + scaffold (`/_scaffold` + atom).
+- **Unused CSS**: the `.table-dense` rule (cp1) is now unused (`/v2` uses `.table-resizable`).
+  And from the CSS cleanup: `.pagination-nav-button` still re-derives the icon-button footprint
+  (fold into the shared rule), and `.nav-links .button { text-decoration:none }` is now dead
+  (base `.button` carries it).
+- **Known small gaps**: column widths aren't URL-persisted (auto-fit on load only); the
+  description editor opens via grid-nav but doesn't Enter-walk-the-column; page index is 0-based
+  in the URL. **Split-row editing unbuilt** (R5).
 - **SSE multi-patch ordering**: edit responses patch tbody → pagination → counts → undo-redo as
   separate events (applied in order; imperceptible). e2e gates on the last patch where it matters.
 
@@ -206,20 +235,21 @@ noticeable; undo lets you *reverse* a spotted mistake (ideally surfaced inline, 
     new DOM-driven `v2-resize` island (reads column metadata from headers, reuses columnAutoSizing);
     `/v2` switched to `.table-resizable` fixed layout. Still deferred: **split-row** editing.
 
-- **R3 ✅ DONE** (column chooser + URL view-state persistence): see the cp1 block above for
-  the URL plumbing; `e2e/v2-cols.mjs` 7/7.
-- **R3 — Column vis/width persistence** via URL + client CSS; thin `replaceState` reflector.
-- **R4 — Delete the old.** Replicant dep, `web/hiccup.clj`, `web/layout.clj`, the old
-  transactions page, dead islands, the scaffold. Convert `/setup` to the hiccup2 seam.
-  Full backend + e2e suites green.
-- **R5 — 3e on the new pattern.** Split editor, transfer modals, rollup, row actions —
-  built natively server-authoritative (split balance via `splitMath`, etc.).
+- **R3 ✅ DONE** (column chooser + URL view-state persistence via client CSS + a thin
+  `replaceState` reflector; the server seeds from the URL on load): `e2e/v2-cols.mjs` 7/7.
+- **R4 — Delete the old (NEXT).** Replicant dep + `web/hiccup.clj` + `web/layout.clj`, the old
+  transactions page + spike + scaffold, dead islands. Convert `/setup` to the hiccup2 seam.
+  Flip `/v2` → `/`. Full backend + e2e suites green.
+- **R5 — split editor + transfer modals + rollup + row actions** on the new pattern
+  (split balance via `splitMath`, etc.).
 
 ## How to verify (current)
 
 ```bash
 cd backend && export JAVA_HOME=/opt/homebrew/Cellar/jabba/0.15.0/jdk/zulu@25.0.3/Contents/Home
+clojure -M:test -m kaocha.runner                              # 315/0
 E2E_PORT=8099 clojure -M:e2e -m finance-aggregator.dev.e2e-server &
-# compare: http://localhost:8099/ (client) vs http://localhost:8099/spike (server, hiccup2)
-BASE_URL=http://localhost:8099 node e2e/spike-hiccup2.mjs   # 5/5
+# the new server-authoritative workspace + its specs (build islands first: cd islands && npm run build)
+for s in v2 v2-edit v2-desc v2-category v2-cols v2-funnels v2-grid v2-resize setup; do
+  BASE_URL=http://localhost:8099 node e2e/$s.mjs; done
 ```
