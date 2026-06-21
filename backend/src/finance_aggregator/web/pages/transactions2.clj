@@ -49,10 +49,13 @@
 
 ;; Column visibility is persistent-but-client-applied (Lane A, row 2): the `cols.<id>`
 ;; signals toggle `hide-<id>` classes on the table (pure CSS, no round-trip), and persist to
-;; the URL. Only the non-interactive columns are hideable.
+;; the URL. Every column is hideable — the interactive ones (description/category/reviewed)
+;; carry data-cell; grid-nav rebuilds its model from the visible cells, so hiding one just
+;; drops it from keyboard navigation too.
 (def ^:private hideable-columns
   [["date" "Date"] ["account" "Account"] ["institution" "Institution"]
-   ["payee" "Payee"] ["amount" "Amount"]])
+   ["payee" "Payee"] ["description" "Description"] ["amount" "Amount"]
+   ["category" "Category"] ["reviewed" "Reviewed"]])
 
 (defn- cols-hide-class []
   (str "{" (str/join ", " (map (fn [[id _]] (str "'hide-" id "': !$cols." id)) hideable-columns)) "}"))
@@ -504,9 +507,11 @@
       "↷"]]))
 
 (defn- column-picker
-  "Toolbar dropdown toggling which non-interactive columns show. The `cols.<id>` checkboxes
-   flip the table's `hide-<id>` class via data-class (pure CSS, no round-trip); the URL
-   reflector persists them. `__stop` so the open-click isn't also seen as a click-outside."
+  "Toolbar dropdown toggling which columns show. The `cols.<id>` checkboxes flip the table's
+   `hide-<id>` class via data-class (pure CSS, no round-trip); the URL reflector persists them.
+   The footer's \"Reset widths\" hands every column back to auto-fit via the v2-resize island's
+   window hook (it clears the user-dragged widths and re-measures). `__stop` so the open-click
+   isn't also seen as a click-outside."
   []
   [:div.filter-button-container.column-picker
    [:button.button.button-secondary.filter-button
@@ -522,7 +527,11 @@
        [:li.filter-dropdown-item
         [:label.filter-dropdown-checkbox-label
          [:input.filter-dropdown-checkbox {:type "checkbox" "data-bind" (str "cols." id)}]
-         [:span.filter-dropdown-label-text label]]])]]])
+         [:span.filter-dropdown-label-text label]]])]
+    [:div.filter-dropdown-footer
+     [:button.button.button-secondary.filter-dropdown-clear
+      {:type "button" "data-on:click" "window.__v2ResetWidths && window.__v2ResetWidths()"}
+      "Reset widths"]]]])
 
 ;; ---------------------------------------------------------------------------
 ;; Routes

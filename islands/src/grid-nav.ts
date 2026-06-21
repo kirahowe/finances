@@ -52,6 +52,10 @@ if (scroll && table) {
     model.rows.length = 0;
     let lastRowKey: string | null = null;
     for (const td of table!.querySelectorAll<HTMLElement>('[data-cell]')) {
+      // Skip cells in a hidden column (the column picker collapses them to display:none, so
+      // offsetParent is null): an interactive column the user has hidden must drop out of
+      // keyboard navigation too, never leaving focus stranded on an invisible cell.
+      if (td.offsetParent === null) continue;
       const dc = td.dataset.cell!;
       cellEls.set(dc, td);
       const { key, col } = parseKey(dc);

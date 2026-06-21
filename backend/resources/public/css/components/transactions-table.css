@@ -242,13 +242,18 @@
 }
 
 /* Column visibility: the toolbar picker toggles a hide-<id> class on the table; each
-   read-only column is collapsed by its fixed position (nth-child counts source order,
-   so hiding one column never shifts the others). */
+   column is collapsed by its fixed position (nth-child counts source order, so hiding one
+   column never shifts the others). Positions match the colgroup/header order in
+   transactions2.clj: date(1) account(2) institution(3) payee(4) description(5) amount(6)
+   category(7) reviewed(8). */
 .table.hide-date th:nth-child(1), .table.hide-date td:nth-child(1),
 .table.hide-account th:nth-child(2), .table.hide-account td:nth-child(2),
 .table.hide-institution th:nth-child(3), .table.hide-institution td:nth-child(3),
 .table.hide-payee th:nth-child(4), .table.hide-payee td:nth-child(4),
-.table.hide-amount th:nth-child(6), .table.hide-amount td:nth-child(6) {
+.table.hide-description th:nth-child(5), .table.hide-description td:nth-child(5),
+.table.hide-amount th:nth-child(6), .table.hide-amount td:nth-child(6),
+.table.hide-category th:nth-child(7), .table.hide-category td:nth-child(7),
+.table.hide-reviewed th:nth-child(8), .table.hide-reviewed td:nth-child(8) {
   display: none;
 }
 

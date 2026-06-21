@@ -118,3 +118,11 @@ export function sameWidths(a: Record<string, number>, b: Record<string, number>)
   const ids = Object.keys(b);
   return ids.length === Object.keys(a).length && ids.every((id) => a[id] === b[id]);
 }
+
+// Pure. The single-column fit width: clamp a measured intrinsic width to the column's
+// usable range. Used by the Excel-style double-click ("autosize THIS column to content")
+// and as the leaf of any local resize — it never redistributes the other columns, so it
+// composes with the "freeze everything else, change only this one" resize model.
+export function fitColumnWidth(intrinsic: number, minSize: number, maxSize: number): number {
+  return Math.max(minSize, Math.min(maxSize, intrinsic));
+}
