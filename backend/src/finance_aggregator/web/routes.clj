@@ -16,6 +16,8 @@
    ["/transactions/:id/reviewed/:v" {:put  {:handler (transactions/toggle-reviewed deps) :name ::reviewed}}]
    ["/transactions/:id/description" {:put  {:handler (transactions/set-description deps) :name ::description}}]
    ["/transactions/:id/category"    {:put  {:handler (transactions/set-category deps) :name ::category}}]
+   ["/transactions/:id/split-editor" {:get {:handler (transactions/split-editor deps) :name ::split-editor}}]
+   ["/transactions/:id/splits"      {:put  {:handler (transactions/set-splits deps) :name ::splits}}]
    ["/transactions/undo"            {:post {:handler (transactions/undo deps) :name ::undo}}]
    ["/transactions/redo"            {:post {:handler (transactions/redo deps) :name ::redo}}]
    ["/setup"   {:get {:handler (setup/page deps) :name ::setup}}]])

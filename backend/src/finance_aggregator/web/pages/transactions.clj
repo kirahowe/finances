@@ -135,6 +135,24 @@
   [tx-id col]
   {:data-cell (str tx-id ":tx:" col) :role "gridcell" :tabindex "-1"})
 
+;; --- Row-actions menu ------------------------------------------------------
+;; A trailing always-on chrome column (NOT a hideable data column, so it stays out of the
+;; cols/URL/picker machinery). A quiet caret opens one shared floating menu (row-actions-menu,
+;; rendered outside the table so it escapes overflow), carrying the row's id + split state +
+;; position into the ephemeral _rowMenu signals.
+
+(defn- row-actions-cell [tx-id split?]
+  [:td.actions-cell
+   [:div.row-actions
+    [:button.row-actions-trigger
+     {:type "button" :aria-haspopup "menu" :aria-label "Row actions"
+      "data-attr" (str "{'aria-expanded': $_rowMenu === " tx-id " ? 'true' : 'false'}")
+      "data-on:click__stop"
+      (str "$_rowMenu = ($_rowMenu === " tx-id " ? 0 : " tx-id "); $_rowMenuSplit = " (boolean split?) ";"
+           " $_rowMenuX = Math.max(8, window.innerWidth - el.getBoundingClientRect().right);"
+           " $_rowMenuY = el.getBoundingClientRect().bottom + 4")}
+     "⋯"]]])
+
 (defn- normal-row [stale? {:transaction/keys [posted-date account payee effective-description
                                               amount category reviewed] :as tx}]
   [:tr {:role "row" :class (row-class "" stale?)}
@@ -145,16 +163,18 @@
    [:td.description-cell (grid-cell (:db/id tx) "description") (editable-description (:db/id tx) effective-description)]
    [:td.amount-cell (amount-span amount false)]
    [:td.category-cell (grid-cell (:db/id tx) "category") (editable-category (:db/id tx) category)]
-   [:td.reviewed-cell (grid-cell (:db/id tx) "reviewed") (reviewed-checkbox (:db/id tx) reviewed true)]])
+   [:td.reviewed-cell (grid-cell (:db/id tx) "reviewed") (reviewed-checkbox (:db/id tx) reviewed true)]
+   (row-actions-cell (:db/id tx) false)])
 
-(defn- split-parent-row [stale? {:transaction/keys [posted-date account payee effective-description]}]
+(defn- split-parent-row [stale? {:transaction/keys [posted-date account payee effective-description] :as tx}]
   [:tr {:role "row" :class (row-class "is-split-parent" stale?)}
    [:td [:span.numeric (fmt/date posted-date)]]
    [:td (or (:account/external-name account) "—")]
    [:td (or (get-in account [:account/institution :institution/name]) "—")]
    [:td payee]
    [:td.description-cell (if (str/blank? effective-description) "—" effective-description)]
-   [:td.amount-cell] [:td.category-cell] [:td.reviewed-cell]])
+   [:td.amount-cell] [:td.category-cell] [:td.reviewed-cell]
+   (row-actions-cell (:db/id tx) true)])
 
 (defn- split-child-row [stale? {:split/keys [amount memo category reviewed]}]
   [:tr {:role "row" :class (row-class "split-child-row" stale?)}
@@ -162,7 +182,8 @@
    [:td.description-cell (if (str/blank? memo) "—" memo)]
    [:td.amount-cell (amount-span amount true)]
    [:td.category-cell (or (:category/name category) "Uncategorized")]
-   [:td.reviewed-cell (reviewed-checkbox nil reviewed false)]])
+   [:td.reviewed-cell (reviewed-checkbox nil reviewed false)]
+   [:td.actions-cell]])
 
 (defn- tx-rows [stale-ids tx]
   (let [stale? (contains? stale-ids (:db/id tx))]
@@ -238,8 +259,10 @@
   ;; island refines them (auto-fit on load + drag handles). Density/sticky come with the class.
   [:div.transactions-table-scroll {:tabindex "0"}
    [:table.table.table-resizable {:role "grid" "data-class" (cols-hide-class)}
-    [:colgroup (for [{:keys [w]} vs/columns] [:col {:style (str "width:" w "px")}])]
-    [:thead [:tr (map th vs/columns)]]
+    [:colgroup
+     (concat (for [{:keys [w]} vs/columns] [:col {:style (str "width:" w "px")}])
+             [[:col.actions-col {:aria-hidden "true"}]])]
+    [:thead [:tr (concat (map th vs/columns) [[:th.actions-th {:aria-hidden "true"}]])]]
     (tbody rows)]])
 
 ;; ---------------------------------------------------------------------------
@@ -491,6 +514,65 @@
     (d*/patch-elements! sse (r/render (funnel-list "category" cat)))
     (d*/patch-elements! sse (r/render (active-filters acct inst cat view-st)))))
 
+;; --- Row-actions menu + split-editor modal ---------------------------------
+
+(defn- row-actions-menu
+  "The single floating menu shared by every row's caret (rendered outside the table so it
+   escapes overflow). $_rowMenu holds the open row's id (0 = closed) and $_rowMenuSplit its
+   split state (so the one item reads \"Edit split\" vs \"Split transaction\"). Selecting it
+   opens that row's split editor (@get builds the url from $_rowMenu before it's cleared)."
+  []
+  [:ul.row-actions-menu {:id "row-actions-menu" :role "menu" :aria-label "Row actions"
+                         "data-show" "$_rowMenu"
+                         "data-style" "{right: $_rowMenuX + 'px', top: $_rowMenuY + 'px'}"
+                         "data-on:click__outside" "$_rowMenu = 0"
+                         "data-on:keydown__window" "evt.key === 'Escape' && ($_rowMenu = 0)"}
+   [:li {:role "none"}
+    [:button.row-actions-item
+     {:type "button" :role "menuitem"
+      "data-text" "$_rowMenuSplit ? 'Edit split' : 'Split transaction'"
+      "data-on:click" "@get('/transactions/' + $_rowMenu + '/split-editor'); $_rowMenu = 0"}
+     "Split transaction"]]])
+
+(defn- split-editor-modal
+  "The split-editor modal, patched into #modal-root by GET /transactions/:id/split-editor.
+   The dialog carries the editor's data for the island (tx id, parent amount, JSON seed rows,
+   already-split?); the island fills .split-rows-container, runs the live balance math
+   (islands/lib/splitMath), and on save writes the JSON payload into #split-courier (whose
+   change @put's). Cancel/Esc/backdrop close client-side (the island wipes #modal-root); save
+   closes server-side (the PUT response re-patches #modal-root empty)."
+  [tx]
+  (let [tx-id (:db/id tx)
+        amount (:transaction/amount tx)
+        split? (boolean (seq (:transaction/splits tx)))]
+    [:div {:id "modal-root"}
+     [:div.modal-backdrop.split-modal-backdrop {:role "presentation"}
+      [:div.modal-content.split-modal-content
+       {:data-split-editor "" :data-tx-id (str tx-id) :data-amount (str amount)
+        :data-seed (r/signals (view/split-editor-seed tx)) :data-split (str split?)
+        :role "dialog" :aria-modal "true" :aria-labelledby "split-modal-title"}
+       [:h2#split-modal-title (if split? "Edit split" "Split transaction")]
+       [:div.split-modal-sub
+        [:span.split-modal-payee (:transaction/payee tx)]
+        [:span.numeric (fmt/amount amount)]]
+       [:p.split-modal-hint
+        "Divide this transaction into parts that add up to the total. Each part gets its own category."]
+       [:div.split-error.error-message {:hidden true :role "alert"}]
+       [:div.split-row.split-row-head {:aria-hidden "true"}
+        [:span "Amount"] [:span "Category"] [:span "Description"] [:span]]
+       [:div.split-rows-container]
+       [:button.split-add-button {:type "button"} "+ Add part"]
+       [:div.split-remaining]
+       [:div.split-modal-actions
+        (if split?
+          [:button.button.button-secondary.split-unsplit {:type "button"} "Un-split"]
+          [:span])
+        [:div.split-modal-actions-right
+         [:button.button.button-secondary.split-cancel {:type "button"} "Cancel"]
+         [:button.button.button-primary.split-save {:type "button" :disabled true} "Save split"]]]
+       [:input {:id "split-courier" :type "hidden"
+                "data-on:change" (str "$splitValue = el.value; @put('/transactions/" tx-id "/splits')")}]]]]))
+
 (defn page
   "GET / — full page. Seeds the view-state from the URL; a fresh load clears lingering."
   [{:keys [db-conn]}]
@@ -512,7 +594,7 @@
        :body
        (layout/document
         {:title "Finance Aggregator"
-         :islands ["combobox" "url" "grid-nav" "resize"]
+         :islands ["combobox" "url" "grid-nav" "resize" "split-editor"]
          :signals (vs/client-signals view-st month-str result (:query-params req))}
         [:div.container.container--workspace {"data-on:keydown__window" undo-key-js}
          (shell/masthead {:active :transactions :stats stats})
@@ -523,9 +605,11 @@
            (if (empty? txs)
              (empty-state)
              (list (table (:rows result)) (pagination-bar result)))]]
-         (when (seq txs) (funnel-popovers acct inst cat))
+         (when (seq txs) (list (funnel-popovers acct inst cat) (row-actions-menu)))
          (category-options categories)
-         (url-sync)])})))
+         (url-sync)
+         ;; Patched by GET /transactions/:id/split-editor; emptied again on close/save.
+         [:div {:id "modal-root"}]])})))
 
 (defn rows
   "GET /transactions/rows — a pure view change: clear lingering, re-run the view, morph the tbody +
@@ -550,8 +634,9 @@
 
 (defn- edit-response
   "Shared SSE response after any edit/undo/redo: re-render the tbody (lingering the touched
-   rows), the pagination bar, the server-authoritative counts, and the undo toast."
-  [db-conn req signals]
+   rows), the pagination bar, the server-authoritative counts, and the undo/redo controls.
+   `:close-modal?` also re-patches #modal-root empty (a split save closes its modal)."
+  [db-conn req signals & {:keys [close-modal?]}]
   (let [user auth/user-id
         month-str (month/serialize (month/parse (:month signals)))
         txs (db-transactions/list-for-month db-conn month-str)
@@ -565,6 +650,7 @@
         (d*/patch-elements! sse (r/render (pagination-bar result)))
         (patch-filter-feedback! sse txs view-st)
         (d*/patch-elements! sse (r/render (undo-redo-controls)))
+        (when close-modal? (d*/patch-elements! sse (r/render [:div {:id "modal-root"}])))
         (d*/patch-signals! sse (r/signals {:page (:page result)}))
         (d*/close-sse! sse))})))
 
@@ -606,6 +692,36 @@
                        {:type :set-category :tx-id tx-id :before before :after after
                         :label "Recategorized"})
       (edit-response db-conn req signals))))
+
+(defn split-editor
+  "GET /transactions/:id/split-editor — render the split-editor modal for one transaction into
+   #modal-root. A pure read (no command, no lingering change)."
+  [{:keys [db-conn]}]
+  (fn [req]
+    (let [tx (db-transactions/by-id db-conn (-> req :path-params :id parse-long))]
+      (hk/->sse-response
+       req
+       {hk/on-open
+        (fn [sse]
+          (d*/patch-elements! sse (r/render (split-editor-modal tx)))
+          (d*/close-sse! sse))}))))
+
+(defn set-splits
+  "PUT /transactions/:id/splits — record + apply a :set-splits command (the new parts ride in
+   the $splitValue courier as JSON; [] un-splits), then re-render and close the modal. Captures
+   the prior parts as :before so undo restores them."
+  [{:keys [db-conn]}]
+  (fn [req]
+    (let [tx-id (-> req :path-params :id parse-long)
+          signals (r/read-signals req)
+          before (db-transactions/current-splits db-conn tx-id)
+          after (vs/parse-splits-value (:splitValue signals))]
+      (commands/apply! db-conn auth/user-id
+                       {:type :set-splits :tx-id tx-id :before before :after after
+                        :label (cond (empty? after)  "Un-split"
+                                     (seq before)     "Edited split"
+                                     :else            "Split transaction")})
+      (edit-response db-conn req signals :close-modal? true))))
 
 (defn undo
   "POST /transactions/undo — reverse the last edit (keeping the row lingering), then re-render."
