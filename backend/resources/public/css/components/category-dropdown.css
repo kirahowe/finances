@@ -15,10 +15,13 @@
 
 .category-dropdown-input {
   width: 100%;
-  /* Shares .category-button's box so opening the editor never shifts the row;
-     the active state adds only a single pine border on top. The combobox is
-     always opened focused, so a separate focus ring on top of this border just
-     reads as a doubled outline — the one pine border is the editing affordance. */
+  /* Shares .category-button's box so opening the editor never shifts the row.
+     The floating root sits fixed over the cell; this input is the only active
+     surface, so it carries the whole focus affordance: ONE pine border plus the
+     app's soft focus-ring glow, matching .form-input:focus. (The underlying
+     .category-button is masked out below so its border can't double up — the
+     regression was two nested borders, the cell's hover/active edge showing
+     through behind this input's edge.) */
   padding: var(--category-field-padding-y) var(--category-field-padding-x);
   margin: calc(-1 * var(--category-field-padding-y))
     calc(-1 * var(--category-field-padding-x));
@@ -29,10 +32,16 @@
   line-height: inherit;
   color: var(--color-ink);
   background: var(--color-surface);
+  /* The single source of the focus ring. .form-input:focus uses the same glow. */
+  box-shadow: var(--focus-ring);
 }
 
 .category-dropdown-input:focus {
   outline: none;
+  /* No second ring: the at-rest box-shadow above already is the focus ring (the
+     combobox always opens focused), so :focus only suppresses the UA outline. */
+  border-color: var(--color-primary);
+  box-shadow: var(--focus-ring);
 }
 
 .category-dropdown-list {

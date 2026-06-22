@@ -17,8 +17,8 @@ import {
   centsToAmountString,
   type SplitRowInput,
 } from './lib/splitMath';
-import { orderCategoriesHierarchically } from './lib/categoryHierarchy';
-import type { Category } from './lib/types';
+// The category picker reuses the grid's Zag combobox via the window hook combobox.ts exposes
+// (window.__openCombobox) — NOT an import, so esbuild doesn't inline a second copy of Zag here.
 
 interface Row extends SplitRowInput {
   memo: string;
@@ -32,19 +32,15 @@ interface SeedRow {
   'seed-cents': number | null;
 }
 
-// Reconstruct Category[] from the hidden #category-options list the page renders (shared with
-// the combobox island; the model travels in the DOM, renderer-agnostic).
-function readCategories(): Category[] {
-  return [...document.querySelectorAll<HTMLLIElement>('#category-options li')].map((li) => {
-    const cat: Category = {
-      'db/id': Number(li.dataset.id),
-      'category/name': (li.textContent ?? '').trim(),
-      'category/type': (li.dataset.type as Category['category/type']) ?? 'expense',
-    };
-    if (li.dataset.parent) cat['category/parent'] = { 'db/id': Number(li.dataset.parent) };
-    if (li.dataset.sort) cat['category/sort-order'] = Number(li.dataset.sort);
-    return cat;
-  });
+// Map category id → display name from the hidden #category-options list the page renders
+// (the same DOM-carried model the combobox island reads). Used to label a row's category
+// button (its seeded categoryId, and after a pick the combobox hands us the chosen label).
+function readCategoryNames(): Map<number, string> {
+  const names = new Map<number, string>();
+  for (const li of document.querySelectorAll<HTMLLIElement>('#category-options li')) {
+    names.set(Number(li.dataset.id), (li.textContent ?? '').trim());
+  }
+  return names;
 }
 
 const closeModal = () => {
@@ -58,8 +54,9 @@ function mount(root: HTMLElement): void {
 
   const parentAmount = Number(root.dataset.amount);
   const seed: SeedRow[] = JSON.parse(root.dataset.seed || '[]');
-  const categories = readCategories();
-  const ordered = orderCategoriesHierarchically(categories);
+  const categoryNames = readCategoryNames();
+  const labelFor = (id: number | null): string =>
+    id == null ? 'Select category…' : categoryNames.get(id) ?? 'Select category…';
 
   // Blank parts when the transaction isn't split yet (a split needs at least two).
   const blank = (): Row => ({ amount: '', categoryId: null, memo: '', seedCents: null });
@@ -78,27 +75,34 @@ function mount(root: HTMLElement): void {
   const saveBtn = root.querySelector<HTMLButtonElement>('.split-save')!;
   const sign = parentAmount < 0 ? '−' : '+'; // − or +
 
-  // Build one category <select>. Splits require a category, so the placeholder is disabled
-  // once a real one is chosen; children are indented under their parent.
-  const buildSelect = (selected: number | null): HTMLSelectElement => {
-    const sel = document.createElement('select');
-    sel.className = 'split-category-select form-select';
-    sel.setAttribute('aria-label', 'Split category');
-    const placeholder = document.createElement('option');
-    placeholder.value = '';
-    placeholder.textContent = 'Select category…';
-    placeholder.disabled = selected != null;
-    sel.appendChild(placeholder);
-    for (const { category, depth } of ordered) {
-      const opt = document.createElement('option');
-      const id = category['db/id'];
-      opt.value = String(id);
-      opt.textContent = depth > 0 ? `— ${category['category/name']}` : category['category/name'];
-      if (id === selected) opt.selected = true;
-      sel.appendChild(opt);
-    }
-    if (selected == null) sel.value = '';
-    return sel;
+  // Build one category control: a button styled like a form field (see split-modal.css)
+  // that opens the SAME Zag combobox/typeahead as the grid cell. The split isn't persisted
+  // until "Save split", so the pick updates LOCAL row state (no @put) — the row keeps its
+  // categoryId and the button text, and recompute() re-evaluates the balance/save gate.
+  // The combobox lists Uncategorized; a pick of it maps to categoryId null, leaving the row
+  // invalid (splits require a real category — canConfirm enforces categoryId != null).
+  const buildCategoryButton = (row: Row): HTMLButtonElement => {
+    const btn = document.createElement('button');
+    btn.type = 'button';
+    btn.className = 'category-button';
+    // A pending (unset) category reads muted via the placeholder modifier.
+    btn.classList.toggle('is-placeholder', row.categoryId == null);
+    btn.setAttribute('aria-haspopup', 'listbox');
+    btn.setAttribute('aria-label', 'Split category');
+    btn.textContent = labelFor(row.categoryId);
+    btn.addEventListener('click', () => {
+      window.__openCombobox?.({
+        anchor: btn,
+        placeholder: labelFor(row.categoryId),
+        onCommit(categoryId, label) {
+          row.categoryId = categoryId;
+          btn.textContent = categoryId == null ? 'Select category…' : label;
+          btn.classList.toggle('is-placeholder', categoryId == null);
+          recompute();
+        },
+      });
+    });
+    return btn;
   };
 
   // Recompute the live balance, the Save gate, and the per-row Fill/Remove enabled states.
@@ -159,15 +163,11 @@ function mount(root: HTMLElement): void {
       });
       amountCell.append(signEl, amountInput, fillBtn);
 
-      // Category: a hierarchical native select (no second Zag instance).
+      // Category: the same Zag combobox/typeahead as the grid cell (opened from a button
+      // styled as a form field). Picks update local row state only — no @put until Save.
       const categoryCell = document.createElement('div');
       categoryCell.className = 'split-category-cell';
-      const select = buildSelect(row.categoryId);
-      select.addEventListener('change', () => {
-        row.categoryId = select.value ? Number(select.value) : null;
-        recompute();
-      });
-      categoryCell.appendChild(select);
+      categoryCell.appendChild(buildCategoryButton(row));
 
       // Description (memo).
       const memoInput = document.createElement('input');
@@ -237,10 +237,12 @@ function mount(root: HTMLElement): void {
     if (e.target === backdrop) closeModal();
   });
   const onKey = (e: KeyboardEvent): void => {
-    if (e.key === 'Escape') {
-      closeModal();
-      document.removeEventListener('keydown', onKey);
-    }
+    if (e.key !== 'Escape') return;
+    // If the category combobox is open, Escape closes only the combobox (Zag handles it),
+    // not the whole modal — defer to the floating dropdown's own dismiss.
+    if (document.querySelector('.category-dropdown.is-floating')) return;
+    closeModal();
+    document.removeEventListener('keydown', onKey);
   };
   document.addEventListener('keydown', onKey);
 

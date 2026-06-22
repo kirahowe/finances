@@ -28,6 +28,17 @@
   cursor: default;
 }
 
+/* While the combobox floats over this button, the floating .category-dropdown-input
+   owns the single border + focus ring. Mute the button's own border/background (and
+   any lingering :hover edge from the click that opened it) so the two don't stack into
+   a doubled outline. The island toggles `.combobox-open` for the lifetime of the open
+   combobox (set in combobox.ts). */
+.category-button.combobox-open,
+.category-button.combobox-open:hover {
+  border-color: transparent;
+  background: none;
+}
+
 /* Category cell: the category button alongside any quiet status marker (e.g. a
    transfer badge). Row actions live in the row menu, not here. */
 .category-cell-content {

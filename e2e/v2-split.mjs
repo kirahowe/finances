@@ -44,16 +44,34 @@ await modal.waitFor({ state: 'visible' });
 const dataRows = modal.locator('.split-rows-container .split-row');
 check('editor opens with two blank parts', (await dataRows.count()) === 2);
 
+// The split category control is now the SAME Zag combobox/typeahead as the grid cell:
+// click the row's category button → the floating dropdown opens → type to filter → pick.
+// (Mirrors e2e/v2-category.mjs: root .category-dropdown.is-floating, input
+// .category-dropdown-input, options .category-dropdown-item.) The pick updates LOCAL row
+// state only (no @put) — nothing persists until Save.
+const dropdown = page.locator('.category-dropdown.is-floating');
+const pickCategory = async (row, name) => {
+  await row.locator('.split-category-cell .category-button').click();
+  await dropdown.waitFor({ state: 'visible', timeout: 5000 });
+  await page.locator('.category-dropdown-input').fill('');
+  await page.locator('.category-dropdown-input').type(name);
+  await page.waitForTimeout(120); // re-filter + typeahead highlight settle
+  await page.locator('.category-dropdown-item', { hasText: new RegExp(`^${name}$`) }).first().click();
+  await dropdown.waitFor({ state: 'hidden', timeout: 5000 }).catch(() => {});
+};
+
 // Allocate part of the total + one category; the editor is unbalanced, so Save is gated.
 await dataRows.nth(0).locator('.split-amount-input').fill('80.00');
-await dataRows.nth(0).locator('.split-category-select').selectOption({ label: 'Groceries' });
+await pickCategory(dataRows.nth(0), 'Groceries');
+check('category button shows the picked category',
+  (await dataRows.nth(0).locator('.split-category-cell .category-button').innerText()).trim() === 'Groceries');
 check('save disabled while unbalanced', await modal.locator('.split-save').isDisabled());
 
 // Fill the remainder via the Fill shortcut, categorise it → balanced → Save enabled.
 await dataRows.nth(1).locator('.split-fill-button').click();
 check('fill set the remainder to 5.00',
   (await dataRows.nth(1).locator('.split-amount-input').inputValue()) === '5.00');
-await dataRows.nth(1).locator('.split-category-select').selectOption({ label: 'Housing' });
+await pickCategory(dataRows.nth(1), 'Housing');
 check('balance reads "Balanced"', /balanced/i.test(await modal.locator('.split-remaining').innerText()));
 check('save enabled once balanced', !(await modal.locator('.split-save').isDisabled()));
 

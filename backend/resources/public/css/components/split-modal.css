@@ -84,30 +84,36 @@
   text-align: right;
 }
 
-/* Hosts either the category button or the (absolutely-positioned) dropdown. */
+/* Hosts the category button. The combobox the button opens is position:fixed, floated
+   to <body> (so it escapes the modal) — it is NOT a descendant of this cell, so it picks
+   up the shared .category-dropdown-input styles (one pine border + focus-ring glow) from
+   category-dropdown.css, matching the amount/description fields' focused look. */
 .split-category-cell {
   min-width: 0;
   position: relative;
 }
 
-/* The category reads as a form control alongside the amount/description inputs:
-   a bordered box at rest (like .form-input), with the dropdown sharing the same
-   box so opening it never shifts the row. (In the table the category cell is
-   borderless and editing is flush; in this form it's a field like its siblings.) */
-.split-category-cell .category-button,
-.split-category-cell .category-dropdown-input {
+/* The category button reads as a form control alongside the amount/description inputs:
+   a bordered box at rest (like .form-input), the same height/padding as its siblings.
+   (In the table the category cell is borderless and editing is flush; in this form it's
+   a field like its siblings.) The full-width button overrides .category-button's flush,
+   negative-margin grid-cell layout. */
+.split-category-cell .category-button {
   width: 100%;
   margin: 0;
   padding: var(--control-pad-y) 0.7rem;
   border-radius: var(--border-radius);
-}
-
-.split-category-cell .category-button {
   border: 1px solid var(--color-border-strong);
   background: transparent;
+  color: var(--color-ink);
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
+}
+
+/* An unset category reads muted, like a form placeholder ("Select category…"). */
+.split-category-cell .category-button.is-placeholder {
+  color: var(--color-text-muted);
 }
 
 /* Hover hints focus with a pine border, not the table's old filled box. */
@@ -117,10 +123,13 @@
   color: var(--color-ink);
 }
 
-/* The open dropdown matches a focused .form-input (border + soft glow). */
-.split-category-cell .category-dropdown-input {
-  border: 1px solid var(--color-primary);
-  box-shadow: var(--focus-ring);
+/* While the combobox floats over it, the floating .category-dropdown-input owns the
+   single border + focus ring. Mute this button's own border/glow so the two don't stack
+   into a doubled outline (same treatment as the grid cell in category-button.css). */
+.split-category-cell .category-button.combobox-open,
+.split-category-cell .category-button.combobox-open:hover {
+  border-color: transparent;
+  box-shadow: none;
 }
 
 .split-add-button {
@@ -185,12 +194,6 @@
 .split-remove-button:disabled {
   opacity: 0.3;
   cursor: default;
-}
-
-/* Native hierarchical category picker — splits require a category, so the field reads as a
-   form control alongside the amount/description inputs (no second combobox island). */
-.split-category-select {
-  width: 100%;
 }
 
 /* The right cluster (Cancel / Save) sits opposite the optional Un-split on the left. */
