@@ -5,27 +5,25 @@
   gap: 0.25rem;
 }
 
-/* Larger-glyph icon-button footprint, shared with the month-navigator carets
-   (.month-nav-button, see month-navigator.css). Base .button gives --control-pad-y
-   (0.5rem) block padding, taller than this footprint wants — pinning the height to
-   the shared --toolbar-control-height (29px) lands them on exactly the rule the
-   padding-driven .count-chip / .scope-toggle-btn controls sit on, and the square
-   min-width carries a tidy hit target. The block padding no longer drives height;
-   the glyph is bumped past the shared --glyph step (to --text-xl / 24px, which fits
-   inside the 29px box) so the ↶/↷ arrows / ‹ › carets read clearly, and the base
-   .button's flex centring keeps it vertically centred. Each component keeps its own
-   inline padding (carets: 0; undo/redo: --spacing-sm). */
+/* Square icon-button footprint, shared with the month-navigator carets
+   (.month-nav-button, see month-navigator.css). The toolbar's text controls (chips,
+   scope, search, Columns) are all --toolbar-control-height (29px) tall; these icon
+   buttons are that same height AND width, so they read as one square in the rule. The
+   glyph is an inline SVG (chevrons / undo-redo arrows) sized to 1rem and centred by the
+   base .button's flex — no text baseline to fight, so it's crisp and identical across
+   both, unlike a font glyph that sits off-centre in its em box. */
 .month-nav-button,
 .undo-redo-btn {
-  min-width: var(--toolbar-control-height);
+  width: var(--toolbar-control-height);
   height: var(--toolbar-control-height);
-  font-size: var(--text-xl);
-  line-height: 1;
+  min-width: var(--toolbar-control-height);
+  padding: 0;
 }
 
-/* Real <button>s. */
-.undo-redo-btn {
-  padding: var(--control-pad-y-sm) var(--spacing-sm);
+.month-nav-button svg,
+.undo-redo-btn svg {
+  width: 1rem;
+  height: 1rem;
 }
 
 .undo-redo-btn:disabled {

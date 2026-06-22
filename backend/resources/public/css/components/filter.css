@@ -35,9 +35,13 @@
   flex-wrap: wrap;
 }
 
-/* Review-scope segmented toggle (Needs review / All) */
+/* Review-scope segmented toggle (Needs review / All). Pinned to the shared control
+   height so the segmented pair lands on exactly the same line as every other toolbar
+   control; its buttons fill that height (height:100%) rather than each re-asserting it,
+   which would overflow the wrapper's border. */
 .scope-toggle {
   display: inline-flex;
+  height: var(--toolbar-control-height);
   border: 1px solid var(--color-border-strong);
   border-radius: var(--border-radius);
   overflow: hidden;
@@ -48,7 +52,7 @@
   display: inline-flex;
   align-items: center;
   gap: var(--spacing-xs);
-  height: var(--toolbar-control-height);
+  height: 100%;
   padding: var(--control-pad-y-sm) var(--control-pad-x-sm);
   background: none;
   border: none;
@@ -134,10 +138,14 @@
   align-items: center;
 }
 
+/* Secondary toolbar buttons (the Columns dropdown trigger + "Review transfers") — pinned
+   to the shared control height with the toolbar's --text-sm so they match the chips/scope
+   exactly instead of the taller base-.button footprint. */
 .filter-button {
   display: inline-flex;
   align-items: center;
   gap: var(--spacing-sm);
+  height: var(--toolbar-control-height);
   padding: var(--control-pad-y-sm) var(--control-pad-x-sm);
   font-size: var(--text-sm);
   white-space: nowrap;
@@ -329,6 +337,7 @@
   display: inline-flex;
   align-items: center;
   gap: var(--spacing-xs);
+  height: var(--toolbar-control-height);
   padding: 0 0.5rem;
   border: 1px solid var(--color-border-strong);
   border-radius: var(--border-radius);
@@ -343,6 +352,9 @@
 
 .table-search-icon {
   flex-shrink: 0;
+  width: 0.95rem;
+  height: 0.95rem;
+  color: var(--color-text-muted);
 }
 
 .table-search-input {

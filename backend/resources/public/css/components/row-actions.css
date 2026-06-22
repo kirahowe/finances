@@ -84,15 +84,13 @@
   padding: 0;
 }
 
-/* The caret only surfaces on row hover/focus so it stays quiet at rest. */
-.table tbody tr .row-actions-trigger {
-  opacity: 0;
-  transition: opacity 0.12s var(--ease-out), color 0.15s var(--ease-out),
-    background-color 0.15s var(--ease-out);
+/* The caret is a quiet, always-present affordance (muted at rest, pine on row hover /
+   when its menu is open) — a row-end chevron that reads as "open me", like the before. */
+.row-actions-trigger svg {
+  width: 1rem;
+  height: 1rem;
 }
 
-.table tbody tr:hover .row-actions-trigger,
-.row-actions-trigger:focus-visible,
-.row-actions-trigger[aria-expanded='true'] {
-  opacity: 1;
+.table tbody tr:hover .row-actions-trigger {
+  color: var(--color-ink-soft);
 }

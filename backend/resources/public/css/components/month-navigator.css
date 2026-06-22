@@ -23,10 +23,6 @@
   color: var(--color-ink);
 }
 
-/* Rendered as anchors styled as buttons; the caret glyphs read as nav
-   affordances, so the larger-glyph icon-button footprint (shared with
-   .undo-redo-btn, see edit-controls.css) sizes them up past --glyph. The
-   carets carry no inline padding so the squares stay tight to the dateline. */
-.month-nav-button {
-  padding: var(--control-pad-y-sm) 0;
-}
+/* Rendered as anchors styled as buttons; their chevron glyphs are inline SVGs sized by
+   the shared square icon-button footprint in edit-controls.css (.month-nav-button,
+   .undo-redo-btn) — nothing further to set here. */

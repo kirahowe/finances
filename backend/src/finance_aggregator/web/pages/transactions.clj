@@ -40,6 +40,20 @@
 
 (declare undo-redo-controls column-picker) ; defined later, used by the toolbar/table
 
+;; --- Toolbar / row icons (inline SVG, sized by CSS) ------------------------
+;; Stroke icons centred by the button's flex box — no font-glyph baseline to fight, so the
+;; toolbar carets/arrows and the row caret sit dead-centre and read as one controlled set.
+
+(defn- icon [& body]
+  (into [:svg {:viewBox "0 0 24 24" :fill "none" :stroke "currentColor" :stroke-width "2"
+               :stroke-linecap "round" :stroke-linejoin "round" :aria-hidden "true"}]
+        body))
+
+(defn- chevron-left  [] (icon [:polyline {:points "15 18 9 12 15 6"}]))
+(defn- chevron-right [] (icon [:polyline {:points "9 18 15 12 9 6"}]))
+(defn- undo-icon     [] (icon [:path {:d "M9 14 4 9l5-5"}] [:path {:d "M4 9h10.5a5.5 5.5 0 0 1 5.5 5.5 5.5 5.5 0 0 1-5.5 5.5H11"}]))
+(defn- redo-icon     [] (icon [:path {:d "m15 14 5-5-5-5"}] [:path {:d "M20 9H9.5A5.5 5.5 0 0 0 4 14.5 5.5 5.5 0 0 0 9.5 20H13"}]))
+
 ;; ---------------------------------------------------------------------------
 ;; Rows (read-only in cp1; editors arrive in cp2)
 ;; ---------------------------------------------------------------------------
@@ -117,6 +131,37 @@
    [:input {:type "hidden"
             "data-on:change" (str "$catValue = el.value; @put('/transactions/" tx-id "/category')")}]))
 
+(defn- transfer-status-marker
+  "Inline transfer affordance beside the category (transfer rows only): a matched row shows a
+   quiet ⇄ glyph; an unmatched transfer-typed row shows an ochre \"⇄ Match\" pill. Both open the
+   match modal (the same GET the row-actions Match item uses). nil for non-transfer rows.
+   `__stop` so a click opens the modal without reaching the cell's combobox / grid-nav."
+  [tx]
+  (let [open (str "@get('/transactions/" (:db/id tx) "/match')")]
+    (if-let [pair (:transaction/transfer-pair tx)]
+      (let [partner (or (get-in pair [:transaction/account :account/external-name]) "another account")]
+        [:button.transfer-status.transfer-status-matched
+         {:type "button" :tabindex "-1" "data-on:click__stop" open
+          :title (str "Matched transfer with " partner " (" (fmt/amount (:transaction/amount pair)) ")")
+          :aria-label (str "Matched transfer with " partner " — view or unmatch")}
+         [:span.transfer-status-glyph {:aria-hidden "true"} "⇄"]])
+      (when (= :transfer (get-in tx [:transaction/category :category/type]))
+        [:button.transfer-status.transfer-status-unmatched
+         {:type "button" :tabindex "-1" "data-on:click__stop" open
+          :title "Transfer with no matched counterpart — click to match"}
+         [:span.transfer-status-glyph {:aria-hidden "true"} "⇄"] "Match"]))))
+
+(defn- category-cell-inner
+  "The category cell's content: the editable combobox button + its hidden courier, with the
+   transfer marker tucked in beside them (wrapped in .category-cell-row) for transfer rows.
+   The hidden input stays a sibling of the combo button either way, so the combobox island's
+   `cell.parentElement.querySelector` still finds it."
+  [tx]
+  (let [[btn hidden] (editable-category (:db/id tx) (:transaction/category tx))]
+    (if-let [marker (transfer-status-marker tx)]
+      [:div.category-cell-row btn marker hidden]
+      (list btn hidden))))
+
 (defn- category-options
   "Hidden source-of-truth list the combobox island reconstructs its Category[] from
    (id/parent/sort-order as data-attrs — Replicant escaped JSON in a <script>; the DOM-carried
@@ -153,7 +198,7 @@
            " $_rowMenuSplit = " (boolean split?) "; $_rowMenuMatched = " (boolean matched?) ";"
            " $_rowMenuX = Math.max(8, window.innerWidth - el.getBoundingClientRect().right);"
            " $_rowMenuY = el.getBoundingClientRect().bottom + 4")}
-     "⋯"]]])
+     (chevron-right)]]])
 
 (defn- normal-row [stale? {:transaction/keys [posted-date account payee effective-description
                                               amount category reviewed] :as tx}]
@@ -164,7 +209,7 @@
    [:td payee]
    [:td.description-cell (grid-cell (:db/id tx) "description") (editable-description (:db/id tx) effective-description)]
    [:td.amount-cell (amount-span amount false)]
-   [:td.category-cell (grid-cell (:db/id tx) "category") (editable-category (:db/id tx) category)]
+   [:td.category-cell (grid-cell (:db/id tx) "category") (category-cell-inner tx)]
    [:td.reviewed-cell (grid-cell (:db/id tx) "reviewed") (reviewed-checkbox (:db/id tx) reviewed true)]
    (row-actions-cell (:db/id tx) false (some? (:transaction/transfer-pair tx)))])
 
@@ -277,13 +322,18 @@
   [:div.month-navigator
    [:div.month-navigator-controls
     [:a.button.button-secondary.month-nav-button
-     {:href (str "/?month=" (month/serialize (month/prev-month m))) :title "Previous month"} "‹"]
+     {:href (str "/?month=" (month/serialize (month/prev-month m))) :title "Previous month"
+      :aria-label "Previous month"} (chevron-left)]
     [:span.month-navigator-display (month/display m)]
     [:a.button.button-secondary.month-nav-button
-     {:href (str "/?month=" (month/serialize (month/next-month m))) :title "Next month"} "›"]]])
+     {:href (str "/?month=" (month/serialize (month/next-month m))) :title "Next month"
+      :aria-label "Next month"} (chevron-right)]]])
 
 (defn- search-box []
   [:div.table-search
+   [:svg.table-search-icon {:viewBox "0 0 24 24" :fill "none" :stroke "currentColor" :stroke-width "2"
+                            :stroke-linecap "round" :stroke-linejoin "round" :aria-hidden "true"}
+    [:circle {:cx "11" :cy "11" :r "8"}] [:line {:x1 "21" :y1 "21" :x2 "16.65" :y2 "16.65"}]]
    [:input.table-search-input
     {:type "search" :placeholder "Search payee, description…" :aria-label "Search transactions"
      "data-bind" "search"
@@ -317,7 +367,7 @@
     (count-chip "Uncategorized" "uncat" "count-uncategorized" (:uncategorized counts))
     (count-chip "Hide transfers" "hideTransfers" "count-transfers" (:transfers-hidden counts))]
    [:div.toolbar-actions
-    [:button.button.button-secondary
+    [:button.button.button-secondary.filter-button
      {:type "button" :aria-haspopup "dialog" "data-on:click" "@get('/transactions/review-transfers')"}
      "Review transfers"]
     (undo-redo-controls) (column-picker)]])
@@ -377,12 +427,12 @@
                        :aria-label "Undo" :title (if undoable (str "Undo: " undoable) "Nothing to undo")
                        "data-on:click" "@post('/transactions/undo')"}
                 (not undoable) (assoc :disabled true))
-      "↶"]
+      (undo-icon)]
      [:button (cond-> {:class "button button-secondary undo-redo-btn" :type "button"
                        :aria-label "Redo" :title (if redoable (str "Redo: " redoable) "Nothing to redo")
                        "data-on:click" "@post('/transactions/redo')"}
                 (not redoable) (assoc :disabled true))
-      "↷"]]))
+      (redo-icon)]]))
 
 (defn- column-picker
   "Toolbar dropdown toggling which columns show. The `cols.<id>` checkboxes flip the table's
