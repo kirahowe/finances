@@ -10,13 +10,23 @@
 // excluded from the fit and their <col> set display:none (else fixed layout shifts the
 // remaining columns onto the wrong widths).
 //
-// Resize model: a manual gesture (drag or double-click) is LOCAL — it changes only the
-// touched column and leaves every other column exactly where it was. To make that hold under
-// fixed layout (where the auto-distribute would otherwise reflow the flexible columns), the
-// first manual gesture FREEZES every visible column's current rendered width into userWidths,
-// so the layout is fully pinned and only the dragged/fitted column moves afterwards. While
-// pinned, container-resize no longer re-distributes (that would un-localise the resize); the
-// auto-fit returns only via "Reset widths" (window.__resetWidths), which clears userWidths.
+// Resize model: a manual gesture (drag or double-click) is LOCAL — it changes ONLY the
+// touched column. Columns to its LEFT keep their exact width; columns to its RIGHT keep their
+// exact width and are pushed right; the table's total width grows/shrinks by the drag delta and
+// the scroll container scrolls horizontally when the table exceeds it. There is NEVER any
+// redistribution of the other columns during a drag.
+//
+// To make that hold under fixed layout, the first manual gesture FREEZES every visible column's
+// current rendered width into userWidths and then PINS the table to the exact sum of those widths
+// (plus the fixed actions column): the table's `width` — not just `min-width` — is set to that
+// sum. That removes the only source of give: with an exact table width there is no leftover for
+// the browser to redistribute, so a one-column delta grows the table by exactly that delta and
+// scrolls, while every other column stays put. The trailing <col.actions-col> is a REAL fixed
+// column (the row-actions caret), so its width is folded into the sum rather than collapsed —
+// collapsing it (an earlier bug) hid the carets and left the table a column short. While pinned,
+// container-resize no longer re-distributes (that would un-localise the resize); the auto-fit
+// (which fits the data columns into card − actions so the table fills) returns only via
+// "Reset widths" (window.__resetWidths).
 
 import {
   measureIntrinsicWidths,
@@ -53,6 +63,13 @@ if (scroll && table) {
   const isHidden = (id: string) => tbl.classList.contains(`hide-${id}`);
   const isVisible = (l: ColumnLeaf) => !isHidden(l.id);
 
+  // The trailing <col.actions-col> after the real leaves is the row-actions column — a real,
+  // fixed-width column (2.75rem) that holds the caret, NOT a spacer. Its width is folded into the
+  // table-width sum so the table is exactly its full content width (no leftover for a drag delta
+  // to be absorbed into), and it is never collapsed (that would hide the carets and short the
+  // table). Resolved off the root font-size so it tracks the CSS rem rather than a magic 44.
+  const ACTIONS_W = 2.75 * (parseFloat(getComputedStyle(document.documentElement).fontSize) || 16);
+
   // Never re-measure while an editor is open — its wide intrinsic width would balloon the
   // column. The resting layout is stable, so skipping is enough.
   const editing = () =>
@@ -77,14 +94,22 @@ if (scroll && table) {
         if (sizes[id] != null) col.style.width = `${sizes[id]}px`;
       }
     });
-    updateMinWidth(sizes);
+    updateTableWidth(sizes);
   }
 
-  // The table's min-width is the sum of its VISIBLE columns, so it fills the card when they
-  // fit and scrolls when they don't.
-  function updateMinWidth(sizes: Record<string, number>) {
-    const total = LEAF_IDS.filter((id) => !isHidden(id)).reduce((a, id) => a + (sizes[id] ?? 0), 0);
+  // Size the table to its full content width = sum of the VISIBLE data columns + the fixed
+  // actions column.
+  //  - Pinned (manual widths exist): set that width EXACTLY, so changing one column changes the
+  //    table width by the same delta — left columns stay put, right columns are pushed over, and
+  //    the container scrolls horizontally. Nothing is redistributed and the actions column keeps
+  //    its width (the caret stays visible).
+  //  - Not pinned (auto-fit): only a min-width floor; recompute() fits the data columns to
+  //    (card − actions), so the table fills the card without overflowing.
+  function updateTableWidth(sizes: Record<string, number>) {
+    const dataTotal = LEAF_IDS.filter((id) => !isHidden(id)).reduce((a, id) => a + (sizes[id] ?? 0), 0);
+    const total = dataTotal + ACTIONS_W;
     tbl.style.minWidth = `${total}px`;
+    tbl.style.width = pinned() ? `${total}px` : '';
   }
 
   // Pure auto-fit: distribute the container width across the visible columns by content.
@@ -94,28 +119,35 @@ if (scroll && table) {
     if (editing() || pinned()) return;
     const intrinsic = measureIntrinsicWidths(tbl, LEAF_IDS);
     const visible = LEAVES.filter(isVisible);
-    const sizes = distributeColumnWidths(intrinsic, visible, scroll!.clientWidth || 0, POLICY);
+    // Fit the data columns into the card minus the fixed actions column, so data + actions
+    // fills the card exactly (no leftover the browser would redistribute into the actions col).
+    const target = Math.max(0, (scroll!.clientWidth || 0) - ACTIONS_W);
+    const sizes = distributeColumnWidths(intrinsic, visible, target, POLICY);
     applyWidths(sizes);
   }
 
-  // Freeze every visible column at its current rendered width, so subsequent local gestures
-  // (drag / double-click) move only their own column and leave the rest exactly put. Idempotent
-  // after the first call (already-pinned columns keep their width).
+  // Freeze every visible column at its current rendered width, then pin the table to their exact
+  // sum (+ the actions column). Under fixed layout each visible <col> renders at its set width, so
+  // the captured rects are the true per-column widths and pinning leaves every column visually put.
+  // After this, subsequent local gestures move only their own column and grow/shrink the table by
+  // the delta. Idempotent after the first call (already-pinned columns keep their width).
   function freezeWidths() {
     if (pinned()) return;
     for (const l of LEAVES) {
       if (isVisible(l)) userWidths[l.id] = Math.round(colFor(l.id)?.getBoundingClientRect().width ?? l.minSize);
     }
+    updateTableWidth(userWidths); // pin the table width up front so there's no snap mid-drag
   }
 
-  // Set one column's width locally: clamp, store, write its <col>, and update the table's
-  // min-width. Never touches any other column.
+  // Set one column's width locally: clamp, store, write its <col>, and resize the table to the
+  // new visible-column sum. Never touches any other column's <col>; the table grows/shrinks by
+  // the delta so right columns are pushed over and the container scrolls.
   function setColumnWidth(id: string, width: number) {
     const w = fitColumnWidth(width, minOf(id), MAX_WIDTH);
     userWidths[id] = w;
     const col = colFor(id);
     if (col) col.style.width = `${w}px`;
-    updateMinWidth(userWidths);
+    updateTableWidth(userWidths);
   }
 
   recompute();
