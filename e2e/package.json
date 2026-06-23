@@ -1,0 +1,14 @@
+{
+  "name": "finance-aggregator-e2e",
+  "private": true,
+  "type": "module",
+  "description": "Real-Chromium browser checks for the server-authoritative transactions workspace. TypeScript run directly by Node (native type-stripping): BASE_URL=http://localhost:8099 node e2e/<spec>.ts (against a seeded dev/e2e server). Type-check with: npm run typecheck.",
+  "scripts": {
+    "typecheck": "tsc --noEmit"
+  },
+  "devDependencies": {
+    "@playwright/test": "1.57.0",
+    "@types/node": "^22.10.0",
+    "typescript": "^5.6.0"
+  }
+}

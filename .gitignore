@@ -25,21 +25,13 @@ backend/.clj-kondo/
 /.react-router/
 /build/
 
-# Frontend
-frontend/.react-router/
-frontend/build/
-frontend/node_modules/
-frontend/playwright-report/
-frontend/test-results/
-
 # Test artifacts
 backend/test-results/
-
-# Package manager lockfiles - using pnpm only
-frontend/package-lock.json
-frontend/yarn.lock
 
 # Islands (TS island toolchain + esbuild output)
 islands/node_modules/
 backend/resources/public/js/islands/
+
+# e2e (TypeScript browser checks — Playwright lives here now, run via Node native TS)
+e2e/node_modules/
 

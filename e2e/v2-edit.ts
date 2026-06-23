@@ -3,22 +3,18 @@
 // LINGERS (is-stale) so a fast mistake is noticeable; the toolbar Undo/Redo buttons (and
 // Cmd/Ctrl+Z) reverse it. All driven by the command log (web.commands) over SSE morph.
 //
-//   BASE_URL=http://localhost:8099 node e2e/v2-edit.mjs
-import { createRequire } from 'module';
-import { fileURLToPath } from 'url';
-import { dirname, resolve } from 'path';
-
-const root = resolve(dirname(fileURLToPath(import.meta.url)), '..');
-const require = createRequire(resolve(root, 'frontend') + '/');
-const { chromium } = require('@playwright/test');
+//   BASE_URL=http://localhost:8099 node e2e/v2-edit.ts
+import { chromium } from '@playwright/test';
 
 const BASE = process.env.BASE_URL || 'http://localhost:8099';
-const results = [];
-const check = (name, ok, detail = '') => results.push({ name, ok: !!ok, detail });
+const results: { name: string; ok: boolean; detail: string }[] = [];
+const check = (name: string, ok: unknown, detail: unknown = ''): void => {
+  results.push({ name, ok: !!ok, detail: detail == null ? '' : String(detail) });
+};
 
 const browser = await chromium.launch();
 const page = await browser.newPage();
-const logs = [];
+const logs: string[] = [];
 page.on('pageerror', (e) => logs.push('PAGEERROR: ' + e.message));
 
 const rows = () => page.locator('#tx-tbody tr').count();
@@ -43,7 +39,7 @@ check('edit lingers the row (stays, is-stale)', (await rows()) === 10 && (await 
   `rows=${await rows()} stale=${await staleRows()}`);
 check('unreviewed count dropped to 9', (await unreviewed()).trim() === '9', `count=${await unreviewed()}`);
 check('undo button now enabled, with label', !(await undoBtn().isDisabled()) &&
-  (await undoBtn().getAttribute('title')).includes('Marked reviewed'),
+  ((await undoBtn().getAttribute('title')) ?? '').includes('Marked reviewed'),
   await undoBtn().getAttribute('title'));
 
 // Undo via the toolbar button → reverses; row matches again (no longer stale), count back to 10.

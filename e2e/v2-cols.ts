@@ -3,22 +3,18 @@
 // a `hide-<id>` class (pure CSS, no round-trip) and the v2-url island reflects it (+ filters/
 // sort) into the query string, so a reload restores the view.
 //
-//   BASE_URL=http://localhost:8099 node e2e/v2-cols.mjs
-import { createRequire } from 'module';
-import { fileURLToPath } from 'url';
-import { dirname, resolve } from 'path';
-
-const root = resolve(dirname(fileURLToPath(import.meta.url)), '..');
-const require = createRequire(resolve(root, 'frontend') + '/');
-const { chromium } = require('@playwright/test');
+//   BASE_URL=http://localhost:8099 node e2e/v2-cols.ts
+import { chromium } from '@playwright/test';
 
 const BASE = process.env.BASE_URL || 'http://localhost:8099';
-const results = [];
-const check = (name, ok, detail = '') => results.push({ name, ok: !!ok, detail });
+const results: { name: string; ok: boolean; detail: string }[] = [];
+const check = (name: string, ok: unknown, detail: unknown = ''): void => {
+  results.push({ name, ok: !!ok, detail: detail == null ? '' : String(detail) });
+};
 
 const browser = await chromium.launch();
 const page = await browser.newPage();
-const logs = [];
+const logs: string[] = [];
 page.on('pageerror', (e) => logs.push('PAGEERROR: ' + e.message));
 
 const instHeader = () => page.locator('thead th', { hasText: 'Institution' });

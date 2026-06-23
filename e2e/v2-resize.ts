@@ -7,22 +7,18 @@
 // handle fits THAT column to its content (Excel-style), again touching only it. Hidden columns'
 // <col> are set display:none so fixed layout keeps the rest aligned.
 //
-//   BASE_URL=http://localhost:8099 node e2e/v2-resize.mjs
-import { createRequire } from 'module';
-import { fileURLToPath } from 'url';
-import { dirname, resolve } from 'path';
-
-const root = resolve(dirname(fileURLToPath(import.meta.url)), '..');
-const require = createRequire(resolve(root, 'frontend') + '/');
-const { chromium } = require('@playwright/test');
+//   BASE_URL=http://localhost:8099 node e2e/v2-resize.ts
+import { chromium } from '@playwright/test';
 
 const BASE = process.env.BASE_URL || 'http://localhost:8099';
-const results = [];
-const check = (name, ok, detail = '') => results.push({ name, ok: !!ok, detail });
+const results: { name: string; ok: boolean; detail: string }[] = [];
+const check = (name: string, ok: unknown, detail: unknown = ''): void => {
+  results.push({ name, ok: !!ok, detail: detail == null ? '' : String(detail) });
+};
 
 const browser = await chromium.launch();
 const page = await browser.newPage();
-const logs = [];
+const logs: string[] = [];
 page.on('pageerror', (e) => logs.push('PAGEERROR: ' + e.message));
 
 const colW = (n) => page.locator('colgroup col').nth(n).evaluate((c) => parseFloat(c.style.width) || 0);
@@ -33,7 +29,7 @@ const tableW = () => page.locator('table.table-resizable').evaluate((t) => t.get
 const COLS = { date: 0, account: 1, institution: 2, payee: 3, description: 4, amount: 5, category: 6, reviewed: 7 };
 // Snapshot every real column's <col> width, keyed by id, for byte-identical comparison.
 const snapshotCols = async () => {
-  const out = {};
+  const out: Record<string, number> = {};
   for (const [id, i] of Object.entries(COLS)) out[id] = await colW(i);
   return out;
 };
@@ -53,7 +49,7 @@ const beforeCols = await snapshotCols();
 const beforeTableW = await tableW();
 await page.locator('th[data-col-id="payee"]').hover();
 const handle = page.locator('th[data-col-id="payee"] .col-resize-handle');
-const box = await handle.boundingBox();
+const box = (await handle.boundingBox())!;
 await page.mouse.move(box.x + box.width / 2, box.y + box.height / 2);
 await page.mouse.down();
 await page.mouse.move(box.x + box.width / 2 + DRAG, box.y + box.height / 2, { steps: 6 });

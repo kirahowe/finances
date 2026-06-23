@@ -1,24 +1,20 @@
 // Browser-driven verification of the server-rendered /setup page (Phase 2,
 // read-only account list). Run against the seeded e2e backend:
-//   BASE_URL=http://localhost:8099 node e2e/setup.mjs
+//   BASE_URL=http://localhost:8099 node e2e/setup.ts
 //
 // The seed (env/e2e .../seed.clj) has 1 institution, 4 accounts
 // (Chequing/Savings/Visa/Mortgage, no provider/mask), 10 transactions.
-import { createRequire } from 'module';
-import { fileURLToPath } from 'url';
-import { dirname, resolve } from 'path';
-
-const root = resolve(dirname(fileURLToPath(import.meta.url)), '..');
-const require = createRequire(resolve(root, 'frontend') + '/');
-const { chromium } = require('@playwright/test');
+import { chromium } from '@playwright/test';
 
 const BASE = process.env.BASE_URL || 'http://localhost:8099';
-const results = [];
-const check = (name, ok, detail = '') => results.push({ name, ok: !!ok, detail });
+const results: { name: string; ok: boolean; detail: string }[] = [];
+const check = (name: string, ok: unknown, detail: unknown = ''): void => {
+  results.push({ name, ok: !!ok, detail: detail == null ? '' : String(detail) });
+};
 
 const browser = await chromium.launch();
 const page = await browser.newPage();
-const logs = [];
+const logs: string[] = [];
 page.on('console', (m) => logs.push(m.text()));
 page.on('pageerror', (e) => logs.push('PAGEERROR: ' + e.message));
 

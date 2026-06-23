@@ -4,22 +4,18 @@
 // active highlight — the island's morph observer rebuilds + repaints so the active cell (keyed
 // by stable RowKey) survives.
 //
-//   BASE_URL=http://localhost:8099 node e2e/v2-grid.mjs
-import { createRequire } from 'module';
-import { fileURLToPath } from 'url';
-import { dirname, resolve } from 'path';
-
-const root = resolve(dirname(fileURLToPath(import.meta.url)), '..');
-const require = createRequire(resolve(root, 'frontend') + '/');
-const { chromium } = require('@playwright/test');
+//   BASE_URL=http://localhost:8099 node e2e/v2-grid.ts
+import { chromium } from '@playwright/test';
 
 const BASE = process.env.BASE_URL || 'http://localhost:8099';
-const results = [];
-const check = (name, ok, detail = '') => results.push({ name, ok: !!ok, detail });
+const results: { name: string; ok: boolean; detail: string }[] = [];
+const check = (name: string, ok: unknown, detail: unknown = ''): void => {
+  results.push({ name, ok: !!ok, detail: detail == null ? '' : String(detail) });
+};
 
 const browser = await chromium.launch();
 const page = await browser.newPage();
-const logs = [];
+const logs: string[] = [];
 page.on('pageerror', (e) => logs.push('PAGEERROR: ' + e.message));
 
 const active = () => page.evaluate(() => document.querySelector('.grid-cell-active')?.getAttribute('data-cell') ?? null);
@@ -43,7 +39,7 @@ check('ArrowDown → next row', (await active()) === '13:tx:reviewed', await act
 await page.keyboard.press('Space');
 await page.waitForTimeout(500);
 const checkedAfter = await page.evaluate(() =>
-  document.querySelector('[data-cell="13:tx:reviewed"] input')?.checked);
+  document.querySelector<HTMLInputElement>('[data-cell="13:tx:reviewed"] input')?.checked);
 check('Space toggled reviewed (server-confirmed)', checkedAfter === true);
 check('active cell survives the edit morph', (await active()) === '13:tx:reviewed', await active());
 

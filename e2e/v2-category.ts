@@ -3,22 +3,18 @@
 // command (morphs the row + the uncategorized count), and it's undoable via the command log.
 // The chosen id rides the single $catValue courier (no per-row signals).
 //
-//   BASE_URL=http://localhost:8099 node e2e/v2-category.mjs
-import { createRequire } from 'module';
-import { fileURLToPath } from 'url';
-import { dirname, resolve } from 'path';
-
-const root = resolve(dirname(fileURLToPath(import.meta.url)), '..');
-const require = createRequire(resolve(root, 'frontend') + '/');
-const { chromium } = require('@playwright/test');
+//   BASE_URL=http://localhost:8099 node e2e/v2-category.ts
+import { chromium } from '@playwright/test';
 
 const BASE = process.env.BASE_URL || 'http://localhost:8099';
-const results = [];
-const check = (name, ok, detail = '') => results.push({ name, ok: !!ok, detail });
+const results: { name: string; ok: boolean; detail: string }[] = [];
+const check = (name: string, ok: unknown, detail: unknown = ''): void => {
+  results.push({ name, ok: !!ok, detail: detail == null ? '' : String(detail) });
+};
 
 const browser = await chromium.launch();
 const page = await browser.newPage();
-const logs = [];
+const logs: string[] = [];
 page.on('pageerror', (e) => logs.push('PAGEERROR: ' + e.message));
 
 // Use a row that's uncategorized, so recategorizing also moves the uncategorized count.
@@ -53,14 +49,14 @@ await page.locator('.category-dropdown-item', { hasText: /^Groceries$/ }).first(
 // Gate on the LAST patch of the response (the undo-redo controls) so the earlier tbody +
 // counts patches are guaranteed applied (each is a separate SSE event).
 await page.waitForFunction(() => {
-  const u = document.querySelector('[aria-label="Undo"]');
+  const u = document.querySelector<HTMLButtonElement>('[aria-label="Undo"]');
   return u && !u.disabled && (u.getAttribute('title') || '').includes('Recategorized');
 }, null, { timeout: 5000 }).catch(() => {});
 check('selection persists; cell shows Groceries', (await catText()).trim() === 'Groceries', await catText());
 check('uncategorized count dropped by 1', Number((await uncat()).trim()) === uncatBefore - 1,
   `${(await uncat()).trim()} (was ${uncatBefore})`);
 check('undo button enabled with label',
-  (await page.getByRole('button', { name: 'Undo' }).getAttribute('title')).includes('Recategorized'));
+  ((await page.getByRole('button', { name: 'Undo' }).getAttribute('title')) ?? '').includes('Recategorized'));
 
 // Undo → back to Uncategorized, count restored.
 await page.getByRole('button', { name: 'Undo' }).click();
