@@ -15,6 +15,15 @@
   border-radius: var(--radius-sm);
 }
 
+/* When a category combobox is open over the active cell, the floating input owns the single
+   border + focus ring — suppress the cell's own active ring so they don't stack into a doubled
+   outline. (The floating input is a <body> child positioned over the cell, NOT a descendant, so
+   the flush-editor rule below can't reach it; key off the .combobox-open class the island sets
+   on the cell's button instead.) */
+.table td.grid-cell-active:has(.combobox-open) {
+  box-shadow: none;
+}
+
 .table td.grid-cell-active:focus {
   outline: none;
 }
