@@ -1,8 +1,13 @@
 # Datastar workspace — resume-here handoff
 
-**Read this first.** Single entry point for continuing the server-authoritative transactions
-workspace. Depth/why is in `datastar-server-authoritative-rewrite.md`; memory entry
-`project_replicant_datastar_spike`. **Branch:** `spike/replicant-datastar`.
+**Read this first.** Single entry point (state, file map, idiom, gotchas, run/verify) for the
+server-authoritative transactions workspace. Depth/why is in
+`datastar-server-authoritative-rewrite.md`; memory entry `project_replicant_datastar_spike`.
+**Branch:** `spike/replicant-datastar`.
+
+> **The migration is complete.** The next session's mission is the **pre-ship review** (tighten +
+> harden + a11y/cross-browser + triage what blocks shipping) — its checklist + open questions live in
+> **`pre-ship-review.md`**. This doc is the orientation; that one is the work.
 
 ## Where we are (2026-06-21)
 
