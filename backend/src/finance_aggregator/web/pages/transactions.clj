@@ -492,6 +492,21 @@
                  "data-on:click" "document.getElementById('error-bar').replaceChildren()"}
         "×"]])]))
 
+(defn- sr-status
+  "Visually-hidden polite live region (#sr-status). After an edit or view change it's
+   re-patched with a short spoken summary, so the SSE-morphed counts — which only sighted
+   users can watch tick — are announced to screen-reader users too."
+  ([] (sr-status nil))
+  ([msg] [:div {:id "sr-status" :class "sr-only" :role "status" :aria-live "polite"} msg]))
+
+(defn- review-status-message
+  "The spoken summary after an edit: the faceted needs-review count, plus the uncategorized
+   count when any remain. Gives a screen-reader user confirmation an action landed and where
+   the counts now stand."
+  [{:keys [unreviewed uncategorized]}]
+  (str unreviewed (if (= 1 unreviewed) " transaction" " transactions") " to review"
+       (when (pos? uncategorized) (str ", " uncategorized " uncategorized"))))
+
 (defn- url-sync
   "Reflect the persistent view-state into the URL on change (the url island owns the
    serialization). Scoped by the signal-patch filter to the persistent signals so it ignores
@@ -852,11 +867,12 @@
        :body
        (layout/document
         {:title "Finance Aggregator"
-         :islands ["combobox" "url" "grid-nav" "resize" "split-editor"]
+         :islands ["combobox" "url" "grid-nav" "resize" "split-editor" "modal"]
          :signals (vs/client-signals view-st month-str result (:query-params req))}
         [:div.container.container--workspace {"data-on:keydown__window" undo-key-js}
          (shell/masthead {:active :transactions :stats stats})
          (error-banner)
+         (sr-status)
          [:div.transactions-layout
           [:div.card
            (toolbar m counts)
@@ -888,6 +904,9 @@
         (fn [sse]
           ;; A view change (filter/sort/paginate) dismisses any error a prior action left up.
           (d*/patch-elements! sse (r/render (error-banner)))
+          ;; Announce the filtered result size to screen readers.
+          (d*/patch-elements! sse (r/render (sr-status (str (:total result)
+                                                            (if (= 1 (:total result)) " transaction" " transactions")))))
           (d*/patch-elements! sse (r/render (tbody (:rows result))))
           (d*/patch-elements! sse (r/render (pagination-bar result)))
           (patch-filter-feedback! sse txs view-st)
@@ -905,13 +924,16 @@
         month-str (month/serialize (month/parse (:month signals)))
         txs (db-transactions/list-for-month db-conn month-str)
         view-st (vs/signals->view-state signals)
-        {:keys [stale-ids] :as result} (view/view-with-linger txs view-st (commands/linger user))]
+        {:keys [stale-ids] :as result} (view/view-with-linger txs view-st (commands/linger user))
+        counts (view/facet-counts txs view-st)]
     (hk/->sse-response
      req
      {hk/on-open
       (fn [sse]
         ;; A successful edit clears any error banner a prior failed action left up.
         (d*/patch-elements! sse (r/render (error-banner)))
+        ;; Announce the new counts to screen readers (the morphed badges are silent to them).
+        (d*/patch-elements! sse (r/render (sr-status (review-status-message counts))))
         (d*/patch-elements! sse (r/render (tbody (:rows result) stale-ids)))
         (d*/patch-elements! sse (r/render (pagination-bar result)))
         (patch-filter-feedback! sse txs view-st)

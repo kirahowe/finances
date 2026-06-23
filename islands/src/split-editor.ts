@@ -48,6 +48,12 @@ const closeModal = () => {
   if (root) root.innerHTML = '';
 };
 
+// Disposers for the current modal's document/backdrop listeners. Every close path tears them
+// down — the document-level keydown (Esc) listener otherwise leaked one per reopen (it used to
+// remove itself only on the Esc path, not Cancel/backdrop/Save/Un-split). Save and Un-split
+// close server-side (the PUT empties #modal-root); the observer at the bottom runs cleanup then.
+let activeCleanup: (() => void) | null = null;
+
 function mount(root: HTMLElement): void {
   if (root.dataset.mounted === '1') return;
   root.dataset.mounted = '1';
@@ -227,23 +233,28 @@ function mount(root: HTMLElement): void {
     // Focus the new row's amount field.
     container.querySelector<HTMLInputElement>('.split-row:last-child .split-amount-input')?.focus();
   });
-  root.querySelector<HTMLButtonElement>('.split-cancel')!.addEventListener('click', closeModal);
-  root.querySelector<HTMLButtonElement>('.split-unsplit')?.addEventListener('click', unsplit);
-  saveBtn.addEventListener('click', save);
-
-  // Backdrop click (outside the dialog) closes; Esc closes (removed when the modal is gone).
+  // Close wiring. Cancel / Esc / backdrop close here; Save / Un-split close server-side (the PUT
+  // empties #modal-root) — the observer at the bottom runs cleanup() when that removal lands.
   const backdrop = root.closest('.modal-backdrop') ?? root.parentElement;
-  backdrop?.addEventListener('click', (e) => {
-    if (e.target === backdrop) closeModal();
-  });
+  const onBackdrop = (e: Event): void => { if (e.target === backdrop) close(); };
   const onKey = (e: KeyboardEvent): void => {
     if (e.key !== 'Escape') return;
-    // If the category combobox is open, Escape closes only the combobox (Zag handles it),
-    // not the whole modal — defer to the floating dropdown's own dismiss.
+    // While the category combobox is open, Escape closes only it (Zag handles it), not the modal.
     if (document.querySelector('.category-dropdown.is-floating')) return;
-    closeModal();
-    document.removeEventListener('keydown', onKey);
+    close();
   };
+  const cleanup = (): void => {
+    document.removeEventListener('keydown', onKey);
+    backdrop?.removeEventListener('click', onBackdrop);
+    activeCleanup = null;
+  };
+  const close = (): void => { cleanup(); closeModal(); };
+  activeCleanup = cleanup;
+
+  root.querySelector<HTMLButtonElement>('.split-cancel')!.addEventListener('click', close);
+  root.querySelector<HTMLButtonElement>('.split-unsplit')?.addEventListener('click', unsplit);
+  saveBtn.addEventListener('click', save);
+  backdrop?.addEventListener('click', onBackdrop);
   document.addEventListener('keydown', onKey);
 
   renderRows();
@@ -252,9 +263,12 @@ function mount(root: HTMLElement): void {
 }
 
 // The modal is patched into #modal-root after page load, so watch for the editor appearing.
+// When it's removed (a server-side close from Save/Un-split), run the current modal's cleanup so
+// its document/backdrop listeners don't outlive it.
 const observer = new MutationObserver(() => {
   const root = document.querySelector<HTMLElement>('[data-split-editor]');
   if (root) mount(root);
+  else if (activeCleanup) activeCleanup();
 });
 const modalRoot = document.getElementById('modal-root');
 if (modalRoot) observer.observe(modalRoot, { childList: true, subtree: true });

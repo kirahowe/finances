@@ -18,6 +18,7 @@ const ISLANDS = [
   'src/url.ts',
   'src/resize.ts',
   'src/split-editor.ts',
+  'src/modal.ts',
 ];
 
 await build({
