@@ -1,5 +1,0 @@
-.cpcache/
-.nrepl-port
-# generated build artifacts (rebuild with islands/npm run build and cljs/build.sh)
-resources/public/combobox-zag.js
-resources/public/combobox-cljs.js
