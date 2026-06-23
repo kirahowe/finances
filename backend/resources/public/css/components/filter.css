@@ -428,18 +428,3 @@
   background: var(--color-hover-neutral);
   color: var(--color-ink);
 }
-
-.active-chips-clear {
-  border: none;
-  background: none;
-  color: var(--color-text-muted);
-  font-size: var(--text-sm);
-  cursor: pointer;
-  padding: var(--control-pad-y-sm) var(--control-pad-x-sm);
-  border-radius: var(--radius-sm);
-}
-
-.active-chips-clear:hover {
-  color: var(--color-ink);
-  text-decoration: underline;
-}

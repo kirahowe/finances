@@ -263,6 +263,13 @@ export function openCombobox(opts: OpenOptions): void {
   machine.start();
   render();
 
+  // A pointer interaction (clicking an option) means the next selection is a CLICK, not a
+  // keyboard commit — clear the flag in the capture phase, before Zag's click-select fires
+  // its onValueChange. Without this, an Enter that didn't select (e.g. no highlighted match)
+  // leaves committedViaKeyboard stuck true, so a subsequent click is mis-routed as a
+  // keyboard "advance" (opens the next row's combobox). See combobox.ts finding #14.
+  root.addEventListener('pointerdown', () => { committedViaKeyboard = false; }, true);
+
   const input = root.querySelector<HTMLInputElement>('.category-dropdown-input')!;
   // Capture phase (before Zag) so the flag is set before a selection fires, and Tab is
   // claimed before Zag acts on it.
@@ -347,11 +354,16 @@ function openGrid(cell: HTMLElement, seed?: string | null): void {
     onCommit(categoryId, label) {
       // Optimistic: the view button shows the new category immediately.
       cell.textContent = label;
-      // Persist through Datastar: write the chosen id into the hidden bound input (the
-      // grid markup may wrap the cell in a `.category-cell-row`, but the hidden input is
-      // always a sibling of the cell — so `cell.parentElement` still finds it). An empty
-      // string clears the category (Uncategorized → categoryId null).
-      const hidden = cell.parentElement?.querySelector<HTMLInputElement>("input[type='hidden']");
+      // Persist through Datastar: write the chosen id into the hidden bound courier input.
+      // Resolve it by its stable id (cat-courier-tx<id>, derived from the cell button's
+      // own cat-view-tx<id>) so a tbody morph that lands mid-advance can't leave us writing
+      // to a stale/replaced sibling node; fall back to the sibling lookup if the id is
+      // absent (the split editor opens this core with a plain anchor). An empty string
+      // clears the category (Uncategorized → categoryId null).
+      const txId = cell.id.startsWith('cat-view-tx') ? cell.id.slice('cat-view-tx'.length) : '';
+      const hidden =
+        (txId ? (document.getElementById(`cat-courier-tx${txId}`) as HTMLInputElement | null) : null) ||
+        cell.parentElement?.querySelector<HTMLInputElement>("input[type='hidden']");
       if (hidden) {
         hidden.value = categoryId === null ? '' : String(categoryId);
         hidden.dispatchEvent(new Event('input', { bubbles: true }));

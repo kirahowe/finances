@@ -39,17 +39,3 @@
   background: none;
   color: transparent;
 }
-
-/* Category cell: the category button alongside any quiet status marker (e.g. a
-   transfer badge). Row actions live in the row menu, not here. */
-.category-cell-content {
-  display: flex;
-  align-items: center;
-  gap: var(--spacing-xs);
-}
-
-.category-cell-content .category-button {
-  flex: 1 1 auto;
-  width: auto;
-  min-width: 0;
-}

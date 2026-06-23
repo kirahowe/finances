@@ -135,7 +135,7 @@
    [:button.category-button.combo-cell
     {:type "button" :tabindex "-1" :id (str "cat-view-tx" tx-id) :aria-haspopup "listbox"}
     (or (:category/name category) "Uncategorized")]
-   [:input {:type "hidden"
+   [:input {:type "hidden" :id (str "cat-courier-tx" tx-id)
             "data-on:change" (str "$catValue = el.value; @put('/transactions/" tx-id "/category')")}]))
 
 (defn- transfer-status-marker
@@ -640,7 +640,6 @@
         [:span.numeric (fmt/amount amount)]]
        [:p.split-modal-hint
         "Divide this transaction into parts that add up to the total. Each part gets its own category."]
-       [:div.split-error.error-message {:hidden true :role "alert"}]
        [:div.split-row.split-row-head {:aria-hidden "true"}
         [:span "Amount"] [:span "Category"] [:span "Description"] [:span]]
        [:div.split-rows-container]

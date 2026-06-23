@@ -35,31 +35,3 @@
 /* Pages */
 @import "pages/dashboard.css";
 @import "pages/plaid-test.css";
-
-/* --- Phase 1 scaffold only (remove with the /_scaffold route) --------------- */
-.scaffold { max-width: 48rem; margin: 2rem auto; padding: 0 1.5rem; }
-.scaffold-block {
-  margin: 1.5rem 0;
-  padding: 1rem 1.25rem;
-  border: 1px solid var(--color-border, #dcd6c8);
-  border-radius: var(--radius-md, 8px);
-  background: var(--color-surface, #fff);
-}
-.scaffold-result {
-  margin-top: 0.75rem;
-  font-family: var(--font-mono, ui-monospace, monospace);
-  font-size: 0.9rem;
-  color: var(--color-pine, #1c5d4e);
-}
-#island-demo { font-family: var(--font-mono, ui-monospace, monospace); font-size: 0.9rem; }
-.btn {
-  font: inherit;
-  padding: 0.4rem 0.8rem;
-  margin-right: 0.5rem;
-  border: 1px solid var(--color-border, #dcd6c8);
-  border-radius: var(--radius-md, 8px);
-  background: var(--color-surface, #fff);
-  color: var(--color-text, #211f1a);
-  cursor: pointer;
-}
-.btn:hover { border-color: var(--color-pine, #1c5d4e); }

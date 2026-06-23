@@ -32,13 +32,9 @@
 }
 
 /* Denser rows: trim the vertical padding so more of the month fits at a glance
-   (horizontal padding from the shared .table rules is preserved). Density is its own
-   concern, independent of resizing — .table-dense gets it without fixed layout (the
-   server-authoritative /v2 table, until R3 makes it resizable). */
+   (horizontal padding from the shared .table rules is preserved). */
 .table.table-resizable th,
-.table.table-resizable td,
-.table.table-dense th,
-.table.table-dense td {
+.table.table-resizable td {
   padding-top: 0.32rem;
   padding-bottom: 0.32rem;
 }
@@ -271,14 +267,6 @@
 .table.table-resizable tr.is-stale .category-button {
   color: var(--color-text-muted);
   font-style: italic;
-}
-
-/* The "→ <new category>" marker on a stale row's category cell stays in the accent color
-   so it's legible against the muted row — it's the cue for where the row just moved. */
-.category-moved-mark {
-  color: var(--color-primary);
-  font-style: normal;
-  font-weight: 600;
 }
 
 /* Drag affordance on the right edge of each resizable header. */
