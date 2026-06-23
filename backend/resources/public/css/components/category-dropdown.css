@@ -48,9 +48,15 @@
    so the input goes flush — opaque surface fill (covers the cell's category text) but NO border
    or glow of its own. The cell ring stays the single, stable outline, so it doesn't appear to
    jump when the combobox opens. (The split-modal combobox omits .is-in-cell and keeps its
-   border above, since there's no cell ring behind it.) */
+   border above, since there's no cell ring behind it.)
+
+   margin:0 drops the shared negative margin here: the floating root is positioned at the
+   BUTTON's border-box (which the button's own negative margin sits one field-padding left/up of
+   its text), so the input's content must land at the root's edge to line up with the button's
+   text — otherwise the negative margin shifts the text a padding-width and it jitters on open. */
 .category-dropdown.is-in-cell .category-dropdown-input,
 .category-dropdown.is-in-cell .category-dropdown-input:focus {
+  margin: 0;
   border-color: transparent;
   box-shadow: none;
 }
