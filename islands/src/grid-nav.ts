@@ -121,6 +121,12 @@ if (scroll && table) {
     if (painting) return;
     buildModel();
     paint();
+    // An inline edit commit (description Enter, category pick) removes the focused editor from
+    // the morphed tbody, so the browser drops focus to <body> — and grid-nav's keydown listener
+    // only fires within the scroll container, so arrow nav would die. Restore focus to the active
+    // cell. Guarded to focus-loss (activeElement === body) so a morph the user drove from another
+    // control (a filter chip, the search box) doesn't steal focus from it.
+    if (state.active && document.activeElement === document.body) focusActive();
   });
   morphObserver.observe(table, { childList: true, subtree: true, attributes: true, attributeFilter: ['class'] });
 

@@ -66,6 +66,30 @@ await page.waitForFunction(() => {
 check('typed + Enter persists the description',
   await page.evaluate(() => document.querySelector('[data-cell="13:tx:description"] .description-button')?.textContent.trim() === 'Keyboard note'));
 
+// Regression: an Enter commit removes the focused input from the morphed tbody, dropping focus to
+// <body> — grid-nav must restore it to the active cell so arrow nav keeps working.
+const afterCommit = await active();
+await page.keyboard.press('ArrowDown');
+await page.waitForTimeout(150);
+check('arrow nav still works after an Enter commit', (await active()) !== afterCommit && (await active()) != null,
+  `${afterCommit} → ${await active()}`);
+
+// Regression: Escape out of the description editor must hand the keyboard back to grid-nav (it
+// used to leave focus on the hidden input, so descEditing() stayed true and arrows died).
+await page.keyboard.press('Enter');
+await page.waitForTimeout(150);
+check('Enter re-opens the editor',
+  await page.evaluate(() => document.activeElement?.classList.contains('description-input')));
+await page.keyboard.press('Escape');
+await page.waitForTimeout(150);
+check('Escape returns focus to the cell (not body)',
+  await page.evaluate(() => document.activeElement?.classList.contains('grid-cell-active')));
+const beforeArrow = await active();
+await page.keyboard.press('ArrowUp');
+await page.waitForTimeout(150);
+check('arrow nav still works after Escape', (await active()) !== beforeArrow && (await active()) != null,
+  `${beforeArrow} → ${await active()}`);
+
 await browser.close();
 await fetch(`${BASE}/e2e/reset`, { method: 'POST' }).catch(() => {});
 

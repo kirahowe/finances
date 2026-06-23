@@ -95,9 +95,16 @@
        " el.closest('.description-cell').classList.remove('editing')"))
 
 (defn- desc-keydown-js [tx-id]
+  ;; Escape reverts the input and closes the editor, then hands the keyboard back to grid-nav:
+  ;; the `gridedit` cancel event returns focus to the cell (otherwise the hidden input blurs to
+  ;; <body> and arrow-key navigation dies — grid-nav's keydown listener only fires within the
+  ;; scroll container). stopPropagation keeps this same Escape from also bubbling to grid-nav's
+  ;; navigation handler, which would clear the active cell now that the editor is closed.
   (str "evt.key === 'Enter' && (" (desc-commit-js tx-id) "); "
-       "evt.key === 'Escape' && (el.value = el.defaultValue,"
-       " el.closest('.description-cell').classList.remove('editing'))"))
+       "evt.key === 'Escape' && (evt.stopPropagation(), el.value = el.defaultValue,"
+       " el.closest('.description-cell').classList.remove('editing'),"
+       " el.closest('[data-cell]').dispatchEvent(new CustomEvent('gridedit',"
+       " {detail: {action: 'cancel'}, bubbles: true})))"))
 
 (defn- desc-blur-js [tx-id]
   ;; A genuine click-away commits; Enter/Escape already removed `editing`, so their trailing
