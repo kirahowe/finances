@@ -122,6 +122,9 @@ interface OpenOptions {
   placeholder: string;
   /** A typed seed to pre-filter with (type-to-edit from the grid); null = open empty. */
   seed?: string | null;
+  /** Extra class on the floating root — the grid passes `is-in-cell` so its input goes flush
+   *  (the active-cell ring is the outline); the split modal omits it (the input owns a border). */
+  rootClass?: string;
   /** Called with the chosen category id (null = Uncategorized) when a value is picked. */
   onCommit: (categoryId: number | null, label: string) => void;
   /**
@@ -174,7 +177,7 @@ export function openCombobox(opts: OpenOptions): void {
   // `.is-floating` (position:fixed + z-index, in category-dropdown.css) floats this
   // container above the table's horizontal-scroll overflow; the list stays absolute
   // within it (existing .category-dropdown-list styles), so no portal variant is needed.
-  root.className = 'category-dropdown is-floating';
+  root.className = `category-dropdown is-floating${opts.rootClass ? ` ${opts.rootClass}` : ''}`;
   root.innerHTML =
     `<input class="category-dropdown-input" aria-label="Category"/>` +
     `<ul class="category-dropdown-list"></ul>`;
@@ -326,6 +329,9 @@ function openGrid(cell: HTMLElement, seed?: string | null): void {
     anchor: cell,
     placeholder,
     seed,
+    // The grid cell already shows the active-cell ring; the input goes flush so the ring is
+    // the single outline (no second border that jumps when the combobox opens).
+    rootClass: 'is-in-cell',
     onCommit(categoryId, label) {
       // Optimistic: the view button shows the new category immediately.
       cell.textContent = label;
