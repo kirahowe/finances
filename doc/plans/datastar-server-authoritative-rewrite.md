@@ -4,10 +4,10 @@
 match/review modals · R5c category rollup pane) — the server-authoritative workspace is the
 canonical `/`; Replicant + the old page/spike/dead-islands are deleted; hiccup2 is the only
 renderer; views are strictly presentational; **filter counts are faceted and compose**.
-**Branch:** `spike/replicant-datastar`. Suite **326/0**; **14 browser specs** (`e2e/v2*.mjs` +
-`setup`) green. **Next: Phase 5** (delete the old React `frontend/` — now fully dead; but the e2e
-harness borrows Playwright from `frontend/node_modules`, so relocate that first).
-**Resume doc:** `datastar-handoff.md`.
++ **Phase 5 COMPLETE** (the old React `frontend/` is deleted; e2e relocated + converted to
+TypeScript). **Branch:** `spike/replicant-datastar`. Suite **326/0**; **14 TypeScript browser specs**
+(`e2e/*.ts`, run via Node native type-stripping) green. **The migration is done** — remaining work is
+optional deferred polish + separately-tracked backend hardening. **Resume doc:** `datastar-handoff.md`.
 
 `/` now has: server-side filter/scope/chips/funnels/sort/paginate; undoable reviewed /
 description / category edits with lingering (rows hold position); column chooser (all columns);
@@ -259,6 +259,31 @@ to it + row highlights + chip appears; click again → clears). One pre-existing
 `v2-resize` now drags the payee column well past its content width, because the rollup pane narrows
 the table card (so auto-fit squeezes payee to its min on load) and a small drag would no longer
 exceed the content width that double-click fits to.
+
+## Phase 5 — delete the old React frontend + e2e to TypeScript (DONE — 2026-06-22)
+
+The migration's final step. `frontend/` (168 MB) is **deleted** — every feature is on the new
+stack, the CSS was already copied into `backend/resources/public/css`, and every pure module was
+ported to `islands/`. The only live dependency on it was the e2e harness borrowing
+`@playwright/test` from `frontend/node_modules`, so first:
+
+- **Playwright relocated to `e2e/`** — its own `package.json`, pinned to the **exact** version
+  `frontend` had resolved (1.57.0) so it reuses the already-downloaded Chromium in the global
+  `~/.../ms-playwright` cache (which survives `frontend/`'s deletion). Floating the range pulled a
+  newer Playwright wanting an uncached browser build — pin it, or `npx playwright install chromium`.
+- **e2e specs → TypeScript.** With Playwright now local, the specs drop the
+  `createRequire(resolve(root,'frontend'))` borrow for a plain `import { chromium } from
+  '@playwright/test'`, and run directly via **Node's native type-stripping** (`node e2e/<spec>.ts`,
+  no build step — the user's point: we already have TS infra, no reason for plain JS). A `tsconfig`
+  (`strict`, `noImplicitAny:false` for the many inline browser callbacks, `verbatimModuleSyntax` +
+  `isolatedModules` so the syntax stays erasable) + `npm run typecheck` guard them.
+- **Dropped 15 obsolete pre-R4 specs** — they still partly passed (the DOM contract carried over)
+  but several crashed against removed routes/islands (`/_scaffold`, the client-side sort island);
+  the 14 canonical `v2-*`/`setup` specs (now `.ts`) supersede them.
+
+Verified: `cd e2e && npm run typecheck` clean; all 14 specs pass run as native `.ts`; backend
+kaocha 326/0 (untouched). Defunct leftovers (low priority): `doc/spikes/replicant-datastar/
+verify*.mjs` still `createRequire` the deleted `frontend/`.
 
 ## Small follow-ups (low priority)
 

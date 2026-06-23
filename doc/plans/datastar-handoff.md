@@ -10,7 +10,8 @@ The React→Datastar migration is structurally **done**. The server-authoritativ
 canonical `/` (server renders + SSE-morphs fragments; client holds only ephemeral UI state).
 **Replicant is gone — hiccup2 is the only renderer.** The old client-heavy page, the spike, the
 scaffold, and the dead islands are deleted. Views are strictly presentational; all data logic is
-in pure, tested fns. Filter counts are faceted and compose. **Suite 326/0; 14 browser specs green.**
+in pure, tested fns. Filter counts are faceted and compose. The old React `frontend/` is **deleted**
+(Phase 5). **Suite 326/0; 14 TypeScript browser specs green** (`e2e/*.ts`, run via Node native TS).
 
 Done: R0 (hiccup2 seam) · R1 (pure view engine) · R2 (table + toolbar + edits with undo/lingering)
 · cp1b (funnels) · cp2-tail (grid-nav + resize) · R3 (column chooser + URL state) · R4 (delete old
@@ -48,12 +49,19 @@ Uncategorized) — pure reuse of the funnel signals, so the funnel checkboxes + 
 stay in sync and the row highlights via `data-class`. Whole-month → re-patched by id on edits only.
 Files: `view/category-rollup`, `pages/transactions` (rollup-pane + handlers), `e2e/v2-rollup.mjs`.
 
-**Next:** **Phase 5** = delete the old React `frontend/` (it's now dead — every feature is on the
-new stack). **Relocate Playwright first**: the e2e harness does
-`createRequire(resolve(root,'frontend'))` to borrow `@playwright/test` from `frontend/node_modules`,
-so move that dep into `e2e/` (or `islands/`) and update the `require` in every `e2e/*.mjs` before
-deleting `frontend/`, or the whole browser suite breaks. Then the low-priority cosmetics (rename
-`e2e/v2-*.mjs`, dead CSS rules, measure search debounce on the VPS).
+**Phase 5 DONE** — the old React `frontend/` is **deleted** (168 MB; every feature is on the new
+stack). Playwright was relocated into `e2e/` (its own `package.json`, pinned to the exact version
+whose browser is already in the global cache) and the e2e specs were **converted to TypeScript**:
+`e2e/*.ts` use a plain `import { chromium } from '@playwright/test'` (no more `createRequire`
+borrow) and run directly via **Node's native type-stripping** (`node e2e/<spec>.ts`, no build),
+type-checked with `cd e2e && npm run typecheck`. The 15 obsolete pre-R4 specs were dropped; the 14
+canonical (`v2-*` + `setup`) survive as `.ts`.
+
+**The migration is complete.** What's left is optional: the deferred R5 polish below, plus
+cross-cutting backend work tracked separately (`project_backend_hardening` — reconciliation +
+account sync). Tiny cleanups: the archival `doc/spikes/replicant-datastar/verify*.mjs` still
+`createRequire` the deleted `frontend/` (defunct spike scripts); the `v2-` spec prefix is now just
+a name; measure the search debounce on the VPS.
 
 ## Run & verify
 
@@ -62,15 +70,16 @@ JDK is jabba-managed; set it once per shell (`jabba use zulu@25.0.3`, or export 
 export JAVA_HOME=/opt/homebrew/Cellar/jabba/0.15.0/jdk/zulu@25.0.3/Contents/Home
 export PATH="$JAVA_HOME/bin:$PATH"
 ```
-- **Backend tests:** `cd backend && clojure -M:test -m kaocha.runner`  → 309/0
+- **Backend tests:** `cd backend && clojure -M:test -m kaocha.runner`  → 326/0
 - **Build the islands** (NOT automatic; gitignored output; a fresh checkout has none):
   `cd islands && npm install && npm run build`  → `backend/resources/public/js/islands/*.js`
+- **e2e deps + typecheck** (Playwright + types live here now): `cd e2e && npm install && npm run typecheck`
 - **Seeded server** (no secrets; seed lives in 2025-01): `cd backend &&
   E2E_PORT=8099 clojure -M:e2e -m finance-aggregator.dev.e2e-server` → http://localhost:8099/?month=2025-01
   - `POST /e2e/reset` re-seeds + clears the in-memory command log.
-- **Browser specs** (real Chromium; Playwright is borrowed from `frontend/node_modules`):
-  `for s in v2 v2-edit v2-desc v2-category v2-cols v2-funnels v2-grid v2-resize v2-counts setup; do
-   BASE_URL=http://localhost:8099 node e2e/$s.mjs; done`
+- **Browser specs** (real Chromium; TypeScript run via Node native type-stripping — no build):
+  `for f in e2e/*.ts; do s=$(basename "$f" .ts); curl -s -X POST $BASE/e2e/reset >/dev/null;
+   BASE_URL=http://localhost:8099 node "e2e/$s.ts"; done`  (reset between specs that mutate)
 - **Real data:** the main dev server serves the same pages: `cd backend && clojure -M:dev -m finance-aggregator.main` → :8080.
 
 ## File map (the canonical stack)
@@ -92,7 +101,7 @@ backend/src/finance_aggregator/web/
   pages/transactions.clj  THE page — dumb: hiccup renderers + static Datastar-attr JS strings + thin handlers
   pages/setup.clj         dumb /setup
 islands/src/   combobox.ts (Zag) · grid-nav.ts · url.ts (window.__syncUrl) · resize.ts (window.__resetWidths) · split-editor.ts · lib/* (pure, vitest)
-e2e/           v2*.mjs + setup.mjs  (filenames still say "v2" — cosmetic; URLs are canonical /)
+e2e/           v2*.ts + setup.ts (TypeScript; "v2" prefix is just a name) + package.json/tsconfig
 ```
 
 ## Conventions (FOLLOW THESE)
@@ -123,8 +132,11 @@ e2e/           v2*.mjs + setup.mjs  (filenames still say "v2" — cosmetic; URLs
   e2e gates on the LAST patch (undo-redo) where reading a mid-stream value would flake.
 - **grid-nav vs morph**: edits morph `#tx-tbody`, which wipes the active-cell highlight; the island
   runs a guarded MutationObserver to rebuild+repaint (active cell keyed by stable RowKey).
-- **Playwright for e2e lives in `frontend/node_modules`** (`createRequire(resolve(root,'frontend'))`).
-  Phase 5 deletes `frontend/` → move Playwright into `e2e/` (or `islands/`) first or the harness breaks.
+- **e2e specs are TypeScript run by Node directly** (native type-stripping; `node e2e/<spec>.ts`,
+  no build). Playwright lives in `e2e/node_modules`, pinned to **the exact version whose Chromium is
+  in the global `~/.../ms-playwright` cache** — bump it and you must `npx playwright install chromium`.
+  The tsconfig is `strict` (with `noImplicitAny:false` for the inline browser callbacks) — keep specs
+  type-strippable (no enums/namespaces); `cd e2e && npm run typecheck`.
 
 ## Modal idiom reference (R5 complete) + what's deferred
 
