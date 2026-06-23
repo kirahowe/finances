@@ -29,14 +29,15 @@
 }
 
 /* While the combobox floats over this button, the floating .category-dropdown-input
-   owns the single border + focus ring. Mute the button's own border/background (and
-   any lingering :hover edge from the click that opened it) so the two don't stack into
-   a doubled outline. The island toggles `.combobox-open` for the lifetime of the open
-   combobox (set in combobox.ts). */
+   owns the field. Mute the button's own border/background (and any lingering :hover edge
+   from the click that opened it), and hide its TEXT (color:transparent) so it can't show
+   through the grid combobox's transparent input behind the input's own placeholder/value.
+   The island toggles `.combobox-open` for the lifetime of the open combobox (combobox.ts). */
 .category-button.combobox-open,
 .category-button.combobox-open:hover {
   border-color: transparent;
   background: none;
+  color: transparent;
 }
 
 /* Category cell: the category button alongside any quiet status marker (e.g. a

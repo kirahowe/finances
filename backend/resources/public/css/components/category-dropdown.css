@@ -45,10 +45,12 @@
 }
 
 /* Grid variant: the combobox opens over an active grid cell that already wears the cell ring,
-   so the input goes flush — opaque surface fill (covers the cell's category text) but NO border
-   or glow of its own. The cell ring stays the single, stable outline, so it doesn't appear to
-   jump when the combobox opens. (The split-modal combobox omits .is-in-cell and keeps its
-   border above, since there's no cell ring behind it.)
+   so the input goes flush — NO border, glow, or fill of its own. A TRANSPARENT background lets
+   the cell's own colour show through, so the field matches the row (white normally, the pine
+   tint when the row is active) instead of a white box punched into a tinted row; the underlying
+   button's text is hidden (category-button.css) so it can't double up behind the input. The cell
+   ring stays the single, stable outline, so nothing jumps when the combobox opens. (The
+   split-modal combobox omits .is-in-cell and keeps its bordered, filled input.)
 
    margin:0 drops the shared negative margin here: the floating root is positioned at the
    BUTTON's border-box (which the button's own negative margin sits one field-padding left/up of
@@ -58,6 +60,7 @@
 .category-dropdown.is-in-cell .category-dropdown-input:focus {
   margin: 0;
   border-color: transparent;
+  background: transparent;
   box-shadow: none;
 }
 
