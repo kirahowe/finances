@@ -2,11 +2,17 @@
 
 Quick guide to running the Finance Aggregator locally.
 
+The app is **server-authoritative**: a single Clojure backend renders the pages
+(hiccup2 SSR + Datastar over SSE) and serves the frontend assets — the TS
+"islands" and the pinned Datastar runtime. There is no separate frontend dev
+server. Common dev tasks are exposed as **Babashka tasks** (`bb <task>`); run
+`bb tasks` to list them.
+
 ## Prerequisites
 
 ### Required Tools
 
-1. **Babashka** (for secrets management):
+1. **Babashka** (task runner + secrets management):
    ```bash
    brew install borkdude/brew/babashka
    ```
@@ -19,30 +25,35 @@ Quick guide to running the Finance Aggregator locally.
 3. **Jabba** (Java version manager):
    ```bash
    curl -sL https://github.com/shyiko/jabba/raw/master/install.sh | bash
-   jabba install zulu@21.0.6
+   jabba install zulu@25.0.3
+   jabba use zulu@25.0.3   # once per terminal session
    ```
 
-4. **Overmind** (process manager):
+4. **Node + npm** (frontend deps: TS islands + Playwright e2e):
    ```bash
-   brew install overmind
+   brew install node
    ```
 
-5. **pnpm** (package manager):
+5. **clj-kondo** (Clojure linting, used by `bb lint`):
    ```bash
-   brew install pnpm
+   brew install borkdude/brew/clj-kondo
    ```
 
 ## First-Time Setup
 
 ### 1. Install Frontend Dependencies
 
+The remaining frontend code is npm-managed in two workspaces — `islands/` (the
+Zag/esbuild widgets) and `e2e/` (Playwright browser checks). Install both:
+
 ```bash
-cd frontend && pnpm install && cd ..
+bb install
 ```
 
 ### 2. Configure Secrets
 
-The project uses age-encrypted secrets instead of environment variables. No `.env` files needed!
+The project uses age-encrypted secrets instead of environment variables. No `.env`
+files needed!
 
 ```bash
 # Generate your encryption key
@@ -94,71 +105,71 @@ The application automatically captures and displays selected accounts when users
 
 ## Running the Application
 
-### Start Everything with Overmind
-
 ```bash
-overmind start
+bb dev
 ```
 
-This starts:
-- **Frontend** (web): http://localhost:5173
-- **Backend API** (api): http://localhost:8080
+This builds the frontend assets once (fetches the pinned Datastar runtime +
+bundles the islands), then starts the backend dev server while watching the
+islands and rebuilding them on change. Stop it with `Ctrl+C` (the islands watcher
+is torn down with it).
 
-### Stop All Processes
+- **App**: http://localhost:8080
+- **Health Check**: http://localhost:8080/health
 
-```bash
-# Ctrl+C in the overmind terminal, or:
-overmind quit
-```
+### Alternative: Manual Start
 
-### Connect to Individual Processes
-
-```bash
-# See all processes
-overmind status
-
-# Connect to backend logs
-overmind connect api
-
-# Connect to frontend logs
-overmind connect web
-```
-
-## Alternative: Manual Start
-
-If you prefer to run processes separately:
+If you prefer to drive the backend from a REPL (recommended for interactive
+development):
 
 ```bash
-# Terminal 1 - Backend REPL (recommended for development)
+# Build the frontend assets first (islands + Datastar runtime)
+bb build
+
+# Backend REPL
 cd backend
-jabba use zulu@21.0.6
+jabba use zulu@25.0.3
 clojure -M:repl -m nrepl.cmdline
-# Then in REPL: (go)
-
-# Or run directly without REPL
-clojure -M:dev -m finance-aggregator.main
-
-# Terminal 2 - Frontend
-cd frontend
-pnpm run dev
+# Then in your editor, connect to the REPL and: (go)
 ```
 
-## Testing
+## Tasks
 
-### Backend Tests
+Run `bb tasks` to list everything. The common ones:
+
+| Task         | What it does                                                              |
+|--------------|--------------------------------------------------------------------------|
+| `bb install` | Install npm deps for `islands/` and `e2e/`                                |
+| `bb build`   | Fetch the pinned Datastar runtime + bundle the TS islands                 |
+| `bb dev`     | Watch/rebuild islands + start the backend dev server                     |
+| `bb test`    | Backend tests (kaocha) + island tests (vitest)                           |
+| `bb lint`    | clj-kondo (backend) + `tsc` typechecks (islands, e2e)                     |
+| `bb e2e`     | Build, boot the seeded server, run the Playwright browser checks         |
+| `bb secrets` | Manage age-encrypted secrets                                             |
+
+### Testing
 
 ```bash
-cd backend
-jabba use zulu@21.0.6
-clojure -M:test -m kaocha.runner
+bb test            # backend (kaocha) + islands (vitest)
+bb e2e             # all browser checks against a seeded, deterministic server
+bb e2e v2-grid     # run a subset by spec name (e2e/v2-grid.ts)
 ```
 
-### Frontend Tests
+`bb e2e` boots the seeded e2e server (no secrets needed) on port 8099, runs the
+specs in `e2e/*.ts`, and tears the server down. See `e2e/README.md`.
 
-```bash
-cd frontend
-pnpm test
-```
+## Frontend Dependencies
+
+We still use a package manager for the frontend deps we do have:
+
+- **`islands/`** — npm-managed (`@zag-js/*`, esbuild, vitest, typescript).
+  `npm`/`bb` commands run from here; the lockfile is committed.
+- **`e2e/`** — npm-managed (`@playwright/test`, typescript). Lockfile committed.
+- **Datastar runtime** — the v1.0 line is no longer published to npm, so it is
+  **pinned and fetched** instead of vendored: `islands/build.mjs` pins
+  `DATASTAR_VERSION` and downloads that exact release from the official jsDelivr/
+  GitHub bundle into `backend/resources/public/js/datastar.js` (a gitignored
+  build artifact). To upgrade, bump `DATASTAR_VERSION` and run `bb build`.
 
 ## REPL Development (Backend)
 
@@ -166,7 +177,7 @@ For interactive development with the backend:
 
 ```bash
 cd backend
-jabba use zulu@21.0.6
+jabba use zulu@25.0.3
 clojure -M:repl -m nrepl.cmdline
 ```
 
@@ -185,24 +196,18 @@ See `doc/implementation/adr-003-backend/repl-quick-reference.md` for details.
 
 ```
 finance-aggregator/
-├── Procfile              # Overmind process definitions
-├── backend/              # Clojure backend
+├── bb.edn                # Babashka dev tasks (dev/build/test/lint/e2e/secrets)
+├── backend/              # Clojure backend (SSR + Datastar, serves frontend assets)
 │   ├── src/              # Source code
 │   ├── test/             # Tests
-│   ├── resources/        # Config and secrets
+│   ├── env/              # Per-environment config + dev/e2e source
+│   ├── resources/        # Config, secrets, public assets (CSS + built JS)
 │   └── SECRETS.md        # Secrets management guide
-├── frontend/             # React frontend
-│   └── src/              # Frontend code
+├── islands/              # Vanilla TS islands (Zag widgets), esbuild → backend assets
+├── e2e/                  # Playwright browser checks (TypeScript, run by Node)
 └── scripts/
     └── secrets.clj       # bb secrets command
 ```
-
-## Key Services
-
-- **Frontend**: http://localhost:5173
-- **Backend API**: http://localhost:8080
-- **Health Check**: http://localhost:8080/health
-- **Database**: Embedded Datalevin at `backend/data/finance.db`
 
 ## Troubleshooting
 
@@ -213,10 +218,6 @@ Install Babashka: `brew install borkdude/brew/babashka`
 ### "age: command not found"
 
 Install age: `brew install age`
-
-### "overmind: command not found"
-
-Install Overmind: `brew install overmind`
 
 ### "Failed to decrypt secrets file"
 
@@ -232,8 +233,15 @@ bb secrets new
 Make sure you've set the Java version:
 
 ```bash
-cd backend
-jabba use zulu@21.0.6
+jabba use zulu@25.0.3
+```
+
+### Island bundles or Datastar 404
+
+Build the frontend assets (also done automatically by `bb dev`/`bb e2e`):
+
+```bash
+bb build
 ```
 
 ## Documentation
@@ -243,5 +251,9 @@ jabba use zulu@21.0.6
   - Plaid Integration: `doc/adr/adr-004-plaid-integration.md`
   - REPL Guide: `doc/implementation/adr-003-backend/repl-quick-reference.md`
   - Secrets Management: `backend/SECRETS.md`
-- **Frontend**:
-  - Architecture: `doc/adr/adr-002-modern-react-frontend-architecture.md`
+- **Frontend (server-authoritative)**:
+  - Islands: `islands/README.md`
+  - Browser checks: `e2e/README.md`
+  - Migration history: `doc/plans/datastar-handoff.md`
+```
+

@@ -19,34 +19,33 @@ See [DEVELOPMENT.md](./DEVELOPMENT.md) for complete setup instructions.
 
 ```bash
 # Install required tools
-brew install borkdude/brew/babashka  # Secrets management
-brew install age                      # Encryption
-brew install overmind                 # Process manager
-brew install pnpm                     # Package manager
+brew install borkdude/brew/babashka   # Task runner + secrets management
+brew install age                       # Encryption
+brew install node                      # Frontend deps (npm: islands + e2e)
+brew install borkdude/brew/clj-kondo   # Clojure linting (bb lint)
 
 # Install Jabba (Java version manager)
 curl -sL https://github.com/shyiko/jabba/raw/master/install.sh | bash
-jabba install zulu@21.0.6
+jabba install zulu@25.0.3
+jabba use zulu@25.0.3
 ```
 
 ### First-Time Setup
 
 ```bash
-# 1. Install frontend dependencies
-cd frontend && pnpm install && cd ..
+# 1. Install frontend dependencies (islands/ + e2e/)
+bb install
 
 # 2. Configure secrets (interactive)
 bb secrets keygen
 bb secrets new
 # Add your Plaid credentials in the editor
 
-# 3. Start everything
-overmind start
+# 3. Start the app (server-authoritative: single backend, no separate web server)
+bb dev
 ```
 
-Access the application at:
-- **Frontend**: http://localhost:5173
-- **Backend API**: http://localhost:8080
+Access the application at http://localhost:8080.
 
 ## Architecture
 
@@ -115,39 +114,32 @@ finance-aggregator/
 ### Running the Application
 
 ```bash
-# Start everything (recommended)
-overmind start
+# Start the app (builds + watches islands, runs the backend dev server)
+bb dev
 
-# Or manually in separate terminals:
-# Terminal 1 - Backend
+# Or drive the backend from a REPL:
+bb build                      # build frontend assets first
 cd backend
-jabba use zulu@21.0.6
+jabba use zulu@25.0.3
 clojure -M:repl -m nrepl.cmdline
 # Then: (go)
-
-# Terminal 2 - Frontend
-cd frontend
-pnpm run dev
 ```
 
 ### Running Tests
 
 ```bash
-# Backend
-cd backend
-jabba use zulu@21.0.6
-clojure -M:test -m kaocha.runner
-
-# Frontend
-cd frontend
-pnpm test
+bb test            # backend (kaocha) + islands (vitest)
+bb lint            # clj-kondo + tsc typechecks
+bb e2e             # Playwright browser checks against a seeded server
 ```
+
+Run `bb tasks` to list all available dev tasks.
 
 ### REPL Development (Backend)
 
 ```bash
 cd backend
-jabba use zulu@21.0.6
+jabba use zulu@25.0.3
 clojure -M:repl -m nrepl.cmdline
 ```
 

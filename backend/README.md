@@ -35,7 +35,7 @@ brew install age
 cd backend
 
 # Set Java version (run once per terminal session)
-jabba use zulu@21.0.6
+jabba use zulu@25.0.3
 
 # Generate encryption key and create secrets
 bb secrets keygen
@@ -55,9 +55,10 @@ clojure -M:repl -m nrepl.cmdline
 # Using the main entry point
 clojure -M:dev -m finance-aggregator.main
 
-# Or from the project root with Overmind
+# Or, from the project root, run the whole app (builds + watches the frontend
+# assets and starts this server):
 cd ..
-overmind start
+bb dev
 ```
 
 ## Project Structure
