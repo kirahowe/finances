@@ -301,12 +301,24 @@ export function openCombobox(opts: OpenOptions): void {
   // split-modal.css); the floating input owns the single border + focus ring.
   anchor.classList.add('combobox-open');
 
+  // A server-authoritative edit can morph the tbody WHILE this combobox is open over the anchor:
+  // the Enter-advance opens the next row's combobox before the previous row's category @put
+  // response lands, and that response re-renders the whole tbody. idiomorph morphs the id-matched
+  // anchor button in place and resets its class to the server's value, stripping `combobox-open`
+  // — so the button text reappears behind the (transparent) floating input as doubled text.
+  // Re-apply the flag if a morph removes it; disconnected in teardown (before we remove it).
+  const anchorGuard = new MutationObserver(() => {
+    if (!anchor.classList.contains('combobox-open')) anchor.classList.add('combobox-open');
+  });
+  anchorGuard.observe(anchor, { attributes: true, attributeFilter: ['class'] });
+
   // teardown: stop the machine and remove the floating root. close() invokes this then
   // the caller's onClose; it must be idempotent-safe because onOpenChange may re-enter.
   const teardown = () => {
     // Clear before stop() so a deferred applyHighlight (queued mid-transition) sees this
     // machine is no longer current and skips setHighlightValue on a stopped machine.
     if (currentMachine === machine) currentMachine = null;
+    anchorGuard.disconnect();
     anchor.classList.remove('combobox-open');
     machine.stop();
     root.remove();
