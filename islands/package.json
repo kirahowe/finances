@@ -2,7 +2,7 @@
   "name": "islands",
   "private": true,
   "type": "module",
-  "description": "Vanilla TS islands (esbuild) for the Replicant + Datastar frontend. Pure logic modules live under src/lib with their vitest tests; bundles are written to backend/resources/public/js/islands.",
+  "description": "Vanilla TS islands (esbuild) for the Datastar server-authoritative workspace. Pure logic modules live under src/lib with their vitest tests; bundles are written to backend/resources/public/js/islands.",
   "scripts": {
     "build": "node build.mjs",
     "test": "vitest run",
