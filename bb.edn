@@ -1,6 +1,75 @@
 {:min-bb-version "1.0.0"
  :tasks
- {;; Secrets management task
-  secrets {:doc "Manage encrypted secrets using age encryption"
+ {;; ── Setup ────────────────────────────────────────────────────────────
+  install {:doc "Install frontend (npm) deps for islands + e2e"
            :task (do
-                   (load-file "scripts/secrets.clj"))}}}
+                   (shell {:dir "islands"} "npm" "install")
+                   (shell {:dir "e2e"} "npm" "install"))}
+
+  build {:doc "Build frontend assets: fetch the pinned Datastar runtime + bundle the TS islands"
+         :task (shell {:dir "islands"} "npm" "run" "build")}
+
+  ;; ── Run ──────────────────────────────────────────────────────────────
+  dev {:doc "Run the app for local development: rebuild islands on change + start the backend"
+       :depends [build]
+       :requires ([babashka.process :as p])
+       :task (let [watcher (p/process {:dir "islands" :inherit true} "npm" "run" "watch")]
+               ;; The backend (clojure -M:dev) serves the SSR pages plus the built
+               ;; islands/Datastar from resources/public. The watcher keeps the
+               ;; island bundles fresh; kill it when the dev server exits.
+               (.addShutdownHook (Runtime/getRuntime)
+                                 (Thread. (fn [] (p/destroy-tree watcher))))
+               (shell {:dir "backend"} "clojure" "-M:dev" "-m" "finance-aggregator.main"))}
+
+  ;; ── Quality ──────────────────────────────────────────────────────────
+  test {:doc "Run all tests: backend (kaocha) + islands (vitest)"
+        :task (do
+                (shell {:dir "backend"} "clojure" "-M:test" "-m" "kaocha.runner")
+                (shell {:dir "islands"} "npm" "test"))}
+
+  lint {:doc "Lint + typecheck everything: clj-kondo (backend) + tsc (islands, e2e)"
+        :task (let [results [(shell {:continue true :dir "backend"} "clj-kondo" "--lint" "src" "test" "env")
+                             (shell {:continue true :dir "islands"} "npm" "run" "typecheck")
+                             (shell {:continue true :dir "e2e"} "npm" "run" "typecheck")]]
+                (when (some (comp pos? :exit) results)
+                  (System/exit 1)))}
+
+  e2e {:doc "Browser checks (Playwright): build islands, boot the seeded server, run e2e specs. Pass spec names to run a subset, e.g. `bb e2e v2-grid setup`."
+       :depends [build]
+       :requires ([babashka.process :as p]
+                  [babashka.fs :as fs])
+       :task (let [port "8099"
+                   base (str "http://localhost:" port)
+                   server (p/process {:dir "backend"
+                                      :extra-env {"E2E_PORT" port}
+                                      :inherit true}
+                                     "clojure" "-M:e2e" "-m" "finance-aggregator.dev.e2e-server")]
+               (try
+                 ;; wait for the seeded server to start answering
+                 (loop [n 0]
+                   (when (>= n 60)
+                     (throw (ex-info "e2e server did not become ready within 60s" {})))
+                   (when (pos? (:exit (p/shell {:continue true :out :string :err :string}
+                                               "curl" "-sf" (str base "/?month=2025-01"))))
+                     (Thread/sleep 1000)
+                     (recur (inc n))))
+                 (let [specs (if (seq *command-line-args*)
+                               (map (fn [s] (str "e2e/" s ".ts")) *command-line-args*)
+                               (sort (map str (fs/glob "e2e" "*.ts"))))
+                       results (doall
+                                (for [spec specs]
+                                  (do
+                                    (println (str "\n▶ " spec))
+                                    [spec (:exit (p/shell {:continue true :extra-env {"BASE_URL" base}}
+                                                          "node" spec))])))
+                       failed (filter (comp pos? second) results)]
+                   (when (seq failed)
+                     (println "\nFAILED:" (mapv first failed))
+                     (System/exit 1))
+                   (println "\nAll e2e specs passed"))
+                 (finally
+                   (p/destroy-tree server))))}
+
+  ;; ── Secrets ──────────────────────────────────────────────────────────
+  secrets {:doc "Manage encrypted secrets using age encryption"
+           :task (load-file "scripts/secrets.clj")}}}
