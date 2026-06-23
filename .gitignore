@@ -32,6 +32,9 @@ backend/test-results/
 islands/node_modules/
 backend/resources/public/js/islands/
 
+# Datastar runtime — pinned build artifact fetched by islands/build.mjs (not vendored)
+backend/resources/public/js/datastar.js
+
 # e2e (TypeScript browser checks — Playwright lives here now, run via Node native TS)
 e2e/node_modules/
 

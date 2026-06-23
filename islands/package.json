@@ -5,6 +5,7 @@
   "description": "Vanilla TS islands (esbuild) for the Datastar server-authoritative workspace. Pure logic modules live under src/lib with their vitest tests; bundles are written to backend/resources/public/js/islands.",
   "scripts": {
     "build": "node build.mjs",
+    "watch": "node build.mjs --watch",
     "test": "vitest run",
     "typecheck": "tsc --noEmit"
   },
