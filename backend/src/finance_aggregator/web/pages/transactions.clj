@@ -477,6 +477,21 @@
    [:div.empty-state-title "No transactions this month"]
    [:p "Use the month controls to browse another period, or import from Setup."]])
 
+(defn- error-banner
+  "The dismissable error banner — the stable #error-bar morph target. Empty on load (and
+   re-emptied by the next successful action), so it takes no vertical space; a failed
+   mutation patches it with `msg`. role=alert (present from load) so a patched-in message
+   is announced. Dismiss empties it client-side (the wrapper + role persist)."
+  ([] (error-banner nil))
+  ([msg]
+   [:div {:id "error-bar" :role "alert"}
+    (when msg
+      [:div.error-banner
+       [:span msg]
+       [:button {:type "button" :aria-label "Dismiss error"
+                 "data-on:click" "document.getElementById('error-bar').replaceChildren()"}
+        "×"]])]))
+
 (defn- url-sync
   "Reflect the persistent view-state into the URL on change (the url island owns the
    serialization). Scoped by the signal-patch filter to the persistent signals so it ignores
@@ -841,6 +856,7 @@
          :signals (vs/client-signals view-st month-str result (:query-params req))}
         [:div.container.container--workspace {"data-on:keydown__window" undo-key-js}
          (shell/masthead {:active :transactions :stats stats})
+         (error-banner)
          [:div.transactions-layout
           [:div.card
            (toolbar m counts)
@@ -870,6 +886,8 @@
        req
        {hk/on-open
         (fn [sse]
+          ;; A view change (filter/sort/paginate) dismisses any error a prior action left up.
+          (d*/patch-elements! sse (r/render (error-banner)))
           (d*/patch-elements! sse (r/render (tbody (:rows result))))
           (d*/patch-elements! sse (r/render (pagination-bar result)))
           (patch-filter-feedback! sse txs view-st)
@@ -892,6 +910,8 @@
      req
      {hk/on-open
       (fn [sse]
+        ;; A successful edit clears any error banner a prior failed action left up.
+        (d*/patch-elements! sse (r/render (error-banner)))
         (d*/patch-elements! sse (r/render (tbody (:rows result) stale-ids)))
         (d*/patch-elements! sse (r/render (pagination-bar result)))
         (patch-filter-feedback! sse txs view-st)
@@ -903,44 +923,76 @@
         (d*/patch-signals! sse (r/signals {:page (:page result)}))
         (d*/close-sse! sse))})))
 
+(defn- error-response
+  "SSE response for a failed mutation: surface the message in the dismissable error bar and
+   close any open modal (so the bar isn't hidden behind a backdrop). The mutation threw
+   before its command was recorded and before any datom was written (every db mutation
+   validates up front), so the table already reflects the true state — nothing else to
+   re-render."
+  [req msg]
+  (hk/->sse-response
+   req
+   {hk/on-open
+    (fn [sse]
+      (d*/patch-elements! sse (r/render (error-banner msg)))
+      (d*/patch-elements! sse (r/render [:div {:id "modal-root"}]))
+      (d*/close-sse! sse))}))
+
+(defn- handle-edit
+  "Run an edit handler body (a thunk returning its SSE response); if a mutation throws an
+   ex-info (validation / :conflict / :not-found), surface its message in the error bar
+   instead of letting it escape to the JSON exception middleware — which a Datastar SSE
+   client receives as a non-event-stream response, so no fragment patches and the user
+   sees nothing change. Unexpected (non-ex-info) errors keep the default 500 + logging."
+  [req thunk]
+  (try (thunk)
+       (catch clojure.lang.ExceptionInfo e
+         (error-response req (ex-message e)))))
+
 (defn toggle-reviewed
   "PUT /transactions/:id/reviewed/:v — record + apply a reviewed command, then re-render."
   [{:keys [db-conn]}]
   (fn [req]
-    (let [tx-id (-> req :path-params :id parse-long)
-          after (= "true" (-> req :path-params :v))]
-      (commands/apply! db-conn auth/user-id
-                       {:type :set-reviewed :tx-id tx-id :before (not after) :after after
-                        :label (if after "Marked reviewed" "Marked unreviewed")})
-      (edit-response db-conn req (r/read-signals req)))))
+    (handle-edit req
+     (fn []
+       (let [tx-id (-> req :path-params :id parse-long)
+             after (= "true" (-> req :path-params :v))]
+         (commands/apply! db-conn auth/user-id
+                          {:type :set-reviewed :tx-id tx-id :before (not after) :after after
+                           :label (if after "Marked reviewed" "Marked unreviewed")})
+         (edit-response db-conn req (r/read-signals req)))))))
 
 (defn set-description
   "PUT /transactions/:id/description — record + apply an inline-description-edit command (the new
    value rides in the $editValue courier signal), then re-render."
   [{:keys [db-conn]}]
   (fn [req]
-    (let [tx-id (-> req :path-params :id parse-long)
-          signals (r/read-signals req)
-          before (db-transactions/user-description db-conn tx-id)
-          after (str/trim (or (:editValue signals) ""))]
-      (commands/apply! db-conn auth/user-id
-                       {:type :set-description :tx-id tx-id :before before :after after
-                        :label "Edited description"})
-      (edit-response db-conn req signals))))
+    (handle-edit req
+     (fn []
+       (let [tx-id (-> req :path-params :id parse-long)
+             signals (r/read-signals req)
+             before (db-transactions/user-description db-conn tx-id)
+             after (str/trim (or (:editValue signals) ""))]
+         (commands/apply! db-conn auth/user-id
+                          {:type :set-description :tx-id tx-id :before before :after after
+                           :label "Edited description"})
+         (edit-response db-conn req signals))))))
 
 (defn set-category
   "PUT /transactions/:id/category — record + apply an :update-category command (the chosen id rides
    in the $catValue courier; empty = clear), then re-render (counts move)."
   [{:keys [db-conn]}]
   (fn [req]
-    (let [tx-id (-> req :path-params :id parse-long)
-          signals (r/read-signals req)
-          before (db-transactions/category-id db-conn tx-id)
-          after (vs/parse-category-value (:catValue signals))]
-      (commands/apply! db-conn auth/user-id
-                       {:type :set-category :tx-id tx-id :before before :after after
-                        :label "Recategorized"})
-      (edit-response db-conn req signals))))
+    (handle-edit req
+     (fn []
+       (let [tx-id (-> req :path-params :id parse-long)
+             signals (r/read-signals req)
+             before (db-transactions/category-id db-conn tx-id)
+             after (vs/parse-category-value (:catValue signals))]
+         (commands/apply! db-conn auth/user-id
+                          {:type :set-category :tx-id tx-id :before before :after after
+                           :label "Recategorized"})
+         (edit-response db-conn req signals))))))
 
 (defn split-editor
   "GET /transactions/:id/split-editor — render the split-editor modal for one transaction into
@@ -961,16 +1013,18 @@
    the prior parts as :before so undo restores them."
   [{:keys [db-conn]}]
   (fn [req]
-    (let [tx-id (-> req :path-params :id parse-long)
-          signals (r/read-signals req)
-          before (db-transactions/current-splits db-conn tx-id)
-          after (vs/parse-splits-value (:splitValue signals))]
-      (commands/apply! db-conn auth/user-id
-                       {:type :set-splits :tx-id tx-id :before before :after after
-                        :label (cond (empty? after)  "Un-split"
-                                     (seq before)     "Edited split"
-                                     :else            "Split transaction")})
-      (edit-response db-conn req signals :close-modal? true))))
+    (handle-edit req
+     (fn []
+       (let [tx-id (-> req :path-params :id parse-long)
+             signals (r/read-signals req)
+             before (db-transactions/current-splits db-conn tx-id)
+             after (vs/parse-splits-value (:splitValue signals))]
+         (commands/apply! db-conn auth/user-id
+                          {:type :set-splits :tx-id tx-id :before before :after after
+                           :label (cond (empty? after)  "Un-split"
+                                        (seq before)     "Edited split"
+                                        :else            "Split transaction")})
+         (edit-response db-conn req signals :close-modal? true))))))
 
 (defn match-editor
   "GET /transactions/:id/match — render the transfer match/unmatch modal into #modal-root.
@@ -993,22 +1047,26 @@
    so undo unlinks), then re-render and close the modal."
   [{:keys [db-conn]}]
   (fn [req]
-    (let [tx-id (-> req :path-params :id parse-long)
-          partner (-> req :path-params :partner parse-long)]
-      (commands/apply! db-conn auth/user-id
-                       {:type :set-match :tx-id tx-id :before nil :after partner :label "Matched transfer"})
-      (edit-response db-conn req (r/read-signals req) :close-modal? true))))
+    (handle-edit req
+     (fn []
+       (let [tx-id (-> req :path-params :id parse-long)
+             partner (-> req :path-params :partner parse-long)]
+         (commands/apply! db-conn auth/user-id
+                          {:type :set-match :tx-id tx-id :before nil :after partner :label "Matched transfer"})
+         (edit-response db-conn req (r/read-signals req) :close-modal? true))))))
 
 (defn unmatch
   "PUT /transactions/:id/unmatch — remove the transfer link (a :set-match command capturing the
    prior partner as :before, so undo relinks), then re-render and close the modal."
   [{:keys [db-conn]}]
   (fn [req]
-    (let [tx-id (-> req :path-params :id parse-long)
-          before (get-in (db-transactions/by-id db-conn tx-id) [:transaction/transfer-pair :db/id])]
-      (commands/apply! db-conn auth/user-id
-                       {:type :set-match :tx-id tx-id :before before :after nil :label "Unmatched transfer"})
-      (edit-response db-conn req (r/read-signals req) :close-modal? true))))
+    (handle-edit req
+     (fn []
+       (let [tx-id (-> req :path-params :id parse-long)
+             before (get-in (db-transactions/by-id db-conn tx-id) [:transaction/transfer-pair :db/id])]
+         (commands/apply! db-conn auth/user-id
+                          {:type :set-match :tx-id tx-id :before before :after nil :label "Unmatched transfer"})
+         (edit-response db-conn req (r/read-signals req) :close-modal? true))))))
 
 (defn review-transfers
   "GET /transactions/review-transfers — render the bulk transfer-review modal (auto-suggested
@@ -1034,35 +1092,43 @@
    then re-render the table + refresh the suggestion list in place."
   [{:keys [db-conn]}]
   (fn [req]
-    (let [out (-> req :path-params :out parse-long)
-          in (-> req :path-params :in parse-long)]
-      (commands/apply! db-conn auth/user-id
-                       {:type :set-match :tx-id out :before nil :after in :label "Matched transfer"})
-      (edit-response db-conn req (r/read-signals req)
-                     :after-patch (fn [sse] (refresh-review-list! db-conn sse))))))
+    (handle-edit req
+     (fn []
+       (let [out (-> req :path-params :out parse-long)
+             in (-> req :path-params :in parse-long)]
+         (commands/apply! db-conn auth/user-id
+                          {:type :set-match :tx-id out :before nil :after in :label "Matched transfer"})
+         (edit-response db-conn req (r/read-signals req)
+                        :after-patch (fn [sse] (refresh-review-list! db-conn sse))))))))
 
 (defn review-reject
   "PUT /transactions/review/:a/reject/:b — reject a suggested pair (:reject-match command, so
    undo un-rejects), then re-render the table + refresh the suggestion list in place."
   [{:keys [db-conn]}]
   (fn [req]
-    (let [a (-> req :path-params :a parse-long)
-          b (-> req :path-params :b parse-long)]
-      (commands/apply! db-conn auth/user-id
-                       {:type :reject-match :tx-id a :partner b :before false :after true :label "Rejected transfer"})
-      (edit-response db-conn req (r/read-signals req)
-                     :after-patch (fn [sse] (refresh-review-list! db-conn sse))))))
+    (handle-edit req
+     (fn []
+       (let [a (-> req :path-params :a parse-long)
+             b (-> req :path-params :b parse-long)]
+         (commands/apply! db-conn auth/user-id
+                          {:type :reject-match :tx-id a :partner b :before false :after true :label "Rejected transfer"})
+         (edit-response db-conn req (r/read-signals req)
+                        :after-patch (fn [sse] (refresh-review-list! db-conn sse))))))))
 
 (defn undo
   "POST /transactions/undo — reverse the last edit (keeping the row lingering), then re-render."
   [{:keys [db-conn]}]
   (fn [req]
-    (commands/undo! db-conn auth/user-id)
-    (edit-response db-conn req (r/read-signals req))))
+    (handle-edit req
+     (fn []
+       (commands/undo! db-conn auth/user-id)
+       (edit-response db-conn req (r/read-signals req))))))
 
 (defn redo
   "POST /transactions/redo — re-apply the last undone edit, then re-render."
   [{:keys [db-conn]}]
   (fn [req]
-    (commands/redo! db-conn auth/user-id)
-    (edit-response db-conn req (r/read-signals req))))
+    (handle-edit req
+     (fn []
+       (commands/redo! db-conn auth/user-id)
+       (edit-response db-conn req (r/read-signals req))))))
