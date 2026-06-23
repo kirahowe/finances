@@ -17,30 +17,26 @@ that feature.
 
 ## Concrete gaps found
 
-1. **Transfer badge / matching is parent-only.** `renderTransferStatus`
-   (`OptimisticTransactionTable.tsx:158`) reads `transaction/transfer-pair` and the
-   parent's `transaction/category` type. Split child cells render via
-   `renderSplitChildCell` (`:217`), which only shows the split's category name — a
-   split part categorized as a transfer gets no badge and no way to match a
-   counterpart.
+1. **Transfer badge / matching is parent-only.** Transfer-status rendering reads
+   `transaction/transfer-pair` and the parent's `transaction/category` type. The split
+   child-cell rendering only shows the split's category name — a split part categorized
+   as a transfer gets no badge and no way to match a counterpart.
 
-2. **Reviewed filter can't see partially-reviewed splits.** The filter accessor is
-   `reviewed: (tx) => tx["transaction/reviewed"] ? "reviewed" : "unreviewed"`
-   (`home.tsx:65`). For a split row the server derives `transaction/reviewed` as
-   "every split reviewed" (`api.ts:114`). So a transaction with one reviewed part and
-   one unreviewed part reads as a single "unreviewed" row; filtering to "reviewed"
-   hides the whole transaction, including the already-reviewed part. Parts are not
-   independently filterable because they render hanging off the parent row.
+2. **Reviewed filter can't see partially-reviewed splits.** The reviewed filter keys off
+   a single per-transaction `transaction/reviewed` flag, which the server derives as
+   "every split reviewed." So a transaction with one reviewed part and one unreviewed
+   part reads as a single "unreviewed" row; filtering to "reviewed" hides the whole
+   transaction, including the already-reviewed part. Parts are not independently
+   filterable because they render hanging off the parent row.
 
 3. **Keyboard navigation doesn't reach split rows.** (User-reported.) Nav is built
    around transaction rows; the child part rows aren't first-class focus targets.
 
 4. **Category filter vs. split attribution don't reconcile.** The category filter
-   matches the parent's top-level `transaction/category` only
-   (`TX_FILTER_ACCESSORS.category` in `home.tsx`), but the rollup attributes each
-   split *part* to its own category (`categoryRollup.ts:92`). Clicking a rollup row
-   whose dollars came from split parts therefore may not surface those transactions
-   in the table, and the row total won't tie out with the filtered set.
+   matches the parent's top-level `transaction/category` only, but the category rollup
+   attributes each split *part* to its own category. Clicking a rollup row whose dollars
+   came from split parts therefore may not surface those transactions in the table, and
+   the row total won't tie out with the filtered set.
 
 ## Root cause
 

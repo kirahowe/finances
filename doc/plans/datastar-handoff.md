@@ -5,9 +5,11 @@ server-authoritative transactions workspace. Depth/why is in
 `datastar-server-authoritative-rewrite.md`; memory entry `project_replicant_datastar_spike`.
 **Branch:** `spike/replicant-datastar`.
 
-> **The migration is complete.** The next session's mission is the **pre-ship review** (tighten +
-> harden + a11y/cross-browser + triage what blocks shipping) — its checklist + open questions live in
-> **`pre-ship-review.md`**. This doc is the orientation; that one is the work.
+> **The migration is complete, and the pre-ship hardening pass shipped** (global error bar, modal
+> focus trap/restore, `aria-live` count announcements; single-user ship confirmed) — see
+> **`pre-ship-review.md`** for what was closed and what stays open. Remaining work is the cross-cutting
+> backend hardening tracked separately (memory `project_backend_hardening`: reconciliation + account
+> sync). This doc is the orientation for the workspace itself.
 
 ## Where we are (2026-06-21)
 
@@ -16,7 +18,7 @@ canonical `/` (server renders + SSE-morphs fragments; client holds only ephemera
 **Replicant is gone — hiccup2 is the only renderer.** The old client-heavy page, the spike, the
 scaffold, and the dead islands are deleted. Views are strictly presentational; all data logic is
 in pure, tested fns. Filter counts are faceted and compose. The old React `frontend/` is **deleted**
-(Phase 5). **Suite 326/0; 14 TypeScript browser specs green** (`e2e/*.ts`, run via Node native TS).
+(Phase 5). **Suite 326/0; 16 TypeScript browser specs green** (`e2e/*.ts`, run via Node native TS).
 
 Done: R0 (hiccup2 seam) · R1 (pure view engine) · R2 (table + toolbar + edits with undo/lingering)
 · cp1b (funnels) · cp2-tail (grid-nav + resize) · R3 (column chooser + URL state) · R4 (delete old
@@ -33,7 +35,7 @@ free) → response re-patches `#modal-root` empty (closes the modal). Cancel/Esc
 client-side. Files: `view/split-editor-seed`, `view-state/parse-splits-value`,
 `db.transactions/{current-splits,by-id}`, `commands/:set-splits`, `pages/transactions`
 (row-actions-menu + split-editor-modal), `islands/split-editor.ts`, `css/{row-actions,split-modal}`,
-`e2e/v2-split.mjs`.
+`e2e/v2-split.ts`.
 
 **R5b DONE** — transfer match/review, **no island** (interactions are plain @put's). A second
 row-actions item ("Match transfer"/"Matched transfer", driven by `$_rowMenuMatched`) opens
@@ -44,7 +46,7 @@ modal stays open). All mutations are commands (`:set-match`, `:reject-match` + `
 so they undo/redo. Island-less modals close on backdrop-click (guarded `evt.target===el` — Datastar
 has **no `__self` modifier**) / Esc / Close. Files: `commands/{:set-match,:reject-match}`,
 `pages/transactions` (match-modal + review-modal + handlers; `edit-response :after-patch`),
-`css/transfer-modal.css`, `e2e/{v2-match,v2-review}.mjs`.
+`css/transfer-modal.css`, `e2e/{v2-match,v2-review}.ts`.
 
 **R5c DONE** — the `#category-rollup` aside (whole-month per-category breakdown: income/expense/
 transfer sections, subtotals, signed Net) renders beside the table (the carried-over
@@ -52,21 +54,22 @@ transfer sections, subtotals, signed Net) renders beside the table (the carried-
 the ported pure `view/category-rollup`. Clicking a row toggles `$filter.category` (or `$uncat` for
 Uncategorized) — pure reuse of the funnel signals, so the funnel checkboxes + active-filter chips
 stay in sync and the row highlights via `data-class`. Whole-month → re-patched by id on edits only.
-Files: `view/category-rollup`, `pages/transactions` (rollup-pane + handlers), `e2e/v2-rollup.mjs`.
+Files: `view/category-rollup`, `pages/transactions` (rollup-pane + handlers), `e2e/v2-rollup.ts`.
 
 **Phase 5 DONE** — the old React `frontend/` is **deleted** (168 MB; every feature is on the new
 stack). Playwright was relocated into `e2e/` (its own `package.json`, pinned to the exact version
 whose browser is already in the global cache) and the e2e specs were **converted to TypeScript**:
 `e2e/*.ts` use a plain `import { chromium } from '@playwright/test'` (no more `createRequire`
 borrow) and run directly via **Node's native type-stripping** (`node e2e/<spec>.ts`, no build),
-type-checked with `cd e2e && npm run typecheck`. The 15 obsolete pre-R4 specs were dropped; the 14
-canonical (`v2-*` + `setup`) survive as `.ts`.
+type-checked with `cd e2e && npm run typecheck`. The obsolete pre-R4 specs were dropped; the
+canonical (`v2-*` + `setup`) survive as `.ts` — now 16 specs (incl. `v2-errors`, `v2-modal-focus`
+from the pre-ship pass).
 
 **The migration is complete.** What's left is optional: the deferred R5 polish below, plus
 cross-cutting backend work tracked separately (`project_backend_hardening` — reconciliation +
-account sync). Tiny cleanups: the archival `doc/spikes/replicant-datastar/verify*.mjs` still
-`createRequire` the deleted `frontend/` (defunct spike scripts); the `v2-` spec prefix is now just
-a name; measure the search debounce on the VPS.
+account sync). The throwaway `doc/spikes/replicant-datastar/` prototype has since been deleted (its
+research is summarised in `doc/spikes/replicant-datastar/FINDINGS.md`). Minor: the `v2-` spec prefix
+is now just a name; measure the search debounce on the VPS.
 
 ## Run & verify
 
@@ -75,6 +78,9 @@ JDK is jabba-managed; set it once per shell (`jabba use zulu@25.0.3`, or export 
 export JAVA_HOME=/opt/homebrew/Cellar/jabba/0.15.0/jdk/zulu@25.0.3/Contents/Home
 export PATH="$JAVA_HOME/bin:$PATH"
 ```
+The **`bb` tasks wrap all of this**: `bb test` (kaocha + vitest), `bb build` (islands + pinned
+Datastar), `bb e2e` (build + boot the seeded server + run every spec + teardown; `bb e2e <spec>` for
+a subset), `bb dev` (app on :8080). The raw underlying steps:
 - **Backend tests:** `cd backend && clojure -M:test -m kaocha.runner`  → 326/0
 - **Build the islands** (NOT automatic; gitignored output; a fresh checkout has none):
   `cd islands && npm install && npm run build`  → `backend/resources/public/js/islands/*.js`

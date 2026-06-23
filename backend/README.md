@@ -20,7 +20,7 @@ See [ADR-003: Clojure Backend Architecture](../doc/adr/adr-003-clojure-backend-a
 ```bash
 # Install Jabba (Java version manager)
 curl -sL https://github.com/shyiko/jabba/raw/master/install.sh | bash
-jabba install zulu@21.0.6
+jabba install zulu@25.0.3
 
 # Install Babashka (for secrets management)
 brew install borkdude/brew/babashka
@@ -69,55 +69,102 @@ backend/
 │   ├── main.clj                    # Application entry point
 │   ├── system.clj                  # Integrant component definitions
 │   ├── sys.clj                     # System lifecycle utilities
+│   ├── auth.clj                    # Current-user resolution (single-user)
+│   ├── categories.clj              # Category domain logic
+│   ├── splits.clj                  # Split (sub-transaction) domain logic
+│   ├── transfers.clj               # Transfer matching domain logic
+│   ├── provider.clj                # Provider multimethod seam (dispatch)
+│   ├── utils.clj                   # Utility functions
+│   ├── db.clj                      # Legacy database operations
 │   ├── db/
 │   │   ├── core.clj                # Database connection management
+│   │   ├── accounts.clj            # Account operations
 │   │   ├── categories.clj          # Category CRUD operations
 │   │   ├── transactions.clj        # Transaction operations
+│   │   ├── transfers.clj           # Transfer link operations
+│   │   ├── stats.clj               # Aggregate stats queries
 │   │   └── credentials.clj         # Encrypted credential storage
-│   ├── db.clj                      # Legacy database operations
 │   ├── http/
 │   │   ├── server.clj              # HTTP server component (lifecycle)
 │   │   ├── router.clj              # Reitit router with middleware
 │   │   ├── middleware.clj          # CORS, JSON, request processing
 │   │   ├── errors.clj              # Exception handling middleware
 │   │   ├── responses.clj           # Standard response formats
-│   │   ├── handlers/               # Request handlers by feature
+│   │   ├── handlers/               # JSON API request handlers by feature
 │   │   │   ├── plaid.clj           # Plaid integration handlers
+│   │   │   ├── providers.clj       # Generic provider sync handlers
 │   │   │   ├── categories.clj      # Category CRUD handlers
 │   │   │   ├── transactions.clj    # Transaction handlers
+│   │   │   ├── transfers.clj       # Transfer matching handlers
+│   │   │   ├── csv.clj             # CSV import handlers
+│   │   │   ├── stats.clj           # Stats handlers
 │   │   │   └── entities.clj        # Entity listing & query handlers
-│   │   └── routes/                 # Route definitions by feature
-│   │       ├── api.clj             # API routes aggregator
+│   │   └── routes/                 # JSON API route definitions by feature
+│   │       ├── api.clj             # API routes aggregator (/api)
 │   │       ├── plaid.clj           # Plaid routes
+│   │       ├── providers.clj       # Provider sync routes
 │   │       ├── categories.clj      # Category routes
 │   │       ├── transactions.clj    # Transaction routes
+│   │       ├── transfers.clj       # Transfer routes
+│   │       ├── csv.clj             # CSV import routes
 │   │       ├── entities.clj        # Entity routes
 │   │       ├── stats.clj           # Stats routes
 │   │       └── static.clj          # Static file routes
+│   ├── web/                        # Server-rendered hypermedia (hiccup2 + Datastar)
+│   │   ├── routes.clj              # HTML/SSR route table
+│   │   ├── pages/                  # Full-page views (transactions, setup)
+│   │   ├── shell.clj               # HTML document shell
+│   │   ├── layout.clj              # Page layout / chrome
+│   │   ├── render.clj              # Datastar SSE / fragment rendering
+│   │   ├── view.clj                # View helpers
+│   │   ├── view_state.clj          # URL-encoded view state
+│   │   ├── commands.clj            # Command (undo/redo) handling
+│   │   ├── accounts.clj            # Account view fragments
+│   │   ├── month.clj               # Month navigation helpers
+│   │   └── format.clj              # Display formatting
+│   ├── ws/
+│   │   ├── handler.clj             # WebSocket endpoint (/ws)
+│   │   └── state.clj               # WebSocket connection state
+│   ├── provider/
+│   │   └── sync.clj                # Shared provider sync orchestration
 │   ├── plaid/
-│   │   └── client.clj              # Plaid API client (Phase 1 complete)
+│   │   ├── client.clj              # Plaid API client (pure functions)
+│   │   ├── data.clj                # Plaid -> canonical data transforms
+│   │   ├── provider.clj            # :plaid provider seam implementation
+│   │   ├── service.clj             # Sync orchestration & persistence
+│   │   └── types.clj               # Plaid type/enum helpers
 │   ├── simplefin/
 │   │   ├── client.clj              # SimpleFIN API client (legacy)
 │   │   └── data.clj                # SimpleFIN data transformations
+│   ├── lunchflow/
+│   │   ├── client.clj              # Lunchflow API client
+│   │   ├── data.clj                # Lunchflow data transformations
+│   │   └── provider.clj            # :lunchflow provider seam
+│   ├── csv/
+│   │   ├── service.clj             # CSV preview/import orchestration
+│   │   └── data.clj                # CSV parsing & mapping
+│   ├── manual/
+│   │   ├── service.clj             # Manual entry orchestration
+│   │   └── data.clj                # Manual entry data transforms
 │   ├── lib/
 │   │   ├── secrets.clj             # Secrets management library
-│   │   └── encryption.clj          # AES-256-GCM encryption (Phase 2)
-│   ├── data/
-│   │   ├── schema.clj              # Datalevin schema with user scoping
-│   │   └── cleaning.clj            # Data normalization
-│   └── utils.clj                   # Utility functions
+│   │   ├── encryption.clj          # AES-256-GCM encryption
+│   │   └── log.clj                 # Logging helpers
+│   └── data/
+│       ├── schema.clj              # Datalevin schema with user scoping
+│       └── cleaning.clj            # Data normalization
 ├── env/dev/src/
 │   ├── user.clj                    # REPL entry point
 │   └── dev.clj                     # Dev tools and helpers
 ├── resources/
 │   ├── system/
-│   │   ├── base-system.edn         # Base configuration
-│   │   └── dev.edn                 # Dev overrides
+│   │   └── base-system.edn         # System configuration
 │   ├── secrets.edn.age             # Encrypted secrets (committed)
 │   └── secrets.edn.example         # Secrets template
 ├── test/                           # Test suite
 ├── SECRETS.md                      # Secrets management guide
-└── PLAID_TESTING.md                # Plaid integration testing guide
+├── PLAID_TESTING.md                # Plaid backend smoke-testing guide
+└── PLAID_SYNC_TESTING.md           # Plaid sync manual-testing guide
 ```
 
 ## Development Workflow
@@ -185,22 +232,22 @@ See [SECRETS.md](./SECRETS.md) for comprehensive documentation.
 
 ## Key Features
 
-### Plaid Integration (Phases 1-2 Complete)
+### Plaid Integration
 
 Connect to 12,000+ financial institutions via Plaid API:
-- ✅ **Phase 1**: Core API client functions (`plaid/client.clj`)
-- ✅ **Phase 2**: Encryption & credentials (`lib/encryption.clj`, `db/credentials.clj`)
-- ✅ **Phase 2**: API endpoints (4 endpoints via Integrant/reitit)
-- ✅ **Phase 2**: Comprehensive tests (20 tests passing)
-- 🚧 **Phase 3**: Frontend Plaid Link component (in progress)
-- 🚧 **Phase 4**: Data transformation layer
-- 🚧 **Phase 5**: Service orchestration & persistence
+- ✅ **API client** — pure API functions (`plaid/client.clj`)
+- ✅ **Encryption & credentials** — AES-256-GCM token storage (`lib/encryption.clj`, `db/credentials.clj`)
+- ✅ **Data transformation** — Plaid responses normalized to the canonical schema (`plaid/data.clj`, `plaid/provider.clj`)
+- ✅ **Sync orchestration & persistence** — account and cursor-based transaction sync into Datalevin (`plaid/service.clj`), exposed via `http/routes/plaid.clj`
+- ✅ **Multi-item support** — multiple linked Plaid Items synced per user, with per-item sync status and reset
 
-**Current Status**: Phase 2 complete with clean component-based architecture. Ready for Phase 3 (frontend UI).
+Plaid links and synced accounts are surfaced through the server-rendered
+`/setup` page (hiccup2 + Datastar) rather than a separate single-page app.
 
 See:
 - [ADR-004: Plaid Integration](../doc/adr/adr-004-plaid-integration.md) - Full integration plan
-- [PLAID_TESTING.md](./PLAID_TESTING.md) - Testing guide with Sandbox setup
+- [PLAID_TESTING.md](./PLAID_TESTING.md) - REPL/curl backend smoke-testing guide
+- [PLAID_SYNC_TESTING.md](./PLAID_SYNC_TESTING.md) - Manual sync-testing guide
 
 ### Secure Secrets Management
 
@@ -220,51 +267,73 @@ Datalevin provides a Datalog database with:
 
 ## API Endpoints
 
-**Currently Available** (via Integrant/reitit architecture):
+The router (`http/router.clj`) mounts three families of routes plus a WebSocket
+endpoint:
+
+- **JSON API** under `/api` (`http/routes/`)
+- **Server-rendered hypermedia pages** (`web/routes.clj`) for the Datastar UI
+- **Static assets** (`http/routes/static.clj`)
+- **WebSocket** at `/ws` (`ws/handler.clj`) for live push
+
+**JSON API** (`/api`, via Integrant/reitit):
 ```
-GET    /health                                 Health check
 GET    /api/stats                              Database statistics
-GET    /api/transactions                       List all transactions
-GET    /api/accounts                           List all accounts
-GET    /api/institutions                       List all institutions
-GET    /api/categories                         List all categories
+GET    /api/categories                         List categories
 POST   /api/categories                         Create category
+POST   /api/categories/bulk                    Bulk-create categories
+POST   /api/categories/batch-sort              Batch update sort orders
 PUT    /api/categories/:id                     Update category
 DELETE /api/categories/:id                     Delete category
-POST   /api/categories/batch-sort              Batch update sort orders
 PUT    /api/transactions/:id/category          Update transaction category
+PUT    /api/transactions/:id/description       Set transaction description
+PUT    /api/transactions/:id/splits            Set transaction splits
+PUT    /api/transactions/:id/splits/:splitId/memo      Set split memo
+PUT    /api/transactions/:id/reviewed          Set transaction reviewed flag
+PUT    /api/transactions/:id/splits/:splitId/reviewed  Set split reviewed flag
+GET    /api/transfers/suggestions              Suggested transfer matches
+GET    /api/transfers/candidates               Candidate transfer legs
+POST   /api/transfers/reject                   Reject a transfer suggestion
+DELETE /api/transfers/:id                      Unmatch a transfer
+GET    /api/institutions                       List institutions
+GET    /api/accounts                           List accounts
+GET    /api/accounts/:id                        Get account
+PUT    /api/accounts/:id/settings              Update account settings
+GET    /api/transactions                       List transactions
 POST   /api/query                              Execute custom Datalog query
+POST   /api/providers/:provider/sync           Sync a provider (generic seam)
+GET    /api/providers/:provider/available-accounts   List a provider's accounts
+GET    /api/csv/mapping/:account-id            Get saved CSV column mapping
+POST   /api/csv/preview/:account-id            Preview a CSV import
+POST   /api/csv/import/:account-id             Import a CSV
 
-# Plaid Integration (Phase 2 - Complete)
+# Plaid integration (http/routes/plaid.clj)
 POST   /api/plaid/create-link-token            Create Plaid Link token
 POST   /api/plaid/exchange-token               Exchange public token & store credential
-GET    /api/plaid/accounts                     Fetch accounts (uses stored credential)
+GET    /api/plaid/items                         List linked Plaid Items
+DELETE /api/plaid/items/:item-id               Remove a linked Item
+GET    /api/plaid/items/:item-id/sync-status   Per-item sync status (polling)
+POST   /api/plaid/items/:item-id/sync          Sync a single Item
+POST   /api/plaid/items/:item-id/reset-sync    Reset a single Item's sync cursor
+DELETE /api/plaid/credential                   Delete stored credential (legacy)
+GET    /api/plaid/accounts                      Fetch accounts (uses stored credential)
 POST   /api/plaid/transactions                 Fetch transactions (uses stored credential)
-```
-
-**Planned** (Plaid integration - Phase 5):
-```
 POST   /api/plaid/sync-accounts                Sync accounts to database
 POST   /api/plaid/sync-transactions            Sync transactions to database
+POST   /api/plaid/sync-month-transactions      Sync a specific month's transactions
 ```
 
-See `src/finance_aggregator/http/routes/` and `src/finance_aggregator/http/handlers/` for full implementation.
+See `src/finance_aggregator/http/routes/`, `src/finance_aggregator/http/handlers/`,
+and `src/finance_aggregator/web/routes.clj` for full implementation.
 
 ## Configuration
 
-Configuration uses Integrant with environment-specific overrides:
+Configuration uses Integrant, loaded from `resources/system/base-system.edn`:
 
-**Base** (`resources/system/base-system.edn`):
 ```clojure
 {:finance-aggregator.system/db-path "./data/finance.db"
  :finance-aggregator.system/http-port 8080
  :finance-aggregator.system/secrets-key-file "~/.config/finance-aggregator/key.txt"
  :finance-aggregator.system/secrets-file "resources/secrets.edn.age"}
-```
-
-**Dev overrides** (`resources/system/dev.edn`):
-```clojure
-{:finance-aggregator.system/db-path "./data/dev.db"}
 ```
 
 ## Dependencies
@@ -276,7 +345,7 @@ Core libraries:
 - `reitit` - Routing
 - `malli` - Schema validation
 - `tablecloth` - Data processing
-- `plaid-java` - Plaid API client
+- `plaid-java` (v35.0.0) - Plaid API client
 
 Development:
 - `kaocha` - Test runner

@@ -1,8 +1,8 @@
 # islands
 
-Vanilla **TS islands** (latency/pointer-heavy widgets) for the Replicant +
-Datastar frontend, bundled with **esbuild**. Part of the React→Replicant migration
-(see `../doc/plans/replicant-datastar-progress.md`).
+Vanilla **TS islands** (latency/pointer-heavy widgets) for the server-authoritative
+hiccup2 + **Datastar** frontend, bundled with **esbuild**. They replaced the React
+widgets in the frontend rewrite (see `../doc/plans/datastar-handoff.md`).
 
 - `src/lib/**` — framework-free pure logic, with their **vitest** tests
   (gridNavigation, splitMath, dragAndDrop, columnAutoSizing, categoryHierarchy,

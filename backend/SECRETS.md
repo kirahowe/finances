@@ -119,7 +119,7 @@ When a new team member joins:
 1. **New member generates their key:**
    ```bash
    age-keygen -o ~/.config/finance-aggregator/key.txt
-   ./scripts/secrets show-key
+   bb secrets show-key
    ```
 
 2. **They share their public key** (looks like: `age1ql3z7hjy54pw3hyww5ayyfg7zqgvc7w3j2elw8zmrj2kg5sfn9aqmcac8p`)
@@ -127,7 +127,7 @@ When a new team member joins:
 3. **Existing member re-encrypts secrets** for multiple recipients:
    ```bash
    # Decrypt to temp file
-   ./scripts/secrets decrypt backend/resources/secrets.edn.age
+   bb secrets decrypt backend/resources/secrets.edn.age
 
    # Re-encrypt for multiple recipients
    age -e -i ~/.config/finance-aggregator/key.txt \
@@ -149,7 +149,7 @@ When a new team member joins:
 4. **New member pulls and verifies:**
    ```bash
    git pull
-   ./scripts/secrets edit  # Should decrypt successfully
+   bb secrets edit  # Should decrypt successfully
    ```
 
 ## Integration with Backend System
@@ -290,7 +290,7 @@ Possible causes:
 
 Create secrets:
 ```bash
-./scripts/secrets new
+bb secrets new
 ```
 
 ## Migration from Environment Variables
@@ -299,7 +299,7 @@ If you're currently using `.env` files or environment variables:
 
 1. **Create secrets file:**
    ```bash
-   ./scripts/secrets new
+   bb secrets new
    ```
 
 2. **Copy values from `.env` to secrets.edn:**
@@ -383,4 +383,3 @@ When rotating your age key:
 - [age encryption](https://github.com/FiloSottile/age) - Modern, simple file encryption
 - [Babashka](https://github.com/babashka/babashka) - Fast native Clojure scripting
 - [Integrant](https://github.com/weavejester/integrant) - Component lifecycle management
-- Reference implementation: `~/code/seeq/seeqai/backend/src/lib/secrets.clj`

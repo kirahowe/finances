@@ -1,65 +1,65 @@
-# Plaid Integration Testing Guide
+# Plaid Backend Smoke-Testing Guide
+
+This guide covers exercising the Plaid integration from the backend only — via
+the REPL and `curl` against the running HTTP server. The browser entry point for
+linking accounts is the server-rendered Datastar/SSR app (the `/setup` page);
+this doc focuses on the backend client + endpoints rather than that UI.
+
+For end-to-end account/transaction sync testing, see
+[PLAID_SYNC_TESTING.md](./PLAID_SYNC_TESTING.md).
 
 ## Implementation Status
 
-### Phase 1: Foundation ✅ Complete
-- Plaid Java SDK (v25.0.0) integrated
-- Pure API client functions
-- Plaid config component with secrets integration
-- Unit tests with Sandbox
+The Plaid integration is implemented end to end on the backend:
 
-### Phase 2: Minimal Backend Endpoints ✅ Complete
-- **Encryption** (`lib/encryption.clj`) - AES-256-GCM for credential storage
-- **Credential Storage** (`db/credentials.clj`) - Encrypted Plaid access tokens in database
-- **API Endpoints** (`server.clj`):
-  - `POST /api/plaid/create-link-token` - Generate link_token for frontend
-  - `POST /api/plaid/exchange-token` - Exchange public_token, store encrypted access_token
-  - `GET /api/plaid/accounts` - Fetch accounts using stored credential
-  - `POST /api/plaid/transactions` - Fetch transactions for date range
-- **Tests**: 20 tests passing (encryption + credentials + client)
-- **Hardcoded User**: Uses "test-user" for single-user testing
+- **API client** (`plaid/client.clj`) — pure functions over the Plaid Java SDK
+- **Encryption** (`lib/encryption.clj`) — AES-256-GCM for credential storage
+- **Credential storage** (`db/credentials.clj`) — encrypted Plaid access tokens in the database
+- **Data transformation** (`plaid/data.clj`, `plaid/provider.clj`) — Plaid responses normalized to the canonical schema
+- **Sync orchestration & persistence** (`plaid/service.clj`) — account and cursor-based transaction sync into Datalevin
+- **HTTP endpoints** — routes in `http/routes/plaid.clj`, handlers in `http/handlers/plaid.clj`
+- **Plaid config component** — integrated with the secrets system
+- **Hardcoded user** — uses `"test-user"` for single-user operation
 
-### Phase 3: Frontend Plaid Link Component ✅ Complete
-- **Plaid Test Route** (`frontend/app/routes/plaid-test.tsx`) - Full testing UI at `/plaid-test`
-- **API Client Functions** (`frontend/app/lib/api.ts`) - Type-safe Plaid API wrapper
-- **Plaid Link SDK Integration** - Loaded from CDN, OAuth flow implemented
-- **Features**:
-  - Link token creation and display
-  - Plaid Link modal initialization
-  - OAuth success callback handling
-  - Token exchange with backend
-  - Account fetching with summary + raw JSON display
-  - Transaction fetching (last 30 days) with summary + raw JSON display
-  - Error handling and status updates
-  - Test instructions included
-- **Navigation**: Added "Plaid Test" button to main dashboard
+### Public client functions (`plaid/client.clj`)
 
-### Completed Components
+- `create-link-token` — generate a link token for Plaid Link initialization
+- `exchange-public-token` — exchange a public token for an access token
+- `fetch-accounts` — retrieve the account list
+- `fetch-transactions` — retrieve transactions for a date range
+- `fetch-item` — retrieve Item metadata
+- `fetch-institution` — retrieve institution details
+- `sync-transactions` — cursor-based `/transactions/sync` paging
 
-1. **Plaid Java SDK Dependency** - Added to `deps.edn` (version 25.0.0)
-2. **Plaid Client Functions** - Pure API functions in `src/finance_aggregator/plaid/client.clj`:
-   - `create-link-token` - Generate link token for Plaid Link initialization
-   - `exchange-public-token` - Exchange public token for access token
-   - `fetch-accounts` - Retrieve account list
-   - `fetch-transactions` - Retrieve transactions for date range
-3. **Encryption Utilities** - AES-256-GCM encryption in `lib/encryption.clj`
-4. **Credential Management** - Secure storage in `db/credentials.clj`
-5. **API Endpoints** - HTTP handlers in `server.clj`
-6. **Plaid Config Component** - Integrated with secrets system
-7. **System Configuration** - Plaid configuration in `base-system.edn`
-8. **Comprehensive Tests** - Unit tests for all components
+### HTTP endpoints (`http/routes/plaid.clj`, under `/api`)
 
-### Testing in REPL with Sandbox Credentials
+```
+POST   /api/plaid/create-link-token            Create Plaid Link token
+POST   /api/plaid/exchange-token               Exchange public token & store credential
+GET    /api/plaid/items                         List linked Plaid Items
+DELETE /api/plaid/items/:item-id               Remove a linked Item
+GET    /api/plaid/items/:item-id/sync-status   Per-item sync status (polling)
+POST   /api/plaid/items/:item-id/sync          Sync a single Item
+POST   /api/plaid/items/:item-id/reset-sync    Reset a single Item's sync cursor
+DELETE /api/plaid/credential                   Delete stored credential (legacy)
+GET    /api/plaid/accounts                      Fetch accounts (uses stored credential)
+POST   /api/plaid/transactions                 Fetch transactions (uses stored credential)
+POST   /api/plaid/sync-accounts                Sync accounts to database
+POST   /api/plaid/sync-transactions            Sync transactions to database
+POST   /api/plaid/sync-month-transactions      Sync a specific month's transactions
+```
 
-To test the Plaid integration, you need Plaid Sandbox credentials:
+## Testing in the REPL with Sandbox Credentials
 
-#### Step 1: Get Plaid Sandbox Credentials
+To test the Plaid integration you need Plaid Sandbox credentials.
+
+### Step 1: Get Plaid Sandbox Credentials
 
 1. Sign up for a free Plaid account at https://dashboard.plaid.com/signup
 2. Navigate to Team Settings → Keys
 3. Copy your `client_id` and `sandbox` secret
 
-#### Step 2: Add Credentials to Secrets File
+### Step 2: Add Credentials to Secrets File
 
 This project uses age-encrypted secrets instead of environment variables:
 
@@ -100,15 +100,15 @@ Save and close the editor. Your secrets are automatically encrypted.
 
 See [SECRETS.md](./SECRETS.md) for more details on secrets management.
 
-#### Step 3: Start the REPL
+### Step 3: Start the REPL
 
 ```bash
 cd backend
-jabba use zulu@21.0.6
+jabba use zulu@25.0.3
 clojure -M:repl -m nrepl.cmdline
 ```
 
-#### Step 4: Test Plaid Functions
+### Step 4: Test Plaid Functions
 
 ```clojure
 ;; Load dev environment
@@ -130,9 +130,9 @@ plaid-config
 link-token
 ;; => "link-sandbox-..."
 
-;; Test 2: Exchange public token (requires completing Plaid Link flow)
-;; NOTE: You'll need to use Plaid Link UI to get a public token first
-;; For Sandbox testing, use the public token from Plaid Link
+;; Test 2: Exchange public token (requires completing the Plaid Link flow)
+;; NOTE: You'll need a public token from the Plaid Link UI first.
+;; For Sandbox testing, use the public token from Plaid Link.
 (def result (plaid/exchange-public-token plaid-config "public-sandbox-xxx"))
 result
 ;; => {:access_token "access-sandbox-...", :item_id "item-xxx"}
@@ -152,7 +152,7 @@ transactions
 ;; => [{:transaction_id "..." :amount 12.50 :name "Coffee Shop" ...}]
 ```
 
-#### Step 5: Using Plaid Sandbox Test Tokens
+### Step 5: Using Plaid Sandbox Test Tokens
 
 Plaid provides special test tokens for Sandbox:
 
@@ -161,17 +161,17 @@ Plaid provides special test tokens for Sandbox:
 ;; Check https://plaid.com/docs/sandbox/test-credentials/
 
 ;; Example with a Sandbox institution
-;; After creating link-token, you can use Plaid Link's test mode
-;; to complete the flow and get a public_token
+;; After creating a link-token, you can use Plaid Link's test mode
+;; to complete the flow and get a public_token.
 ```
 
-### Running Unit Tests
+## Running Unit Tests
 
 The unit tests require valid Plaid Sandbox credentials in your secrets file to pass:
 
 ```bash
 cd backend
-jabba use zulu@21.0.6
+jabba use zulu@25.0.3
 
 # Ensure your secrets file has Plaid credentials
 # bb secrets edit
@@ -180,11 +180,49 @@ jabba use zulu@21.0.6
 clojure -M:test -m kaocha.runner --focus finance-aggregator.plaid.client-test
 ```
 
-**Note:** The current tests make real API calls to Plaid Sandbox. They will fail without valid credentials in your secrets file.
+**Note:** The current tests make real API calls to Plaid Sandbox. They will fail
+without valid credentials in your secrets file.
 
-### Implementation Notes
+## Testing API Endpoints with curl
 
-#### Pure Functions Architecture
+With the server running (`bb dev` from the project root, or the REPL `(go)`), you
+can exercise the Plaid HTTP endpoints directly:
+
+```bash
+# 1. Create link token
+curl -X POST http://localhost:8080/api/plaid/create-link-token
+# Returns: {"success": true, "data": {"linkToken": "link-sandbox-..."}}
+
+# 2. Exchange public token (after completing the Plaid Link flow)
+curl -X POST http://localhost:8080/api/plaid/exchange-token \
+  -H "Content-Type: application/json" \
+  -d '{"publicToken": "public-sandbox-..."}'
+# Returns: {"success": true, "data": {"access_token": "...", "item_id": "..."}}
+# Also stores an encrypted credential in the database
+
+# 3. Fetch accounts (uses stored credential)
+curl http://localhost:8080/api/plaid/accounts
+# Returns: {"success": true, "data": [{account data}]}
+
+# 4. Fetch transactions (uses stored credential)
+curl -X POST http://localhost:8080/api/plaid/transactions \
+  -H "Content-Type: application/json" \
+  -d '{"startDate": "2025-01-01", "endDate": "2025-11-30"}'
+# Returns: {"success": true, "data": [{transaction data}]}
+
+# 5. Persist a sync to the database
+curl -X POST http://localhost:8080/api/plaid/sync-accounts
+curl -X POST http://localhost:8080/api/plaid/sync-transactions
+```
+
+> The `public_token` in steps 1–2 comes from completing the Plaid Link flow.
+> In the running app this happens in the browser via the Datastar/SSR `/setup`
+> page; for backend-only testing, obtain a Sandbox public token from Plaid Link's
+> test mode and feed it to `/api/plaid/exchange-token`.
+
+## Implementation Notes
+
+### Pure Functions Architecture
 
 The `plaid/client.clj` module contains only pure functions:
 - No side effects beyond API calls
@@ -192,7 +230,7 @@ The `plaid/client.clj` module contains only pure functions:
 - All configuration passed as parameters
 - Easy to test and reason about
 
-#### Error Handling
+### Error Handling
 
 All functions use try-catch with `ex-info` for structured error reporting:
 
@@ -204,9 +242,9 @@ All functions use try-catch with `ex-info` for structured error reporting:
                   e)))
 ```
 
-#### Plaid SDK Usage
+### Plaid SDK Usage
 
-The implementation uses the Plaid Java SDK v25.0.0:
+The implementation uses the Plaid Java SDK v35.0.0:
 
 ```clojure
 ;; Create API client
@@ -223,178 +261,26 @@ The implementation uses the Plaid Java SDK v25.0.0:
   (.getLinkToken result))
 ```
 
-### Testing API Endpoints
+## File Locations
 
-You can test the new Phase 2 endpoints using curl:
-
-```bash
-# 1. Create link token
-curl -X POST http://localhost:8080/api/plaid/create-link-token
-# Returns: {"success": true, "data": {"linkToken": "link-sandbox-..."}}
-
-# 2. Exchange public token (after completing Plaid Link flow)
-curl -X POST http://localhost:8080/api/plaid/exchange-token \
-  -H "Content-Type: application/json" \
-  -d '{"publicToken": "public-sandbox-..."}'
-# Returns: {"success": true, "data": {"access_token": "...", "item_id": "..."}}
-# Also stores encrypted credential in database
-
-# 3. Fetch accounts (uses stored credential)
-curl http://localhost:8080/api/plaid/accounts
-# Returns: {"success": true, "data": [{account data}]}
-
-# 4. Fetch transactions (uses stored credential)
-curl -X POST http://localhost:8080/api/plaid/transactions \
-  -H "Content-Type: application/json" \
-  -d '{"startDate": "2025-01-01", "endDate": "2025-11-30"}'
-# Returns: {"success": true, "data": [{transaction data}]}
-```
-
-## Testing the Full OAuth Flow (Phase 3)
-
-### Prerequisites
-1. Backend server running (see REPL instructions above)
-2. Frontend development server running
-3. Valid Plaid Sandbox credentials in secrets file
-
-### Step-by-Step Testing Guide
-
-#### 1. Start the Backend (if not already running)
-
-```bash
-cd backend
-jabba use zulu@21.0.6
-clojure -M:repl -m nrepl.cmdline
-```
-
-In the REPL:
-```clojure
-(dev)
-(go)
-```
-
-The backend should now be running on port 8080.
-
-#### 2. Start the Frontend Development Server
-
-In a new terminal:
-```bash
-cd frontend
-pnpm run dev
-```
-
-The frontend should now be running on port 5173 (or similar).
-
-#### 3. Navigate to the Plaid Test Page
-
-1. Open your browser to http://localhost:5173
-2. Click the "Plaid Test" button in the main navigation
-3. You should see the Plaid Test page with instructions
-
-#### 4. Test the OAuth Flow
-
-**Step 1: Create Link Token**
-- The page automatically creates a link token on load
-- You should see the link token displayed on the page
-- If there's an error, check your Plaid credentials in the backend secrets file
-
-**Step 2: Open Plaid Link**
-- Click the "Open Plaid Link" button
-- The Plaid Link modal should open
-- Click "Continue" in the modal
-
-**Step 3: Select Test Institution**
-- Search for or select any test institution (e.g., "First Platypus Bank")
-- Click on the institution
-
-**Step 4: Enter Sandbox Credentials**
-- Username: `user_good`
-- Password: `pass_good`
-- Click "Submit"
-
-**Step 5: Select Accounts**
-- Select one or more accounts
-- Click "Continue"
-
-**Step 6: Complete OAuth Flow**
-- The modal should close automatically
-- You should see "Successfully linked account!" status message
-- The "Exchange Result" section should appear with access token info
-
-**Step 7: Fetch Accounts**
-- Click the "Fetch Accounts" button
-- You should see a summary (e.g., "2 account(s) found")
-- Click "View Raw Response" to see the full Plaid account data
-
-**Step 8: Fetch Transactions**
-- Click the "Fetch Transactions (Last 30 Days)" button
-- You should see a summary (e.g., "15 transaction(s) found")
-- Click "View Raw Response" to see the full Plaid transaction data
-
-### Expected Results
-
-After successful testing, you should see:
-1. Link token displayed (starts with `link-sandbox-`)
-2. Access token obtained and stored (backend logs will show credential saved)
-3. Account data returned from Plaid API
-4. Transaction data returned from Plaid API
-
-### Troubleshooting
-
-**"Failed to create link token"**
-- Check backend is running on port 8080
-- Verify Plaid credentials in `bb secrets edit`
-- Check backend logs for errors
-
-**"Plaid SDK not loaded yet"**
-- Wait a few seconds for the CDN script to load
-- Refresh the page if needed
-
-**Modal doesn't open**
-- Check browser console for errors
-- Verify Plaid Link SDK loaded (check Network tab)
-- Try refreshing the link token
-
-**"Failed to exchange token"**
-- Check backend logs for errors
-- Verify the public token was received
-- Check database connection
-
-**No accounts/transactions returned**
-- Verify you completed the OAuth flow successfully
-- Check backend logs for API errors
-- Try linking again with a different test institution
-
-### Next Steps (Phase 4+)
-
-Upcoming phases:
-
-1. **Phase 4: Data Transformation** - Transform Plaid JSON to Datalevin schema
-2. **Phase 5: Service Orchestration** - Persist data to database
-3. **Phase 6: Dashboard Integration** - Add to main UI
-4. **Phase 7: Production Hardening** - Multi-user, validation, error handling
-
-See ADR-004 and the implementation plan for details.
-
-### File Locations
-
-**Phase 1 - Plaid Client:**
+**Plaid client:**
 - `backend/src/finance_aggregator/plaid/client.clj` - Pure API functions
 - `backend/test/finance_aggregator/plaid/client_test.clj` - Client tests
 
-**Phase 2 - Encryption & Endpoints:**
+**Encryption & credentials:**
 - `backend/src/finance_aggregator/lib/encryption.clj` - AES-256-GCM encryption
 - `backend/src/finance_aggregator/db/credentials.clj` - Credential storage
-- `backend/src/finance_aggregator/server.clj` - API endpoints (Plaid section)
 - `backend/test/finance_aggregator/lib/encryption_test.clj` - Encryption tests
 - `backend/test/finance_aggregator/db/credentials_test.clj` - Credentials tests
 
-**Phase 3 - Frontend UI:**
-- `frontend/app/routes/plaid-test.tsx` - Plaid test route component
-- `frontend/app/lib/api.ts` - Plaid API client functions (added to existing file)
-- `frontend/app/styles/pages/plaid-test.css` - Plaid test page styles
-- `frontend/app/routes.ts` - Route configuration (updated)
-- `frontend/app/routes/home.tsx` - Main dashboard (added Plaid Test navigation)
+**Data transformation & sync:**
+- `backend/src/finance_aggregator/plaid/data.clj` - Plaid -> canonical transforms
+- `backend/src/finance_aggregator/plaid/provider.clj` - `:plaid` provider seam
+- `backend/src/finance_aggregator/plaid/service.clj` - Sync orchestration & persistence
+
+**HTTP endpoints:**
+- `backend/src/finance_aggregator/http/routes/plaid.clj` - Route definitions
+- `backend/src/finance_aggregator/http/handlers/plaid.clj` - Request handlers
 
 **Configuration:**
 - `backend/src/finance_aggregator/system.clj` - Plaid config component
@@ -403,9 +289,10 @@ See ADR-004 and the implementation plan for details.
 
 **Documentation:**
 - `doc/adr/adr-004-plaid-integration.md` - Architecture decision record
-- `backend/PLAID_TESTING.md` - This file (comprehensive testing guide)
+- `backend/PLAID_TESTING.md` - This file (backend smoke-testing guide)
+- `backend/PLAID_SYNC_TESTING.md` - Manual sync-testing guide
 
-### Troubleshooting
+## Troubleshooting
 
 **Issue:** Tests fail with "Cannot invoke Object.getClass() because target is null"
 - **Cause:** Missing or invalid Plaid credentials in secrets file
@@ -413,7 +300,7 @@ See ADR-004 and the implementation plan for details.
 
 **Issue:** API calls return 401 Unauthorized
 - **Cause:** Invalid credentials or wrong environment
-- **Solution:** Verify credentials in secrets file are for Sandbox environment (`:environment :sandbox`)
+- **Solution:** Verify credentials in the secrets file are for the Sandbox environment (`:environment :sandbox`)
 
 **Issue:** "Plaid credentials not found in secrets"
 - **Cause:** Missing `:plaid` key in secrets file

@@ -1,11 +1,18 @@
 # Security Review
 
 Date: 2026-06-06
-Scope: full repository (backend + frontend), not just pending changes.
+Scope: backend (`backend/`), not just pending changes.
 
 Status: **Not deployed anywhere yet** — these are tracked for fix-up as they become
 salient, not active incidents. Most are only remotely exploitable once the app binds
 beyond loopback / ships the Docker prod layout.
+
+> **Caveat (point-in-time review).** This is a snapshot from 2026-06-06. Code has moved
+> since (notably the React `frontend/` was deleted in the Datastar rewrite), so the
+> file:line anchors below may have drifted and some items may already be addressed — for
+> example the static-file path-traversal item (#2): `http/routes/static.clj` now refuses
+> any path containing `..` and serves via the classpath (`io/resource`). Findings are
+> **not** re-adjudicated here; treat anchors as approximate.
 
 Severity ordering below. Each item has a file:line anchor and a concrete fix.
 
@@ -65,11 +72,10 @@ Fix: bind to `127.0.0.1` and/or require a token before any non-loopback deployme
 
 ### 4. Plaid `access_token` returned to the client
 `backend/src/finance_aggregator/http/handlers/plaid.clj:83`
-(frontend expects it: `frontend/app/lib/api.ts:96`; rendered in `plaid-test.tsx:234`)
 
-Exchange handler encrypts+stores the token, then also returns it in the response and
-renders it as raw JSON in the UI. Defeats server-side encryption; token leaks into
-browser + network logs. Fix: drop `:access_token` from the response.
+Exchange handler encrypts+stores the token, then also returns it in the response.
+Defeats server-side encryption; the token leaks into the browser + network logs. Fix:
+drop `:access_token` from the response.
 
 ### 5. `read-string` on stored credential blobs (defense-in-depth)
 `backend/src/finance_aggregator/db/credentials.clj:125, 272, 317`

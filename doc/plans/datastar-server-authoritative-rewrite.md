@@ -5,16 +5,16 @@ match/review modals · R5c category rollup pane) — the server-authoritative wo
 canonical `/`; Replicant + the old page/spike/dead-islands are deleted; hiccup2 is the only
 renderer; views are strictly presentational; **filter counts are faceted and compose**.
 + **Phase 5 COMPLETE** (the old React `frontend/` is deleted; e2e relocated + converted to
-TypeScript). **Branch:** `spike/replicant-datastar`. Suite **326/0**; **14 TypeScript browser specs**
+TypeScript). **Branch:** `spike/replicant-datastar`. Suite **326/0**; **16 TypeScript browser specs**
 (`e2e/*.ts`, run via Node native type-stripping) green. **The migration is done** — remaining work is
 optional deferred polish + separately-tracked backend hardening. **Resume doc:** `datastar-handoff.md`.
 
 `/` now has: server-side filter/scope/chips/funnels/sort/paginate; undoable reviewed /
 description / category edits with lingering (rows hold position); column chooser (all columns);
 keyboard grid-nav (morph-aware, skips hidden cols); column auto-size + local resize + reset-widths;
-URL view-state persistence. Browser specs `e2e/v2*.mjs` + `e2e/setup.mjs`, all green.
-Supersedes the client-heavy approach in `replicant-datastar-progress.md` for the
-transactions workspace. Memory: `project_replicant_datastar_spike`.
+URL view-state persistence. Browser specs `e2e/v2*.ts` + `e2e/setup.ts`, all green.
+This replaced the earlier client-heavy approach for the transactions workspace.
+Memory: `project_replicant_datastar_spike`.
 
 ## Conventions locked in (the dumb-views rule)
 

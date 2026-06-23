@@ -5,7 +5,7 @@ This guide explains how to manually test the Plaid account and transaction synci
 ## Prerequisites
 
 1. **Plaid credentials configured** in `resources/secrets.edn.age`
-2. **Access token stored** in database (complete OAuth flow via `/api/plaid/exchange-token`)
+2. **Access token stored** in database (complete the OAuth flow via the Datastar/SSR `/setup` page, or exchange a Sandbox public token directly via `/api/plaid/exchange-token`)
 3. **REPL running**: `clojure -M:repl -m nrepl.cmdline`
 
 ## Testing Flow
@@ -71,7 +71,7 @@ account-result
 ### Step 4: Test Transaction Sync
 
 ```clojure
-;; Sync 6 months of transactions (default)
+;; Cursor-based sync across all linked Items (uses :days-requested from plaid-config)
 (def tx-result (plaid-svc/sync-transactions! deps))
 
 ;; Inspect results
@@ -80,13 +80,12 @@ tx-result
 ;;     :failed {:transactions 0}
 ;;     :errors []}
 
-;; Sync custom date range (3 months)
-(def tx-result-3mo (plaid-svc/sync-transactions! deps {:months 3}))
+;; Sync a specific calendar month (YYYY-MM) via /transactions/get
+(def tx-result-month (plaid-svc/sync-month-transactions! deps "2024-12"))
 
-;; Sync with specific end date
-(def tx-result-custom (plaid-svc/sync-transactions!
-                        deps
-                        {:months 6 :end-date "2024-12-31"}))
+;; Sync an explicit date range via /transactions/get
+(def tx-result-range
+  (plaid-svc/sync-all-items-transactions-for-range! deps "2024-07-01" "2024-12-31"))
 
 ;; Verify in database
 (let [db (d/db (:db-conn deps))]
@@ -108,17 +107,23 @@ tx-result
 
 ### Step 5: Test Full Sync
 
+There is no single `sync-all!`; run the account and transaction syncs in sequence.
+
 ```clojure
 ;; Sync both accounts and transactions
-(def full-result (plaid-svc/sync-all! deps))
+(def full-result
+  {:accounts     (plaid-svc/sync-accounts! deps)
+   :transactions (plaid-svc/sync-transactions! deps)})
 
 ;; Inspect results
 full-result
 ;; => {:accounts {...}
 ;;     :transactions {...}}
 
-;; Verify no duplicates after re-running sync
-(def full-result-2 (plaid-svc/sync-all! deps))
+;; Verify no duplicates after re-running the syncs
+(def full-result-2
+  {:accounts     (plaid-svc/sync-accounts! deps)
+   :transactions (plaid-svc/sync-transactions! deps)})
 
 ;; Count should be same (upsert behavior)
 (let [db (d/db (:db-conn deps))]
@@ -140,7 +145,8 @@ no-cred-result
 ;;     :errors [{:type :no-credential, :message "..."}]}
 
 ;; Restore credential for further testing
-;; (re-run OAuth flow via frontend)
+;; (re-run the OAuth flow via the Datastar/SSR `/setup` page, or re-exchange a
+;;  Sandbox public token via POST /api/plaid/exchange-token)
 ```
 
 ## Verification Checklist
@@ -165,7 +171,7 @@ After running the tests above, verify:
 
 If `creds/credential-exists?` returns false:
 
-1. Complete OAuth flow via frontend at `/plaid-test`
+1. Complete the OAuth flow via the Datastar/SSR `/setup` page
 2. Or use curl to exchange a public token:
    ```bash
    curl -X POST http://localhost:8080/api/plaid/exchange-token \

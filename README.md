@@ -4,7 +4,7 @@ A personal finance management application for aggregating transactions from mult
 
 ## Features
 
-- 🏦 **Multi-Institution Support** - Connect accounts via Plaid (12,000+ institutions)
+- 🏦 **Multi-Institution Support** - Connect accounts via Plaid (12,000+ institutions), plus CSV import, manual entry, and lunchflow
 - 📊 **Transaction Management** - View, filter, sort, split, and categorize transactions
 - 🔁 **Transfer Tracking** - Match transfers between accounts and hide them from spending
 - 🏷️ **Smart Categorization** - Manual and automated transaction categorization
@@ -59,34 +59,34 @@ Modern functional architecture using:
 
 See [Backend README](./backend/README.md) for details.
 
-### Frontend (React + Remix)
+### Frontend (server-authoritative)
 
-Type-safe React application using:
-- **React Router v7** - Routing and data loading
-- **TypeScript** - Type safety
-- **Zod** - Runtime validation
-- **Progressive Enhancement** - Works without JavaScript
+The backend renders the UI directly — there is no separate frontend app:
+- **hiccup2 SSR** - HTML rendered on the JVM
+- **Datastar** - reactivity + SSE-patched fragments over the wire
+- **TS islands** - small esbuild-bundled widgets (Zag) for pointer/latency-heavy
+  interactions, served from the backend
+- **Playwright** - real-Chromium browser checks in `e2e/`
 
-See [Frontend README](./frontend/README.md) for details.
+See [islands/README.md](./islands/README.md) and [e2e/README.md](./e2e/README.md).
 
 ## Project Structure
 
 ```
 finance-aggregator/
-├── backend/                  # Clojure backend
+├── backend/                  # Clojure backend (SSR + Datastar, serves frontend assets)
 │   ├── src/                  # Source code
 │   ├── test/                 # Tests
-│   ├── resources/            # Configuration and secrets
+│   ├── env/                  # Per-environment config + dev/e2e source
+│   ├── resources/            # Config, secrets, public assets (CSS + built JS)
 │   └── README.md             # Backend documentation
-├── frontend/                 # React frontend
-│   ├── app/                  # Application code
-│   ├── tests/                # Tests
-│   └── README.md             # Frontend documentation
+├── islands/                  # Vanilla TS islands (Zag widgets), esbuild → backend assets
+├── e2e/                      # Playwright browser checks (TypeScript)
 ├── doc/                      # Architecture documentation
 │   ├── adr/                  # Architecture Decision Records
-│   └── implementation/       # Implementation guides
-├── scripts/                  # Development scripts
-├── Procfile                  # Overmind process definitions
+│   └── plans/                # Design notes and feature backlog
+├── scripts/                  # Development scripts (bb secrets)
+├── bb.edn                    # Babashka dev tasks (dev/build/test/lint/e2e/secrets)
 ├── DEVELOPMENT.md            # Development setup guide
 └── README.md                 # This file
 ```
@@ -96,11 +96,11 @@ finance-aggregator/
 ### Getting Started
 - [Development Setup](./DEVELOPMENT.md) - Complete development environment setup
 - [Backend README](./backend/README.md) - Backend architecture and API
-- [Frontend README](./frontend/README.md) - Frontend architecture and components
+- [Islands](./islands/README.md) / [Browser checks](./e2e/README.md) - Frontend assets and e2e
 
 ### Architecture Decision Records
-- [ADR-001: Category Management Prototype](./doc/adr/adr-001-category-management-scittle-prototype.md)
-- [ADR-002: Modern React Frontend](./doc/adr/adr-002-modern-react-frontend-architecture.md)
+- [ADR-001: Category Management Prototype](./doc/adr/adr-001-category-management-scittle-prototype.md) _(superseded)_
+- [ADR-002: Modern React Frontend](./doc/adr/adr-002-modern-react-frontend-architecture.md) _(superseded — React removed 2026-06)_
 - [ADR-003: Clojure Backend Architecture](./doc/adr/adr-003-clojure-backend-architecture.md)
 - [ADR-004: Plaid Integration](./doc/adr/adr-004-plaid-integration.md)
 
@@ -108,6 +108,7 @@ finance-aggregator/
 - [Backend REPL Guide](./doc/implementation/adr-003-backend/repl-quick-reference.md)
 - [Secrets Management](./backend/SECRETS.md)
 - [Plaid Testing Guide](./backend/PLAID_TESTING.md)
+- [Datastar migration handoff](./doc/plans/datastar-handoff.md)
 
 ## Development Workflow
 
@@ -156,29 +157,24 @@ See [REPL Quick Reference](./doc/implementation/adr-003-backend/repl-quick-refer
 ## Current Status
 
 ### ✅ Completed
-- Frontend with React Router v7 (framework mode) architecture
+- Server-authoritative UI (hiccup2 SSR + Datastar + TS islands) — replaced the
+  former React/Remix frontend (removed 2026-06)
 - Backend infrastructure with Integrant
 - Category management system, including a parent/child hierarchy
 - Transaction table — filtering, sorting, pagination, transaction splits, and resizable/hideable columns (view state persisted in the URL)
 - Transfer tracking — auto-matching, manual match, and a hide-transfers toggle
 - Secrets management with age encryption
 - REPL-driven development workflow
-- **Plaid Integration Phase 1** - API client functions
-- **Plaid Integration Phase 2** - Encryption, credentials, API endpoints
-
-### 🚧 In Progress
-- **Plaid Integration Phase 3** - Frontend Plaid Link component
-- User authentication and multi-user support
+- **Plaid integration** - client, encrypted credentials, data transformation, and
+  sync orchestration & persistence (multi-item)
+- Additional providers via a provider seam (CSV import, manual entry, lunchflow)
 
 ### 📋 Planned
-- Plaid data transformation layer (Phase 4)
-- Plaid service orchestration & persistence (Phase 5)
-- Dashboard integration (Phase 6)
-- Production hardening - multi-user, validation (Phase 7)
+- Reconciliation + account sync hardening (production push)
+- User authentication and multi-user support
 - Automated transaction categorization
 - Spending analytics dashboard
 - Budget tracking
-- Mobile-responsive design improvements
 
 ## Technology Stack
 
@@ -187,20 +183,20 @@ See [REPL Quick Reference](./doc/implementation/adr-003-backend/repl-quick-refer
 - Integrant (system management)
 - Datalevin (database)
 - HTTP-Kit (web server)
+- Reitit (routing)
 - Plaid Java SDK (financial data)
 
-**Frontend:**
-- React 19
-- React Router v7
-- TypeScript
-- Zod (validation)
-- Vite (build tool)
+**Frontend (server-authoritative):**
+- hiccup2 (JVM-side HTML rendering)
+- Datastar (reactivity + SSE)
+- TypeScript + esbuild + Zag (islands)
+- Playwright (e2e browser checks)
 
 **Infrastructure:**
-- Babashka (scripting)
+- Babashka (dev tasks + scripting)
 - age (encryption)
-- Overmind (process management)
 - Jabba (Java version management)
+- npm (frontend deps: islands + e2e)
 
 ## Contributing
 

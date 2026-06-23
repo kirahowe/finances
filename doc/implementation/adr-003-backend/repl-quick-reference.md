@@ -12,7 +12,7 @@ Quick reference for common tasks when working with the Clojure backend.
 
 ```bash
 # Set Java version (once per terminal session)
-jabba use zulu@21.0.6
+jabba use zulu@25.0.3
 
 # Start REPL (with dev environment)
 cd backend
@@ -254,13 +254,14 @@ The `env/dev/src` directory contains development-only code:
 
 ## HTTP Endpoints
 
-Currently implemented:
-- `GET /health` → `{:status "ok", :service "finance-aggregator"}`
+The app is wired through a reitit router (`http/router.clj`) that serves:
 
-Test with:
-```bash
-curl http://localhost:8080/health
-```
+- `/api/*` JSON endpoints — see `http/routes/` (stats, categories, transactions,
+  transfers, entities, plaid, providers, csv) with handlers in `http/handlers/`
+- Server-rendered hypermedia pages (hiccup2 SSR + Datastar) — see `web/routes.clj`
+- A `/ws` WebSocket endpoint and static assets (`/js/*`, `/css/*`) from `resources/public/`
+
+Browse `http/routes/` for the authoritative, current route list.
 
 ## Useful Commands
 
@@ -291,8 +292,8 @@ clojure -M:test -m kaocha.runner --focus namespace1 --focus namespace2
 ### REPL Won't Start
 **Check:** Java version
 ```bash
-jabba current  # Should show zulu@21.0.6
-jabba use zulu@21.0.6
+jabba current  # Should show zulu@25.0.3
+jabba use zulu@25.0.3
 ```
 
 ### Port Already in Use
@@ -329,8 +330,8 @@ Key libraries:
 - **datalevin** - Database
 - **http-kit** - HTTP server
 - **ring** - Web application library
-- **malli** - Schema validation (to be used in Phase 2)
-- **reitit** - Routing (to be used in Phase 2)
+- **malli** - Schema validation
+- **reitit** - Routing (in use; see `http/router.clj` and `http/routes/`)
 
 **Development tools** (`:dev` alias):
 - **vvvvalvalval/scope-capture** - Powerful debugging with value capture
@@ -340,9 +341,13 @@ Key libraries:
 
 ## Next Development Tasks
 
-See [Phase 1 Complete Documentation](./phase1-implementation-complete-2025-11-25.md) for detailed next steps.
+> **Historical:** The Phase 1/2 task list below dates from late 2025. Most of it
+> is now in place — reitit routing (`http/router.clj`, `http/routes/`), handlers
+> (`http/handlers/`), credential encryption, multiple providers, and the web SSR
+> layer (`web/`) all exist. See [Phase 1 Complete Documentation](./phase1-implementation-complete-2025-11-25.md)
+> for the original context.
 
-Quick summary:
+Original quick summary (largely done):
 1. **db/queries.clj** - User-scoped read operations
 2. **db/transactions.clj** - User-scoped write operations
 3. **domain/** - Pure business logic functions

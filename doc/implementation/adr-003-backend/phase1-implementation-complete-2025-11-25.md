@@ -231,7 +231,7 @@ clojure -M:test -m kaocha.runner --skip finance-aggregator.system-test
 
 **IMPORTANT:** Set Java version once per terminal session:
 ```bash
-jabba use zulu@21.0.6
+jabba use zulu@25.0.3   # (snapshot said zulu@21.0.6; current is zulu@25.0.3)
 ```
 
 This is required before running tests or starting the REPL.

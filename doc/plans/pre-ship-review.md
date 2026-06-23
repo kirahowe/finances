@@ -11,6 +11,13 @@ architecture idiom, gotchas, run/verify) is `datastar-handoff.md`; depth/why is
 `datastar-server-authoritative-rewrite.md`; memory entry `project_replicant_datastar_spike`.
 **Branch:** `spike/replicant-datastar`.
 
+> **Status (post-session).** Single-user ship was **confirmed** (no real auth in scope for v1 —
+> see C). The **hardening pass is complete**: server errors are now surfaced (B), modals have a
+> focus trap + restore and SSE count updates announce via `aria-live` (E), plus a dead-code cleanup.
+> Shipped in commit `b80fc65`. New regression specs `e2e/v2-errors.ts` (server-error surfacing) and
+> `e2e/v2-modal-focus.ts` (modal focus trap) cover the new behavior; the suite is now **16** TS
+> browser specs. Remaining items below are the genuinely-open decisions/polish.
+
 ## Where we are (2026-06-22)
 
 Migration **done**: server renders + SSE-morphs fragments; client holds only ephemeral UI state.
@@ -18,7 +25,7 @@ Replicant and the old React `frontend/` are deleted; hiccup2 is the only rendere
 strictly presentational (all data logic in pure, kaocha-tested fns). Features: faceted/composing
 filters, inline edits with command-log undo/redo + lingering, keyboard grid nav, column
 chooser/resize, URL view-state, split editor, transfer match/review modals, category rollup pane.
-**Backend kaocha 326/0; 14 TypeScript browser specs green** (`e2e/*.ts`, run via Node native
+**Backend kaocha 326/0; 16 TypeScript browser specs green** (`e2e/*.ts`, run via Node native
 type-stripping, `cd e2e && npm run typecheck`).
 
 The last few working sessions also fixed a cluster of subtle UI bugs (see *Fragile areas* below) —
@@ -60,12 +67,10 @@ Roughly prioritized. `[ship-blocker?]` = decide if it blocks; `[harden]` = robus
   session's bugs lived.
 
 ### B. Error handling + edge cases
-- [ ] **Server errors aren't surfaced** `[ship-blocker?]`: handlers don't wrap the command mutations,
-  so a thrown `ex-info` (e.g. `set-splits!` validation, `confirm-match!` `:conflict`) propagates to a
-  raw 500 / SSE error and the user sees **nothing** change. The split modal even has a hidden
-  `.split-error` div that is never populated. Client-side gating (`canConfirm`, etc.) makes these
-  rare, but a concurrent edit or stale state can trigger them. Decide: graceful error patch (toast /
-  inline message) vs. accept for v1.
+- [x] **Server errors aren't surfaced** `[ship-blocker?]` — **DONE.** Handlers previously didn't wrap
+  the command mutations, so a thrown `ex-info` (e.g. `set-splits!` validation, `confirm-match!`
+  `:conflict`) propagated to a raw 500 / SSE error and the user saw **nothing** change. Now surfaced
+  via a global error bar (and the split modal's inline error). Regression coverage: `e2e/v2-errors.ts`.
 - [ ] **Empty / boundary states** `[polish]`: empty month, every-row-filtered-out, last page after a
   delete-that-shrinks-the-list, a single-row month, a $0 transaction (split is suppressed — verify
   match/category still sane).
@@ -98,10 +103,11 @@ Roughly prioritized. `[ship-blocker?]` = decide if it blocks; `[harden]` = robus
   `list-for-month` pull) — confirm.
 
 ### E. Accessibility + cross-browser
-- [ ] **A11y audit** `[harden]`: WCAG AA was the design bar (memory `feedback_design_system`). Check
-  the modals (focus trap + restore, `aria-modal`, labelledby), the grid (roving tabindex, roles,
-  announcements), the combobox (Zag handles most), live-region semantics for SSE-morphed counts, and
-  contrast in both light + dark (`prefers-color-scheme`).
+- [~] **A11y audit** `[harden]`: WCAG AA was the design bar (memory `feedback_design_system`).
+  **Done in the hardening pass:** modal focus trap + restore and `aria-modal` (focus-trap island;
+  regression `e2e/v2-modal-focus.ts`), and `aria-live` announcements for SSE-morphed counts.
+  **Still open:** grid roving-tabindex/roles audit, combobox (Zag handles most), and contrast in
+  both light + dark (`prefers-color-scheme`).
 - [ ] **Cross-browser** `[harden]`: the suite runs only Chromium. `:has()` (grid-navigation.css —
   the combobox cell-ring suppression + hover ring) gates Chromium 105+/Safari 15.4+/Firefox 121+;
   also Zag, MutationObservers, `position:fixed` floats. Spot-check Safari + Firefox.
@@ -112,9 +118,8 @@ Roughly prioritized. `[ship-blocker?]` = decide if it blocks; `[harden]` = robus
   exists but isn't wired). Decide if inline split-part editing ships or stays modal-only.
 - [ ] **Column widths aren't URL-persisted** (only visibility/sort/page/filters are) — auto-fit on
   load + client-side freeze, lost on reload.
-- [ ] **Dead code**: unused CSS rules (e.g. the old `.table-dense`, a couple of duplicated icon-button
-  footprints — grep for rules with no current markup); the defunct `doc/spikes/replicant-datastar/
-  verify*.mjs` (they `createRequire` the deleted `frontend/`). The `v2-` spec prefix is now just a name.
+- [x] **Dead code** — **DONE** in the hardening pass (unused CSS rules, defunct spike verify scripts
+  that `createRequire`'d the deleted `frontend/`). The `v2-` spec prefix is now just a name.
 - [ ] **Description Enter doesn't walk the column** the way the combobox advance does (it commits +
   stays, relying on the focus-restore). Minor inconsistency — decide if Enter should advance.
 
@@ -155,8 +160,10 @@ for commits; never stage `doc/plans/feature-requests.md`.
 4. Keep the suite green; add regression coverage for anything fixed.
 
 ## Open questions for the user
-- **Ship scope:** single-user deploy as-is, or is real auth in scope before shipping?
-- **Error UX:** invest in graceful server-error surfacing now, or accept the rare raw-500 for v1?
+- ~~**Ship scope:** single-user deploy as-is, or is real auth in scope before shipping?~~
+  **Resolved:** single-user deploy as-is for v1; real auth is fast-follow.
+- ~~**Error UX:** invest in graceful server-error surfacing now, or accept the rare raw-500 for v1?~~
+  **Resolved:** invested now — global error bar + inline modal error (`e2e/v2-errors.ts`).
 - **Split editing:** inline split-part editing (keyboard nav + reviewed checkboxes) before ship, or
   modal-only is enough?
 - **Cross-browser:** which browsers must v1 support (the `:has()`/modern-evergreen baseline OK)?

@@ -36,6 +36,8 @@ Files are named to clearly indicate:
 
 ## Implementation Phases
 
+> **Note:** The phase statuses below are a late-2025 point-in-time snapshot and are now well behind reality. The full reitit router with `http/routes/` + `http/handlers/`, multiple providers, and the server-rendered `web/` SSR layer all exist now.
+
 ### Phase 1: Infrastructure Layer ✅ (Completed 2025-11-25)
 - System lifecycle management with Integrant
 - Enhanced database schema with user scoping
@@ -50,7 +52,7 @@ See: [phase1-implementation-complete-2025-11-25.md](./phase1-implementation-comp
 - User-scoped transactions (`db/transactions.clj`) - Planned
 - Domain layer with pure functions - Planned
 - ✅ **Credential encryption** (`lib/encryption.clj`, `db/credentials.clj`) - Complete
-- ✅ **Plaid API endpoints** (`server.clj`) - Complete (4 endpoints added)
+- ✅ **Plaid API endpoints** (`http/routes/plaid.clj`) - Complete (4 endpoints added)
 - **Plaid data transformations** (`plaid/data.clj`) - Planned (Phase 4)
 - **Plaid service orchestration** (`plaid/service.clj`) - Planned (Phase 5)
 
@@ -70,8 +72,7 @@ See: [phase1-implementation-complete-2025-11-25.md](./phase1-implementation-comp
 ## Quick Start
 
 For day-to-day development, refer to:
-1. **[repl-quick-reference.md](./repl-quick-reference.md)** - Common commands
-2. **[../../../backend/REPL-CHEATSHEET.md](../../../backend/REPL-CHEATSHEET.md)** - Print-friendly reference
+1. **[repl-quick-reference.md](./repl-quick-reference.md)** - Common commands and REPL reference
 
 For understanding the architecture:
 1. Start with **[ADR-003](../../adr/adr-003-clojure-backend-architecture.md)**

@@ -8,7 +8,7 @@
 
 **Cause**: The script needs to open an interactive terminal editor (vim, nano, etc.) but wasn't properly inheriting the terminal's stdin/stdout/stderr.
 
-**Fix**: The script now uses `ProcessBuilder` with `.inheritIO()` to properly connect the editor to your terminal. This was fixed in commit [date].
+**Fix**: The script now uses `ProcessBuilder` with `.inheritIO()` to properly connect the editor to your terminal. This was fixed in an earlier commit.
 
 **Workaround** (if you still have issues):
 ```bash
