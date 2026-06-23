@@ -67,7 +67,11 @@ check('typed + Enter persists the description',
   await page.evaluate(() => document.querySelector('[data-cell="13:tx:description"] .description-button')?.textContent.trim() === 'Keyboard note'));
 
 // Regression: an Enter commit removes the focused input from the morphed tbody, dropping focus to
-// <body> — grid-nav must restore it to the active cell so arrow nav keeps working.
+// <body> — grid-nav must restore it to the active cell so arrow nav keeps working. (The restore is
+// async — it rides the commit's morph — so wait for the cell to regain focus before arrowing; a
+// real user can't press a key inside that sub-ms window, but the test can.)
+await page.waitForFunction(() => document.activeElement?.classList.contains('grid-cell-active'),
+  null, { timeout: 3000 }).catch(() => {});
 const afterCommit = await active();
 await page.keyboard.press('ArrowDown');
 await page.waitForTimeout(150);

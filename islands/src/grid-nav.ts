@@ -121,12 +121,18 @@ if (scroll && table) {
     if (painting) return;
     buildModel();
     paint();
-    // An inline edit commit (description Enter, category pick) removes the focused editor from
-    // the morphed tbody, so the browser drops focus to <body> — and grid-nav's keydown listener
-    // only fires within the scroll container, so arrow nav would die. Restore focus to the active
-    // cell. Guarded to focus-loss (activeElement === body) so a morph the user drove from another
-    // control (a filter chip, the search box) doesn't steal focus from it.
-    if (state.active && document.activeElement === document.body) focusActive();
+    // An inline edit commit (description Enter, category pick) removes/hides the focused editor in
+    // the morphed tbody, so focus is lost — dropped to <body>, or stranded on a now-hidden
+    // description input idiomorph kept in place. grid-nav's keydown listener only fires within the
+    // scroll container, so arrow nav would die. Restore focus to the active cell when it was lost
+    // that way and no editor is legitimately open. Guarded so a morph the user drove from another
+    // focused control (a filter chip, the search box) doesn't get its focus stolen.
+    const ae = document.activeElement as HTMLElement | null;
+    const editorOpen = comboboxOpen() || !!table!.querySelector('.description-cell.editing');
+    const staleInput =
+      !!ae?.classList.contains('description-input') &&
+      !ae.closest('.description-cell')?.classList.contains('editing');
+    if (state.active && !editorOpen && (ae === document.body || staleInput)) focusActive();
   });
   morphObserver.observe(table, { childList: true, subtree: true, attributes: true, attributeFilter: ['class'] });
 
