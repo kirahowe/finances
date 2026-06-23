@@ -4,6 +4,8 @@
 **Status:** Accepted
 **Supersedes:** SimpleFIN integration (partial)
 
+> **Note (2026-06):** The Plaid decision stands and Plaid remains a live provider — the backend Plaid design below is current. However, the frontend integration sections (Plaid Link as a React component, the `frontend/app/routes/*.tsx` files, and the `api.ts` client) describe the since-removed React/Remix app. The frontend is now server-authoritative hiccup2 SSR + Datastar, and Plaid Link now lives in the Datastar/islands frontend.
+
 ## Context
 
 The finance aggregator currently uses SimpleFIN as the data source for bank accounts and transactions. While SimpleFIN provides a clean API and was useful for initial development, I've encountered data integrity issues that make it unsuitable for production use.
@@ -72,7 +74,7 @@ Based on ADR-003 Phase 1 completion:
 ### Technology Stack
 
 - **Plaid Java SDK** (`com.plaid/plaid-java`) - Official Java client library
-- **Plaid Link** (React component) - Client-side account linking UI
+- **Plaid Link** (React component) - Client-side account linking UI *(historical: the React frontend has been removed; Plaid Link now lives in the Datastar/islands frontend)*
 - **Plaid API** - REST API for transaction and account data
 - **Environment** - Start with Sandbox, migrate to Development/Production
 
@@ -172,6 +174,8 @@ backend/src/finance_aggregator/
 ```
 
 **Frontend (Minimal):**
+
+> *Historical: this describes the removed React frontend. Plaid Link now lives in the Datastar/islands frontend.*
 
 ```
 frontend/app/routes/
@@ -293,6 +297,9 @@ PLAID_ENVIRONMENT=sandbox  # Start here
 4. (Optional: Later refactor into api/handlers.clj per ADR-003 Phase 6)
 
 #### Phase 5: Minimal Frontend Integration
+
+> *Historical: this phase describes the removed React frontend. Plaid Link now lives in the Datastar/islands frontend.*
+
 1. Create `plaid-link.tsx` route component
 2. Implement Plaid Link SDK initialization
 3. Handle success callback (send public_token to backend)
@@ -600,6 +607,7 @@ Start with **Option 1** (side-by-side):
   - [x] Hardcode "test-user" for single-user testing
 
 - [ ] **Phase 3: Frontend Plaid Link Component** (In Progress)
+  *(Historical: this checklist describes the removed React frontend. Plaid Link now lives in the Datastar/islands frontend.)*
   - [ ] Create frontend/app/routes/plaid-test.tsx
   - [ ] Load Plaid Link SDK from CDN
   - [ ] Initialize Plaid Link with link_token

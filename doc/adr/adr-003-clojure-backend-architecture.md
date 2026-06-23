@@ -3,11 +3,13 @@
 **Date:** 2025-11-24
 **Status:** Proposed
 
+> **Note (2026-06):** This ADR predates the frontend rewrite. References to "the React frontend" and the JWT/client data-flow examples below describe the since-removed React/Remix app; the frontend is now server-authoritative hiccup2 SSR + Datastar. The backend architecture content otherwise stands.
+
 > **Architectural Paradigm**: This is a **modular, layered backend architecture** using Integrant for component management and Datalevin as the source of truth. The backend follows Clojure principles: simple, decoupled, single-purpose modules with pure functions and explicit dependency injection.
 
 ## Context
 
-The finance aggregator has an excellent foundation: working SimpleFin integration, solid Datalevin schema, and a functional HTTP API serving the React frontend. However, the current implementation lacks the structure needed to scale to production requirements.
+The finance aggregator has an excellent foundation: working SimpleFin integration, solid Datalevin schema, and a functional HTTP API serving the frontend. However, the current implementation lacks the structure needed to scale to production requirements.
 
 ### Current State (Strengths)
 
@@ -983,4 +985,4 @@ These will be addressed during implementation.
 - [Chime Scheduler](https://github.com/jarohen/chime)
 - [Clojure Style Guide](https://guide.clojure.style/)
 - [Buddy Cryptography](https://funcool.github.io/buddy-core/latest/)
-- ADR-002 (React frontend architecture)
+- ADR-002 (React frontend architecture) (superseded)

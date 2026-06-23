@@ -2,8 +2,15 @@
 
 **Date:** 2025-11-18
 **Updated:** 2025-11-18
-**Status:** Proposed
+**Status:** Superseded — React/Remix frontend removed 2026-06; replaced by a server-authoritative hiccup2 SSR + Datastar UI (see [doc/plans/datastar-handoff.md](../plans/datastar-handoff.md) and [doc/plans/datastar-server-authoritative-rewrite.md](../plans/datastar-server-authoritative-rewrite.md)).
 **Supersedes:** ADR-001 (Scittle/Reagent Prototype)
+
+> ⚠️ **Superseded (2026-06).** This ADR is kept as the historical record of why the
+> React/Remix frontend was built. That frontend has since been **removed** — the UI is
+> now rendered server-side (hiccup2 + Datastar over SSE) with small TS islands. Read
+> everything below in past tense: the present-tense Remix architecture, the `frontend/`
+> file tree, and the (never-created) `adr-002-remix-frontend-tasks.md` task doc no longer
+> exist.
 
 > **Architectural Paradigm**: This is a **server-first architecture** with offline capabilities, not strictly an offline-first architecture. The Datalevin db is the source of truth. The application works online by default, with the ability to queue mutations when offline and sync when reconnected.
 
