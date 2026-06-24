@@ -461,12 +461,11 @@
 
 (deftest sync-month-transactions-no-credentials
   (testing "No credentials yields zero counts (legacy format)"
-    (let [conn setup/*test-conn*]
-      (with-redefs [creds/get-all-plaid-credentials (constantly [])]
-        (let [result (service/sync-month-transactions!
-                      (with-conn (assoc deps :secrets {})) "2024-01")]
-          (is (= 0 (get-in result [:success :transactions])))
-          (is (empty? (:errors result))))))))
+    (with-redefs [creds/get-all-plaid-credentials (constantly [])]
+      (let [result (service/sync-month-transactions!
+                    (with-conn (assoc deps :secrets {})) "2024-01")]
+        (is (= 0 (get-in result [:success :transactions])))
+        (is (empty? (:errors result)))))))
 
 ;;; ---------------------------------------------------------------------------
 ;;; Account sync: sync-item-accounts!
@@ -512,12 +511,11 @@
 
 (deftest sync-accounts-empty-credentials
   (testing "sync-accounts! with no credentials returns zeroed legacy format"
-    (let [conn setup/*test-conn*]
-      (with-redefs [creds/get-all-plaid-credentials (constantly [])]
-        (let [result (service/sync-accounts! (with-conn (assoc deps :secrets {})))]
-          (is (= 0 (get-in result [:success :accounts])))
-          (is (= 0 (get-in result [:success :institutions])))
-          (is (empty? (:errors result))))))))
+    (with-redefs [creds/get-all-plaid-credentials (constantly [])]
+      (let [result (service/sync-accounts! (with-conn (assoc deps :secrets {})))]
+        (is (= 0 (get-in result [:success :accounts])))
+        (is (= 0 (get-in result [:success :institutions])))
+        (is (empty? (:errors result)))))))
 
 ;;; ---------------------------------------------------------------------------
 ;;; Sync status reporting: get-item-sync-status
@@ -550,10 +548,9 @@
 
 (deftest get-item-sync-status-not-found
   (testing "Unknown item with no ws state reports :not-found"
-    (let [conn setup/*test-conn*]
-      (let [status (service/get-item-sync-status (with-conn deps) "missing")]
-        (is (= :not-found (:sync-status status)))
-        (is (false? (:ready-for-display status)))))))
+    (let [status (service/get-item-sync-status (with-conn deps) "missing")]
+      (is (= :not-found (:sync-status status)))
+      (is (false? (:ready-for-display status))))))
 
 ;;; ---------------------------------------------------------------------------
 ;;; Private parse helpers: error capture + pending filtering

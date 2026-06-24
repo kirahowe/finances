@@ -1,5 +1,5 @@
 (ns finance-aggregator.db-test
-  (:require [clojure.test :refer :all]
+  (:require [clojure.test :refer [deftest is testing use-fixtures]]
             [datalevin.core :as d]
             [finance-aggregator.data.schema :as schema]
             [finance-aggregator.db :as db])

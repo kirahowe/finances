@@ -78,7 +78,7 @@
       (is (= 200 (:status response)))))
 
   (testing "handles missing body"
-    (let [handler (fn [req] {:status 200 :body "OK"})
+    (let [handler (fn [_req] {:status 200 :body "OK"})
           wrapped (middleware/wrap-json-request handler)
           request {:headers {"content-type" "application/json"}}
           response (wrapped request)]

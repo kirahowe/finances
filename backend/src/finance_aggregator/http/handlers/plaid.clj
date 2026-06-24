@@ -61,27 +61,26 @@
       ;; 1. Exchange public token for access token
       (let [result (plaid/exchange-public-token plaid-config public-token)
             access-token (:access_token result)
-            item-id (:item_id result)]
+            item-id (:item_id result)
+            ;; 2. Fetch item info to get institution_id
+            item-info (plaid/fetch-item plaid-config access-token)
+            institution-id (:institution_id item-info)
+            ;; 3. Fetch institution details for human-readable name
+            institution (plaid/fetch-institution plaid-config institution-id)
+            institution-name (:name institution)]
 
-        ;; 2. Fetch item info to get institution_id
-        (let [item-info (plaid/fetch-item plaid-config access-token)
-              institution-id (:institution_id item-info)
-              ;; 3. Fetch institution details for human-readable name
-              institution (plaid/fetch-institution plaid-config institution-id)
-              institution-name (:name institution)]
+        ;; 4. Store encrypted credential with item metadata and selected accounts
+        (credentials/store-plaid-item-credential!
+         db-conn secrets access-token item-id institution-name account-ids)
 
-          ;; 4. Store encrypted credential with item metadata and selected accounts
-          (credentials/store-plaid-item-credential!
-           db-conn secrets access-token item-id institution-name account-ids)
-
-          ;; Return response with item info
-          ;; Include item_id for frontend polling
-          (responses/success-response
-           {:access_token access-token
-            :item_id item-id
-            :institution_name institution-name
-            :selected_accounts (when account-ids (count account-ids))
-            :sync_status :pending}))))))
+        ;; Return response with item info
+        ;; Include item_id for frontend polling
+        (responses/success-response
+         {:access_token access-token
+          :item_id item-id
+          :institution_name institution-name
+          :selected_accounts (when account-ids (count account-ids))
+          :sync_status :pending})))))
 
 (defn get-accounts-handler
   "Factory: creates handler for GET /api/plaid/accounts.
@@ -288,7 +287,7 @@
       :transaction-count int
       :last-sync-at instant or nil
       :ready-for-display boolean}"
-  [{:keys [db-conn secrets plaid-config] :as deps}]
+  [{:keys [db-conn]}]
   (fn [request]
     (let [item-id (get-in request [:path-params :item-id])]
       (when-not item-id
@@ -311,7 +310,7 @@
 
    Returns:
      Ring handler function"
-  [{:keys [db-conn secrets plaid-config] :as deps}]
+  [{:keys [db-conn secrets plaid-config]}]
   (fn [request]
     (let [item-id (get-in request [:path-params :item-id])]
       (when-not item-id

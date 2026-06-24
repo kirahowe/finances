@@ -1,7 +1,6 @@
 (ns finance-aggregator.simplefin.data
   (:require
    [clojure.set :as set]
-   [finance-aggregator.db :as db]
    [finance-aggregator.utils :as u]))
 
 (defn zero-balance? [account]
@@ -54,8 +53,3 @@
        (reduce parse-accounts {:institutions #{}
                                :accounts #{}
                                :transactions []})))
-
-(defn import-simplefin-data! [accounts]
-  (-> accounts
-      parse-entities
-      db/insert!))

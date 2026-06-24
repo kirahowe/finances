@@ -7,7 +7,6 @@
    [finance-aggregator.http.server :as http]
    [finance-aggregator.http.router :as router]
    [finance-aggregator.lib.log :as log]
-   [finance-aggregator.plaid.client :as plaid]
    [finance-aggregator.lib.secrets :as secrets]
    [finance-aggregator.ws.handler :as ws]
    [integrant.core :as ig]))

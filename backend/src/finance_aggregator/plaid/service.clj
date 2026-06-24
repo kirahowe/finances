@@ -94,7 +94,7 @@
 
    Returns: {:items [{:item-id string :institution-name string :result map} ...]
             :summary {:total-institutions int :total-accounts int :errors int}}"
-  [{:keys [db-conn secrets plaid-config] :as deps}]
+  [{:keys [db-conn secrets] :as deps}]
   (let [credentials (creds/get-all-plaid-credentials db-conn secrets)]
     (if (empty? credentials)
       {:items []
@@ -288,7 +288,7 @@
 
    Returns: {:items [{:item-id string :institution-name string :result map} ...]
             :summary {:total-transactions int :errors int}}"
-  [{:keys [db-conn secrets plaid-config] :as deps}]
+  [{:keys [db-conn secrets] :as deps}]
   (let [credentials (creds/get-all-plaid-credentials db-conn secrets)]
     (if (empty? credentials)
       {:items []
@@ -429,7 +429,7 @@
 
    Returns: {:items [{:item-id string :institution-name string :result map} ...]
             :summary {:total-transactions int :errors int}}"
-  [{:keys [db-conn secrets plaid-config] :as deps} start-date end-date]
+  [{:keys [db-conn secrets] :as deps} start-date end-date]
   (let [credentials (creds/get-all-plaid-credentials db-conn secrets)]
     (if (empty? credentials)
       {:items []

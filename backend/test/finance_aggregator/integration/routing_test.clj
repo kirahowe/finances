@@ -1,18 +1,19 @@
 (ns finance-aggregator.integration.routing-test
   "Integration tests for the new routing system"
   (:require
+   [clojure.java.io :as io]
    [clojure.test :refer [deftest is testing use-fixtures]]
    [finance-aggregator.http.router :as router]
    [finance-aggregator.db.core :as db]
-   [finance-aggregator.lib.secrets :as secrets]
    [charred.api :as json]))
 
 (def ^:dynamic *test-db-conn* nil)
 (def ^:dynamic *test-secrets* nil)
 (def ^:dynamic *test-plaid-config* nil)
 
-(defn test-db-fixture [f]
+(defn test-db-fixture
   "Create test database and mock dependencies for each test"
+  [f]
   (let [test-dir (str "/tmp/test-routing-" (System/currentTimeMillis))
         conn (db/start-db! test-dir)]
     (try
@@ -26,7 +27,7 @@
       (finally
         (db/stop-db! conn)
         ;; Clean up test db directory
-        (let [dir (clojure.java.io/file test-dir)]
+        (let [dir (io/file test-dir)]
           (when (.exists dir)
             (doseq [file (.listFiles dir)]
               (.delete file))

@@ -1,18 +1,19 @@
 (ns finance-aggregator.http.handlers.plaid-test
   "Tests for Plaid integration handlers"
   (:require
+   [clojure.java.io :as io]
    [clojure.test :refer [deftest is testing use-fixtures]]
    [finance-aggregator.http.handlers.plaid :as plaid-handlers]
    [finance-aggregator.lib.encryption :as encryption]
-   [charred.api :as json]
    [datalevin.core :as d]))
 
 (def ^:dynamic *test-conn* nil)
 (def ^:dynamic *test-secrets* nil)
 (def ^:dynamic *test-plaid-config* nil)
 
-(defn test-db-fixture [f]
+(defn test-db-fixture
   "Create a test database with schema for each test"
+  [f]
   (let [test-dir (str "/tmp/test-plaid-handlers-" (System/currentTimeMillis))
         conn (d/get-conn test-dir)
         ;; Generate a test encryption key
@@ -50,7 +51,7 @@
       (finally
         (d/close conn)
         ;; Clean up test db directory
-        (let [dir (clojure.java.io/file test-dir)]
+        (let [dir (io/file test-dir)]
           (when (.exists dir)
             (doseq [file (.listFiles dir)]
               (.delete file))

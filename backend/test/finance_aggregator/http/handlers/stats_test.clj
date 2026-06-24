@@ -1,16 +1,17 @@
 (ns finance-aggregator.http.handlers.stats-test
   "Tests for stats handler"
   (:require
+   [clojure.java.io :as io]
    [clojure.test :refer [deftest is testing use-fixtures]]
    [finance-aggregator.http.handlers.stats :as stats]
-   [finance-aggregator.http.responses :as responses]
    [charred.api :as json]
    [datalevin.core :as d]))
 
 (def ^:dynamic *test-conn* nil)
 
-(defn test-db-fixture [f]
+(defn test-db-fixture
   "Create a test database for each test"
+  [f]
   (let [test-dir (str "/tmp/test-db-" (System/currentTimeMillis))
         conn (d/get-conn test-dir)]
     (try
@@ -30,7 +31,7 @@
       (finally
         (d/close conn)
         ;; Clean up test db directory
-        (let [dir (clojure.java.io/file test-dir)]
+        (let [dir (io/file test-dir)]
           (when (.exists dir)
             (doseq [file (.listFiles dir)]
               (.delete file))

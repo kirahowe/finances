@@ -1,5 +1,5 @@
 (ns finance-aggregator.data.cleaning-test
-  (:require [clojure.test :refer :all]
+  (:require [clojure.test :refer [deftest is testing]]
             [finance-aggregator.data.cleaning :as cleaning]
             [tablecloth.api :as tc]))
 

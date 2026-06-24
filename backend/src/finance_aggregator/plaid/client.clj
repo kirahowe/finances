@@ -3,12 +3,13 @@
    All functions are pure - they take configuration and parameters,
    call the Plaid API, and return data. No side effects or component dependencies."
   (:require
+   [clojure.string :as str]
    [finance-aggregator.lib.log :as log]
    [finance-aggregator.plaid.types :as types])
   (:import
    [com.plaid.client ApiClient]
-   [com.plaid.client.model CountryCode LinkTokenCreateRequest
-    LinkTokenCreateRequestUser LinkTokenTransactions Products
+   [com.plaid.client.model LinkTokenCreateRequest
+    LinkTokenCreateRequestUser LinkTokenTransactions
     ItemPublicTokenExchangeRequest AccountsGetRequest TransactionsGetRequest
     ItemGetRequest InstitutionsGetByIdRequest TransactionsSyncRequest
     TransactionsSyncRequestOptions]
@@ -337,8 +338,8 @@
              ;; Parse transactions_update_status enum to keyword
              update-status (some-> (.getTransactionsUpdateStatus result)
                                    str
-                                   clojure.string/lower-case
-                                   (clojure.string/replace "_" "-")
+                                   str/lower-case
+                                   (str/replace "_" "-")
                                    keyword)]
          {:added (mapv txn->map (.getAdded result))
           :modified (mapv txn->map (.getModified result))

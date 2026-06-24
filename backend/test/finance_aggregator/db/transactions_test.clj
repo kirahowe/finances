@@ -3,7 +3,6 @@
             [datalevin.core :as d]
             [finance-aggregator.db.transactions :as transactions]
             [finance-aggregator.db.categories :as categories]
-            [finance-aggregator.data.schema :as schema]
             [finance-aggregator.test-utils.setup :as setup]))
 
 (use-fixtures :each setup/with-empty-db)

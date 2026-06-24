@@ -2,6 +2,7 @@
   "Database connection lifecycle management.
    Handles opening and closing Datalevin connections."
   (:require
+   [clojure.java.io :as io]
    [datalevin.core :as d]
    [finance-aggregator.data.schema :as schema]))
 
@@ -28,7 +29,7 @@
   "Delete a database directory (for testing).
    WARNING: This permanently deletes all data!"
   [db-path]
-  (let [dir (clojure.java.io/file db-path)]
+  (let [dir (io/file db-path)]
     (when (.exists dir)
       (doseq [f (reverse (file-seq dir))]
         (.delete f)))))

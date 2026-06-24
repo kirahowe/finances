@@ -56,23 +56,22 @@
                            :institution-name "Test"})
           account (:data account-result)
           account-db-id (:db/id account)
-          csv-content "Date,Description,Amount\n2024-01-15,Coffee Shop,4.50\n2024-01-16,Grocery Store,45.67"]
-
-      ;; Preview CSV
-      (let [preview-result (csv-service/preview-csv-import
-                            setup/*test-conn*
-                            account-db-id
-                            csv-content)]
-        (is (:success preview-result))
-        (let [data (:data preview-result)]
-          (is (= ["Date" "Description" "Amount"] (:headers data)))
-          (is (= 2 (:total-rows data)))
-          (is (= 2 (count (:sample-rows data))))
-          (is (some? (:detected-mapping data)))
-          (is (= "Date" (get-in data [:detected-mapping :date])))
-          (is (= "Amount" (get-in data [:detected-mapping :amount])))
-          (is (= "Description" (get-in data [:detected-mapping :payee])))
-          (is (some? (:suggested-date-format data))))))))
+          csv-content "Date,Description,Amount\n2024-01-15,Coffee Shop,4.50\n2024-01-16,Grocery Store,45.67"
+          ;; Preview CSV
+          preview-result (csv-service/preview-csv-import
+                          setup/*test-conn*
+                          account-db-id
+                          csv-content)]
+      (is (:success preview-result))
+      (let [data (:data preview-result)]
+        (is (= ["Date" "Description" "Amount"] (:headers data)))
+        (is (= 2 (:total-rows data)))
+        (is (= 2 (count (:sample-rows data))))
+        (is (some? (:detected-mapping data)))
+        (is (= "Date" (get-in data [:detected-mapping :date])))
+        (is (= "Amount" (get-in data [:detected-mapping :amount])))
+        (is (= "Description" (get-in data [:detected-mapping :payee])))
+        (is (some? (:suggested-date-format data)))))))
 
 (deftest test-import-csv-transactions
   (testing "Imports transactions from CSV"

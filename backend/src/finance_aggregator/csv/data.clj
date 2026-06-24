@@ -12,7 +12,7 @@
   (:import
    [java.io StringReader]
    [java.time LocalDate]
-   [java.time.format DateTimeFormatter DateTimeParseException]))
+   [java.time.format DateTimeFormatter]))
 
 ;;; CSV Parsing with Tablecloth
 

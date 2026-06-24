@@ -1,9 +1,9 @@
 (ns finance-aggregator.data.schema-test
   "Tests for enhanced database schema with user scoping."
   (:require
+   [clojure.java.io :as io]
    [clojure.test :refer [deftest is testing use-fixtures]]
    [datalevin.core :as d]
-   [finance-aggregator.data.schema :as schema]
    [finance-aggregator.db.core :as db]))
 
 (def test-db-path (str "data/test-schema-" (System/currentTimeMillis) ".db"))
@@ -11,7 +11,7 @@
 (use-fixtures :each
   (fn [f]
     ;; Cleanup before test
-    (when (.exists (clojure.java.io/file test-db-path))
+    (when (.exists (io/file test-db-path))
       (db/delete-database! test-db-path))
     (f)
     ;; Cleanup after test

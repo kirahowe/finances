@@ -4,9 +4,10 @@
    These tests verify encryption, decryption, and key management functionality.
    They require age to be installed on the system."
   (:require
-   [clojure.test :refer [deftest is testing use-fixtures]]
    [clojure.java.io :as io]
    [clojure.java.shell :as shell]
+   [clojure.string :as str]
+   [clojure.test :refer [deftest is testing use-fixtures]]
    [finance-aggregator.lib.secrets :as secrets]))
 
 ;; Test fixtures and helpers
@@ -15,14 +16,16 @@
 (def test-secrets-file (str (System/getProperty "java.io.tmpdir") "/test-secrets.edn.age"))
 (def test-plaintext-file (str (System/getProperty "java.io.tmpdir") "/test-secrets.edn"))
 
-(defn cleanup-test-files []
+(defn cleanup-test-files
   "Remove all test files created during testing."
+  []
   (doseq [file [test-key-file test-secrets-file test-plaintext-file]]
     (when (.exists (io/file file))
       (.delete (io/file file)))))
 
-(defn setup-test-key []
+(defn setup-test-key
   "Generate a test age key for testing."
+  []
   (cleanup-test-files)
   (when (secrets/age-installed?)
     (let [{:keys [exit]} (shell/sh "age-keygen" "-o" test-key-file)]
@@ -78,7 +81,7 @@
       ;; Decrypt using our function
       (let [decrypted (secrets/decrypt-file test-key-file test-secrets-file)]
         (is (string? decrypted))
-        (is (= "{:test-key \"test-value\"}" (clojure.string/trim decrypted))))))
+        (is (= "{:test-key \"test-value\"}" (str/trim decrypted))))))
 
   (testing "decrypt-file throws when identity file doesn't exist"
     (when (secrets/age-installed?)
@@ -350,7 +353,6 @@
   (clojure.test/test-var #'load-secrets-test)
 
   ;; Manual testing with real age encryption
-  (require '[finance-aggregator.lib.secrets :as secrets])
 
   ;; Check if age is installed
   (secrets/age-installed?)

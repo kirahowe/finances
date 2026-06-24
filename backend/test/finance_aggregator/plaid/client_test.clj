@@ -10,6 +10,7 @@
    2. Create test secrets:  bb secrets new test
    3. Run tests:            clojure -M:test --focus finance-aggregator.plaid.client-test"
   (:require
+   [clojure.string :as str]
    [clojure.test :refer [deftest is testing use-fixtures]]
    [finance-aggregator.plaid.client :as plaid]
    [finance-aggregator.lib.secrets :as secrets]
@@ -50,7 +51,7 @@
             result (plaid/create-link-token *plaid-config* user-id)]
         (is (string? result) "Should return a link token string")
         (is (not (empty? result)) "Link token should not be empty")
-        (is (clojure.string/starts-with? result "link-") "Link token should start with 'link-'")))))
+        (is (str/starts-with? result "link-") "Link token should start with 'link-'")))))
 
 (deftest ^:integration exchange-public-token-test
   (testing "exchange-public-token requires a valid public token from Plaid Link"

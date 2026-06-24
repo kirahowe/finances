@@ -6,6 +6,7 @@
    - db-path: ./data/test.db
    - http-port: 8081"
   (:require
+   [clojure.java.io :as io]
    [clojure.test :refer [deftest is testing use-fixtures]]
    [datalevin.core :as d]
    [finance-aggregator.db.core :as db]
@@ -40,7 +41,7 @@
       (ig/halt! system)
 
       ;; Verify database file was created
-      (is (.exists (clojure.java.io/file test-db-path))
+      (is (.exists (io/file test-db-path))
           "Database file exists after shutdown"))))
 
 (deftest http-server-component-lifecycle-test

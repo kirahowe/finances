@@ -12,7 +12,7 @@
    [clojure.test]
 
    ;; Code reloading
-   [clojure.tools.namespace.repl :as tns :refer [refresh refresh-all]]
+   [clojure.tools.namespace.repl :as tns]
 
    ;; Integrant system management
    [integrant.repl :refer [clear go halt prep init reset reset-all]]

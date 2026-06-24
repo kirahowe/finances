@@ -8,7 +8,7 @@
    - Combined JSON middleware"
   (:require
    [charred.api :as json]
-   [clojure.java.io :as io]))
+   [clojure.string :as str]))
 
 ;;
 ;; CORS Middleware
@@ -19,7 +19,7 @@
    Vectors become comma-separated strings, strings pass through unchanged."
   [v]
   (if (vector? v)
-    (clojure.string/join ", " v)
+    (str/join ", " v)
     v))
 
 (defn wrap-cors

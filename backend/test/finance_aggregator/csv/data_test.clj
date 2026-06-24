@@ -1,6 +1,7 @@
 (ns finance-aggregator.csv.data-test
   "Unit tests for CSV parsing and column detection functions."
   (:require
+   [clojure.string :as str]
    [clojure.test :refer [deftest is testing]]
    [finance-aggregator.csv.data :as csv-data]))
 
@@ -130,7 +131,7 @@
 
   (testing "Handles CSV with more rows than sample size"
     (let [csv-str (str "Date,Amount\n"
-                      (clojure.string/join "\n" (repeat 20 "2024-01-15,10.00")))
+                      (str/join "\n" (repeat 20 "2024-01-15,10.00")))
           result (csv-data/preview-csv csv-str 5)]
       (is (= 5 (count (:sample-rows result))))
       (is (= 20 (:total-rows result))))))

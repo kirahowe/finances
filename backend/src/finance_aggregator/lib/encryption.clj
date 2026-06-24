@@ -12,7 +12,7 @@
    (def encrypted (encrypt-credential \"access-token-123\" encryption-key))
    (def decrypted (decrypt-credential encrypted encryption-key))"
   (:import
-   [javax.crypto Cipher KeyGenerator SecretKey]
+   [javax.crypto Cipher KeyGenerator]
    [javax.crypto.spec SecretKeySpec GCMParameterSpec]
    [java.security SecureRandom]
    [java.util Base64]))

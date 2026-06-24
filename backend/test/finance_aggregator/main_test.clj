@@ -25,7 +25,6 @@
 
 (deftest gen-class-present-test
   (testing "Namespace has gen-class for Java main method"
-    (let [ns-meta (meta (find-ns 'finance-aggregator.main))]
-      ;; Check that the namespace has the necessary structure for -main
-      (is (find-ns 'finance-aggregator.main)
-          "Namespace should exist and be properly configured"))))
+    ;; Check that the namespace has the necessary structure for -main
+    (is (find-ns 'finance-aggregator.main)
+        "Namespace should exist and be properly configured")))

@@ -208,7 +208,7 @@
      (chevron-right)]]])
 
 (defn- normal-row [stale? {:transaction/keys [posted-date account payee effective-description
-                                              amount category reviewed] :as tx}]
+                                              amount reviewed] :as tx}]
   [:tr {:role "row" :class (row-class "" stale?)}
    [:td [:span.numeric (fmt/date posted-date)]]
    [:td (or (:account/external-name account) "—")]

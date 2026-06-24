@@ -4,8 +4,7 @@
    [clojure.test.check.clojure-test :refer [defspec]]
    [clojure.test.check.generators :as gen]
    [clojure.test.check.properties :as prop]
-   [finance-aggregator.simplefin.data :as data]
-   [tick.core :as t])
+   [finance-aggregator.simplefin.data :as data])
   (:import
    [java.util Date]))
 

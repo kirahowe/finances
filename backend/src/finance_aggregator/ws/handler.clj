@@ -118,7 +118,7 @@
     (http-kit/as-channel request
       {:on-open (fn [channel]
                   (on-connect channel-id channel))
-       :on-close (fn [channel status]
+       :on-close (fn [_channel status]
                    (on-disconnect channel-id status))
        :on-receive (fn [channel message]
                      (on-receive channel-id channel message))})))

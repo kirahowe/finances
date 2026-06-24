@@ -485,7 +485,7 @@
    (update-sync-status! conn \"item_abc123\" :synced {:transaction-count 42})"
   ([conn item-id status]
    (update-sync-status! conn item-id status {}))
-  ([conn item-id status {:keys [transaction-count error]}]
+  ([conn item-id status {:keys [transaction-count]}]
    (let [db (d/db conn)
          credential-id (str "plaid-item-" item-id)
          credential (d/pull db '[:db/id] [:credential/id credential-id])]
@@ -555,17 +555,16 @@
 (comment
   ;; Example usage in REPL
   ;; Get connection from integrant system (see dev.clj for helpers)
+  ;; (secrets is already required at the namespace level)
 
-  (require '[finance-aggregator.lib.secrets :as secrets])
   (require '[finance-aggregator.db.credentials :as creds])
 
   ;; Load secrets
   (def secrets-data (secrets/load-secrets))
 
-  ;; Get database connection from integrant system
-  ;; In dev REPL: (dev/db-conn)
-  ;; Or manually: (get-in state/system [:finance-aggregator.db/connection :conn])
-  (def conn (dev/db-conn))
+  ;; Get a database connection from the integrant system. In a dev REPL use the
+  ;; (dev/db-conn) helper, or (get-in state/system [:finance-aggregator.db/connection :conn]).
+  (def conn nil)
 
   ;; Store a Plaid credential
   (creds/store-credential! conn secrets-data :plaid "access-sandbox-xyz123")

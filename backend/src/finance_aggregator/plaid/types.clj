@@ -3,6 +3,8 @@
 
    Provides lookup maps and EDN readers for Plaid enum types.
    Use these readers in config files to specify Plaid values directly."
+  (:require
+   [clojure.string :as str])
   (:import
    [com.plaid.client.model CountryCode Products]))
 
@@ -62,7 +64,7 @@
   "EDN reader for #plaid/country-code \"US\".
    Returns the Plaid CountryCode enum value."
   [code]
-  (let [code-upper (clojure.string/upper-case (str code))]
+  (let [code-upper (str/upper-case (str code))]
     (or (country-codes code-upper)
         (throw (ex-info (str "Unknown Plaid country code: " code)
                         {:code code

@@ -1,5 +1,6 @@
 (ns finance-aggregator.db.core-test
   (:require
+   [clojure.java.io :as io]
    [clojure.test :refer [deftest is testing use-fixtures]]
    [datalevin.core :as d]
    [finance-aggregator.db.core :as db]))
@@ -9,7 +10,7 @@
 (use-fixtures :each
   (fn [f]
     ;; Cleanup before test
-    (when (.exists (clojure.java.io/file test-db-path))
+    (when (.exists (io/file test-db-path))
       (db/delete-database! test-db-path))
     (f)
     ;; Cleanup after test
@@ -24,7 +25,7 @@
 
   (testing "creates database file"
     (let [conn (db/start-db! test-db-path)]
-      (is (.exists (clojure.java.io/file test-db-path)))
+      (is (.exists (io/file test-db-path)))
       (db/stop-db! conn))))
 
 (deftest stop-db-test
