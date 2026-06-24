@@ -48,7 +48,7 @@
    Parameters:
    - conn: Datalevin connection
    - secrets-data: Loaded secrets map (contains encryption key)
-   - institution: Keyword identifying the institution (e.g., :plaid, :simplefin)
+   - institution: Keyword identifying the institution (e.g., :plaid, :lunchflow)
    - access-token: Plaintext access token to encrypt and store
 
    Returns:

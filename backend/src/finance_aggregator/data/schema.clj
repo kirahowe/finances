@@ -76,12 +76,12 @@
    :snapshot/account {:db/valueType :db.type/ref}
    :snapshot/date    {:db/valueType :db.type/instant}
    :snapshot/balance {:db/valueType :db.type/bigdec}
-   :snapshot/source  {:db/valueType :db.type/keyword}    ; e.g. :simplefin, :manual, :calculated
+   :snapshot/source  {:db/valueType :db.type/keyword}    ; e.g. :manual, :calculated
 
    ;; Credentials (encrypted storage for API access tokens)
    :credential/id                  {:db/unique :db.unique/identity}
    :credential/user                {:db/valueType :db.type/ref}
-   :credential/institution         {:db/valueType :db.type/keyword}  ; e.g. :plaid, :simplefin
+   :credential/institution         {:db/valueType :db.type/keyword}  ; e.g. :plaid, :lunchflow
    :credential/item-id             {:db/valueType :db.type/string}   ; Plaid item_id (unique per bank connection)
    :credential/institution-name    {:db/valueType :db.type/string}   ; Human-readable institution name
    :credential/encrypted-data      {:db/valueType :db.type/string}   ; AES-256-GCM encrypted

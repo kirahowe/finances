@@ -7,11 +7,6 @@
            [java.util Date]
            [java.util.regex Pattern]))
 
-(defn epoch->date
-  "Converts Unix epoch timestamp to a date in UTC."
-  [timestamp]
-  (-> timestamp (* 1000) t/instant Date/from))
-
 (defn- local-date->utc-midnight
   "java.util.Date at UTC midnight for a LocalDate."
   ^Date [^LocalDate ld]

@@ -138,10 +138,10 @@
   (testing "Can store credentials for multiple institutions"
     (let [secrets-data (make-test-secrets)]
       (credentials/store-credential! setup/*test-conn* secrets-data :plaid "plaid-token")
-      (credentials/store-credential! setup/*test-conn* secrets-data :simplefin "simplefin-token")
+      (credentials/store-credential! setup/*test-conn* secrets-data :lunchflow "lunchflow-token")
 
       (is (= "plaid-token" (credentials/get-credential setup/*test-conn* secrets-data :plaid)))
-      (is (= "simplefin-token" (credentials/get-credential setup/*test-conn* secrets-data :simplefin))))))
+      (is (= "lunchflow-token" (credentials/get-credential setup/*test-conn* secrets-data :lunchflow))))))
 
 (deftest encryption-roundtrip-integration-test
   (testing "Full encryption/decryption roundtrip through database"

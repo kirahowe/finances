@@ -55,7 +55,7 @@
 (use-fixtures :each db-fixture)
 
 ;; Test data fixtures
-;; Test data is already in database-ready format (as if transformed by simplefin/data)
+;; Test data is already in database-ready format (as if normalized by a provider's data layer)
 (def test-institutions
   [{:institution/id "inst-001"
     :institution/name "Test Bank"

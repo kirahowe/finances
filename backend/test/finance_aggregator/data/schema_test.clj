@@ -149,7 +149,7 @@
         ;; Create credential
         (d/transact! conn [{:credential/id "cred-1"
                            :credential/user user-eid
-                           :credential/institution :simplefin
+                           :credential/institution :lunchflow
                            :credential/encrypted-data "encrypted-token-data"
                            :credential/created-at (java.util.Date.)
                            :credential/last-used (java.util.Date.)}])
@@ -158,7 +158,7 @@
         (let [cred (d/pull @conn '[* {:credential/user [*]}]
                           [:credential/id "cred-1"])]
           (is (= "cred-1" (:credential/id cred)))
-          (is (= :simplefin (:credential/institution cred)))
+          (is (= :lunchflow (:credential/institution cred)))
           (is (= "encrypted-token-data" (:credential/encrypted-data cred)))
           (is (= "user-1" (get-in cred [:credential/user :user/id])))))
 
