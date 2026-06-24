@@ -1,7 +1,7 @@
 (ns finance-aggregator.web.month
   "Month view-state helpers for the transactions page: a month is
    {:year int :month 1-12}, serialized as YYYY-MM."
-  (:import [java.time LocalDate ZoneOffset]))
+  (:require [tick.core :as t]))
 
 (def ^:private names
   ["January" "February" "March" "April" "May" "June"
@@ -10,7 +10,7 @@
 (defn current
   "The current calendar month (UTC)."
   []
-  (let [d (LocalDate/now ZoneOffset/UTC)]
+  (let [^java.time.LocalDate d (t/date (t/in (t/now) "UTC"))]
     {:year (.getYear d) :month (.getMonthValue d)}))
 
 (defn parse

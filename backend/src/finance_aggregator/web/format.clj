@@ -1,8 +1,9 @@
 (ns finance-aggregator.web.format
   "Presentation formatters for server-rendered views."
+  (:require
+   [finance-aggregator.utils :as utils])
   (:import
    [java.text NumberFormat]
-   [java.time ZoneOffset]
    [java.util Date Locale]
    [java.util.function Supplier]))
 
@@ -26,7 +27,7 @@
 (defn date
   "Format a java.util.Date as \"Mon D, YYYY\" in UTC."
   [^Date d]
-  (let [ld (-> (.toInstant d) (.atZone ZoneOffset/UTC) .toLocalDate)]
+  (let [^java.time.LocalDate ld (utils/date->local-date d)]
     (str (nth month-abbrevs (dec (.getMonthValue ld))) " "
          (.getDayOfMonth ld) ", " (.getYear ld))))
 

@@ -2,7 +2,7 @@
   (:require
    [tick.core :as t])
   (:import [java.security MessageDigest]
-           [java.time LocalDate ZoneId ZoneOffset]
+           [java.time LocalDate]
            [java.time.format DateTimeFormatter]
            [java.util Date]
            [java.util.regex Pattern]))
@@ -10,14 +10,14 @@
 (defn- local-date->utc-midnight
   "java.util.Date at UTC midnight for a LocalDate."
   ^Date [^LocalDate ld]
-  (-> ld (.atStartOfDay (ZoneId/of "UTC")) .toInstant Date/from))
+  (-> ld (t/at (t/midnight)) (t/in "UTC") t/inst))
 
 (defn string->date
   "Parse a date string to a java.util.Date at UTC midnight.
    1-arity parses ISO yyyy-MM-dd; 2-arity uses an explicit
    DateTimeFormatter pattern (e.g. \"yyyy-MM-dd\")."
   ([date-string]
-   (local-date->utc-midnight (LocalDate/parse date-string)))
+   (local-date->utc-midnight (t/date date-string)))
   ([date-string date-format]
    (local-date->utc-midnight
     (LocalDate/parse date-string (DateTimeFormatter/ofPattern date-format)))))
@@ -29,13 +29,20 @@
     (apply str (map #(format "%02x" %)
                     (.digest digest (.getBytes (str s) "UTF-8"))))))
 
+(defn date->local-date
+  "The calendar date (java.time.LocalDate) of a stored java.util.Date interpreted in
+   UTC — the storage convention for every instant in this app — or nil for nil. The
+   one home for the Date→UTC-calendar-date conversion (web.format, lunchflow, the
+   epoch-day bucketer below all read it through here)."
+  ^LocalDate [^Date d]
+  (when d (t/date (t/in (t/instant d) "UTC"))))
+
 (defn date->epoch-day
   "Calendar day (as an epoch-day long) of a java.util.Date interpreted in UTC, or
    nil when the date is nil. Use to bucket transactions by day independent of
    time-of-day."
   [^Date d]
-  (when d
-    (.toEpochDay (.toLocalDate (.atZone (.toInstant d) ZoneOffset/UTC)))))
+  (when d (.toEpochDay (date->local-date d))))
 
 (defn- ->epoch
   "Convert an Instant to epoch."

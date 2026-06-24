@@ -17,9 +17,10 @@
    [finance-aggregator.lib.secrets :as secrets]
    [finance-aggregator.lunchflow.client :as client]
    [finance-aggregator.lunchflow.data :as data]
-   [finance-aggregator.provider :as provider])
+   [finance-aggregator.provider :as provider]
+   [finance-aggregator.utils :as utils]
+   [tick.core :as t])
   (:import
-   [java.time LocalDate ZoneId]
    [java.util Date]))
 
 (defn- api-key [secrets]
@@ -48,7 +49,7 @@
             (d/db db-conn))))
 
 (defn- ->date-str [^Date d]
-  (str (.toLocalDate (.atZone (.toInstant d) (ZoneId/of "UTC")))))
+  (str (utils/date->local-date d)))
 
 (defmethod provider/available-accounts :lunchflow
   [_ {:keys [secrets]}]
@@ -75,7 +76,7 @@
   (let [key (api-key secrets)
         connected (connected-external-ids db-conn)
         from (some-> (latest-transaction-date db-conn) ->date-str)
-        to (str (LocalDate/now))
+        to (str (t/today))
         accounts (filter #(contains? connected (data/account-external-id %))
                          (client/list-accounts key))
         transactions (mapcat

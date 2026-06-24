@@ -12,9 +12,8 @@
              :error string|nil
              :updated-at instant}}"
   (:require
-   [finance-aggregator.lib.log :as log])
-  (:import
-   [java.time Instant]))
+   [finance-aggregator.lib.log :as log]
+   [tick.core :as t]))
 
 ;;; State Atoms
 
@@ -120,7 +119,7 @@
           :transaction-count transaction-count
           :progress progress
           :error error
-          :updated-at (Instant/now)})
+          :updated-at (t/now)})
   (log/debug "Sync status updated" {:item-id item-id :status status}))
 
 (defn get-sync-status
