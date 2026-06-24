@@ -5,15 +5,14 @@
    [finance-aggregator.web.format :as fmt]))
 
 (def ^:private nav-tabs
-  [{:href "/"           :label "Transactions" :key :transactions}
-   {:href "/setup"      :label "Setup"        :key :setup}
-   {:href "/plaid-test" :label "Plaid"        :key :plaid :quiet true}])
+  [{:href "/"      :label "Transactions" :key :transactions}
+   {:href "/setup" :label "Setup"        :key :setup}])
 
 (defn masthead
   "The top chrome: wordmark, primary nav tabs, and the live stats bar.
 
    opts:
-     :active — the active tab key (:transactions/:setup/:plaid)
+     :active — the active tab key (:transactions/:setup)
      :stats  — {:institutions :accounts :transactions} (optional)"
   [{:keys [active stats]}]
   [:header.masthead

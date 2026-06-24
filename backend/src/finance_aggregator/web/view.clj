@@ -126,7 +126,7 @@
 (defn view
   "filter → sort → paginate. Returns {:rows :total :page :page-count :page-size}; :total is
    the filtered transaction count (drives the pagination status). The toolbar count chips
-   are full-month and come from db.transactions/month-counts, not from here."
+   are full-month and come from `facet-counts`, not from here."
   [txs {:keys [sort page page-size] :as vs}]
   (-> txs
       (filter-txs vs)

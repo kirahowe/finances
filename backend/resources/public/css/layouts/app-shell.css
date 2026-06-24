@@ -83,11 +83,6 @@
   background-color: var(--color-accent-soft);
 }
 
-.view-tab--quiet {
-  color: var(--color-medium-gray);
-  font-size: var(--text-sm);
-}
-
 .masthead-stats {
   margin-left: auto;
   display: flex;

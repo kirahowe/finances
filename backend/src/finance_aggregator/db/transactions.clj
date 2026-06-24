@@ -135,35 +135,6 @@
     (some #(nil? (get-in % [:split/category :db/id])) parts)
     (nil? (get-in tx [:transaction/category :db/id]))))
 
-(defn month-counts
-  "Counts driving the toolbar's review-scope toggle and binary chips, from a list of
-   derived transactions (the whole month, pre-filter). Mirrors React computeMonthCounts."
-  [txs]
-  (reduce (fn [acc tx]
-            (cond-> (update acc :total inc)
-              (not (true? (:transaction/reviewed tx)))   (update :unreviewed inc)
-              (needs-category? tx)                        (update :uncategorized inc)
-              (:transaction/transfer-hidden tx)           (update :transfers-hidden inc)))
-          {:total 0 :unreviewed 0 :uncategorized 0 :transfers-hidden 0}
-          txs))
-
-(defn sync-reviewed!
-  "Batch-persist reviewed flags from the transactions page's `reviewed` signal map.
-   Keys like \"tx<id>\" set :transaction/reviewed; \"sp<id>\" set :split/reviewed.
-   A true value asserts the flag, false retracts it (absence nil-puns to not
-   reviewed). One transaction; idempotent (re-asserting an existing flag is a
-   no-op). This is the write-behind sink for the optimistic reviewed toggle — it
-   persists only; the optimistic client signal stands, with no per-toggle echo."
-  [conn reviewed]
-  (let [ops (for [[k v] reviewed
-                  :let [s (name k)]
-                  :when (or (str/starts-with? s "tx") (str/starts-with? s "sp"))]
-              (let [id (parse-long (subs s 2))
-                    attr (if (str/starts-with? s "tx") :transaction/reviewed :split/reviewed)]
-                (if v [:db/add id attr true] [:db/retract id attr])))]
-    (when (seq ops)
-      (d/transact! conn (vec ops)))))
-
 (defn- set-reviewed-datom!
   "Assert (true) or clear (false) the boolean reviewed flag `attr` on entity `eid`.
    Clearing retracts the datom so its absence nil-puns to not-reviewed."

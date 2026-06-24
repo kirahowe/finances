@@ -17,7 +17,6 @@
    What's left is render + read-signals."
   (:require
    [charred.api :as json]
-   [hiccup.util :as hu]
    [hiccup2.core :as h2]))
 
 ;; --- Rendering --------------------------------------------------------------
@@ -39,12 +38,6 @@
    them from backend requests."
   [m]
   (json/write-json-str m))
-
-(defn raw
-  "Wrap a pre-rendered HTML string so hiccup2 embeds it verbatim (no re-escaping) — for
-   the rare case of splicing already-rendered markup into a hiccup tree."
-  [s]
-  (hu/raw-string s))
 
 ;; --- Reading Datastar signals off a request ---------------------------------
 
