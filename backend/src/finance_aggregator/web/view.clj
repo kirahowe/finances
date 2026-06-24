@@ -22,8 +22,7 @@
       :page 0-indexed
       :page-size pos-int}"
   (:require
-   [clojure.string :as str]
-   [finance-aggregator.db.transactions :as db-transactions]))
+   [clojure.string :as str]))
 
 ;; --- Filtering --------------------------------------------------------------
 
@@ -50,6 +49,15 @@
          (keep #(get-in % [:split/category :db/id]) parts)
          (when-let [id (get-in tx [:transaction/category :db/id])] [id]))))
 
+(defn needs-category?
+  "True when a transaction still needs a category: a split needs work when any part
+   lacks a category; an unsplit row needs a category ref. Pure predicate over the
+   canonical transaction shape (no I/O)."
+  [tx]
+  (if-let [parts (seq (:transaction/splits tx))]
+    (some #(nil? (get-in % [:split/category :db/id])) parts)
+    (nil? (get-in tx [:transaction/category :db/id]))))
+
 (defn- tx-account-id [tx] (get-in tx [:transaction/account :db/id]))
 (defn- tx-institution-id [tx] (get-in tx [:transaction/account :account/institution :db/id]))
 
@@ -67,7 +75,7 @@
     (if (and (not funnel?) (not uncat))
       true
       (boolean (or (and funnel? (some categories (tx-category-ids tx)))
-                   (and uncat (db-transactions/needs-category? tx)))))))
+                   (and uncat (needs-category? tx)))))))
 
 (defn- match?
   "True when a transaction passes every active filter."
@@ -182,7 +190,7 @@
   (let [no-scope (filter-txs txs (drop-facet vs :scope))]
     {:total            (count no-scope)
      :unreviewed       (count (remove #(true? (:transaction/reviewed %)) no-scope))
-     :uncategorized    (count (filter db-transactions/needs-category?
+     :uncategorized    (count (filter needs-category?
                                       (filter-txs txs (drop-facet vs :category-dim))))
      :transfers-hidden (count (filter :transaction/transfer-hidden
                                       (filter-txs txs (drop-facet vs :hide-transfers))))}))

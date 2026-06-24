@@ -127,14 +127,6 @@
                         :category-id (:db/id category)}
                  memo (assoc :memo memo))))))
 
-(defn needs-category?
-  "True when a transaction still needs a category: a split needs work when any part
-   lacks a category; an unsplit row needs a category ref."
-  [tx]
-  (if-let [parts (seq (:transaction/splits tx))]
-    (some #(nil? (get-in % [:split/category :db/id])) parts)
-    (nil? (get-in tx [:transaction/category :db/id]))))
-
 (defn- set-reviewed-datom!
   "Assert (true) or clear (false) the boolean reviewed flag `attr` on entity `eid`.
    Clearing retracts the datom so its absence nil-puns to not-reviewed."
