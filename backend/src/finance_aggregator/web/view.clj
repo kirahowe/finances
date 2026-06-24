@@ -336,3 +336,24 @@
      :expenses    {:type :expense  :rows (section-rows :expense uexp)   :total (mag expense-signed)}
      :transfers   {:type :transfer :rows (section-rows :transfer 0)     :total (mag transfer-signed)}
      :grand-total (+ income-signed expense-signed)}))
+
+;; --- Presenter: the response view-model -------------------------------------
+;; The single transformation entry point a handler routes a month's transactions through to get
+;; everything a transactions response renders. Bundling it here keeps the handler pure glue —
+;; it never needs to know which view primitives feed which fragment.
+
+(defn present
+  "Assemble the derived view-model a transactions response renders from. Pure.
+   `:result` is the paginated page — lingering (an edited-out row stays visible) when a
+   `:linger` set is supplied, a plain view otherwise; `:counts` are the faceted toolbar counts;
+   the three `:*-options` are the faceted funnel option lists; `:rollup` (only when
+   `:categories` is supplied) is the whole-month category breakdown."
+  [txs view-st {:keys [linger categories]}]
+  (cond-> {:result              (if (some? linger)
+                                  (view-with-linger txs view-st linger)
+                                  (view txs view-st))
+           :counts              (facet-counts txs view-st)
+           :account-options     (account-options txs view-st)
+           :institution-options (institution-options txs view-st)
+           :category-options    (category-funnel-options txs view-st)}
+    categories (assoc :rollup (category-rollup txs categories))))

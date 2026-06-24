@@ -16,12 +16,10 @@
    [finance-aggregator.web.layout :as layout]
    [finance-aggregator.web.month :as month]
    [finance-aggregator.web.pages.transactions-view :as tv
-    :refer [active-filters category-options counts-fragment empty-state error-banner
-            funnel-list funnel-popovers match-modal pagination-bar review-list review-modal
-            review-status-message rollup-pane row-actions-menu split-editor-modal
-            sr-status table tbody toolbar undo-key-js undo-redo-controls url-sync]]
+    :refer [active-filters counts-fragment error-banner funnel-list match-modal page-body
+            pagination-bar review-list review-modal review-status-message rollup-pane
+            split-editor-modal sr-status tbody undo-redo-controls]]
    [finance-aggregator.web.render :as r]
-   [finance-aggregator.web.shell :as shell]
    [finance-aggregator.web.view :as view]
    [finance-aggregator.web.view-state :as vs]
    [starfederation.datastar.clojure.adapter.http-kit :as hk]
@@ -64,18 +62,15 @@
    :redo-label (commands/redo-label user)})
 
 
-(defn- patch-filter-feedback!
-  "Re-patch every filter-dependent fragment after a view change or edit: the faceted count
+(defn- patch-view!
+  "Re-patch every filter-dependent fragment from a presented view-model: the faceted count
    badges, the three funnel option lists (faceted counts), and the active-filter chips."
-  [sse txs view-st]
-  (let [acct (view/account-options txs view-st)
-        inst (view/institution-options txs view-st)
-        cat  (view/category-funnel-options txs view-st)]
-    (patch! sse (counts-fragment (view/facet-counts txs view-st)))
-    (patch! sse (funnel-list "account" acct))
-    (patch! sse (funnel-list "institution" inst))
-    (patch! sse (funnel-list "category" cat))
-    (patch! sse (active-filters acct inst cat view-st))))
+  [sse {:keys [counts account-options institution-options category-options]} view-st]
+  (patch! sse (counts-fragment counts))
+  (patch! sse (funnel-list "account" account-options))
+  (patch! sse (funnel-list "institution" institution-options))
+  (patch! sse (funnel-list "category" category-options))
+  (patch! sse (active-filters account-options institution-options category-options view-st)))
 
 
 (defn page
@@ -86,38 +81,19 @@
     (let [m (month/parse (get-in req [:query-params "month"]))
           month-str (month/serialize m)
           txs (db-transactions/list-for-month db-conn month-str)
-          stats (db-stats/entity-counts db-conn)
           categories (db-categories/list-all db-conn)
           view-st (vs/query->view-state (:query-params req))
-          result (view/view txs view-st)
-          counts (view/facet-counts txs view-st)
-          acct (view/account-options txs view-st)
-          inst (view/institution-options txs view-st)
-          cat  (view/category-funnel-options txs view-st)]
+          model (view/present txs view-st {:categories categories})]
       {:status 200
        :headers {"Content-Type" "text/html"}
        :body
        (layout/document
         {:title "Finance Aggregator"
          :islands ["combobox" "url" "grid-nav" "resize" "split-editor" "modal"]
-         :signals (vs/client-signals view-st month-str result (:query-params req))}
-        [:div.container.container--workspace {"data-on:keydown__window" undo-key-js}
-         (shell/masthead {:active :transactions :stats stats})
-         (error-banner)
-         (sr-status)
-         [:div.transactions-layout
-          [:div.card
-           (toolbar m counts (undo-labels auth/user-id))
-           (active-filters acct inst cat view-st)
-           (if (empty? txs)
-             (empty-state)
-             (list (table (:rows result)) (pagination-bar result)))]
-          (rollup-pane (view/category-rollup txs categories))]
-         (when (seq txs) (list (funnel-popovers acct inst cat) (row-actions-menu)))
-         (category-options categories)
-         (url-sync)
-         ;; Patched by GET /transactions/:id/split-editor; emptied again on close/save.
-         [:div {:id "modal-root"}]])})))
+         :signals (vs/client-signals view-st month-str (:result model) (:query-params req))}
+        (page-body {:month m :stats (db-stats/entity-counts db-conn) :categories categories
+                    :view-st view-st :model model :undo (undo-labels auth/user-id)
+                    :empty? (empty? txs)}))})))
 
 (defn rows
   "GET /transactions/rows — a pure view change: clear lingering, re-run the view, morph the tbody +
@@ -128,7 +104,8 @@
     (let [signals (r/read-signals req)
           txs (db-transactions/list-for-month db-conn (signals-month signals))
           view-st (vs/signals->view-state signals)
-          result (view/view txs view-st)]
+          model (view/present txs view-st {})
+          result (:result model)]
       (sse-response req
        (fn [sse]
          ;; A view change (filter/sort/paginate) dismisses any error a prior action left up.
@@ -138,7 +115,7 @@
                                      (if (= 1 (:total result)) " transaction" " transactions"))))
          (patch! sse (tbody (:rows result)))
          (patch! sse (pagination-bar result))
-         (patch-filter-feedback! sse txs view-st)
+         (patch-view! sse model view-st)
          (d*/patch-signals! sse (r/signals {:page (:page result)})))))))
 
 (defn- edit-response
@@ -151,20 +128,21 @@
   (let [user auth/user-id
         txs (db-transactions/list-for-month db-conn (signals-month signals))
         view-st (vs/signals->view-state signals)
-        {:keys [stale-ids] :as result} (view/view-with-linger txs view-st (commands/linger user))
-        counts (view/facet-counts txs view-st)]
+        model (view/present txs view-st {:linger (commands/linger user)
+                                         :categories (db-categories/list-all db-conn)})
+        {:keys [stale-ids] :as result} (:result model)]
     (sse-response req
      (fn [sse]
        ;; A successful edit clears any error banner a prior failed action left up.
        (patch! sse (error-banner))
        ;; Announce the new counts to screen readers (the morphed badges are silent to them).
-       (patch! sse (sr-status (review-status-message counts)))
+       (patch! sse (sr-status (review-status-message (:counts model))))
        (patch! sse (tbody (:rows result) stale-ids))
        (patch! sse (pagination-bar result))
-       (patch-filter-feedback! sse txs view-st)
+       (patch-view! sse model view-st)
        (patch! sse (undo-redo-controls (undo-labels user)))
        ;; A recategorize/split moves money between rollup rows, so re-patch the whole-month pane.
-       (patch! sse (rollup-pane (view/category-rollup txs (db-categories/list-all db-conn))))
+       (patch! sse (rollup-pane (:rollup model)))
        (when close-modal? (patch! sse [:div {:id "modal-root"}]))
        (when after-patch (after-patch sse))
        (d*/patch-signals! sse (r/signals {:page (:page result)}))))))

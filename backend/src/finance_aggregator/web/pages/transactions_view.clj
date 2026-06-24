@@ -9,6 +9,7 @@
    [finance-aggregator.web.format :as fmt]
    [finance-aggregator.web.month :as month]
    [finance-aggregator.web.render :as r]
+   [finance-aggregator.web.shell :as shell]
    [finance-aggregator.web.view-state :as vs]))
 
 ;; ---------------------------------------------------------------------------
@@ -810,3 +811,37 @@
        [:span.rollup-net-label "Net"]
        [:span {:class (str "rollup-amount " (if (neg? grand-total) "negative" "positive"))}
         (fmt/amount grand-total)]]]]))
+
+;; ---------------------------------------------------------------------------
+;; Page body (the full workspace inside layout/document)
+;; ---------------------------------------------------------------------------
+
+(defn page-body
+  "The full transactions workspace body (everything inside layout/document). Dumb: the handler
+   supplies the `month`, masthead `stats`, `categories` (for the combobox model), `view-st`
+   (funnel selections), the presented `model`, the `undo` labels, and whether the month is
+   `empty?` of transactions."
+  [{:keys [month stats categories view-st model undo empty?]}]
+  ;; `cat-opts` is the model's category *funnel* option list — kept distinct from the
+  ;; `category-options` view fn (the hidden combobox source list) it would otherwise shadow.
+  (let [{:keys [result counts account-options institution-options rollup]
+         cat-opts :category-options} model]
+    [:div.container.container--workspace {"data-on:keydown__window" undo-key-js}
+     (shell/masthead {:active :transactions :stats stats})
+     (error-banner)
+     (sr-status)
+     [:div.transactions-layout
+      [:div.card
+       (toolbar month counts undo)
+       (active-filters account-options institution-options cat-opts view-st)
+       (if empty?
+         (empty-state)
+         (list (table (:rows result)) (pagination-bar result)))]
+      (rollup-pane rollup)]
+     (when-not empty?
+       (list (funnel-popovers account-options institution-options cat-opts)
+             (row-actions-menu)))
+     (category-options categories)
+     (url-sync)
+     ;; Patched by GET /transactions/:id/split-editor; emptied again on close/save.
+     [:div {:id "modal-root"}]]))

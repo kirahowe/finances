@@ -142,6 +142,27 @@
     (is (= 4 (:total v)) "filtered total drives pagination")
     (is (= 2 (:page-count v)))))
 
+;; --- Presenter: the response view-model -------------------------------------
+;; `present` is the single transformation entry point the handlers route through; it bundles the
+;; already-tested primitives so the handler stays pure glue. These guard the bundling + the
+;; linger/categories flags.
+
+(deftest present-bundles-the-view-model
+  (let [vs {:scope :all :page 0 :page-size 25}]
+    (testing "no linger, no categories → plain view + all faceted lists, no rollup"
+      (let [m (view/present txs vs {})]
+        (is (= (view/view txs vs) (:result m)) ":result is a plain (non-lingering) view")
+        (is (= (view/facet-counts txs vs) (:counts m)))
+        (is (= (view/account-options txs vs) (:account-options m)))
+        (is (= (view/institution-options txs vs) (:institution-options m)))
+        (is (= (view/category-funnel-options txs vs) (:category-options m)))
+        (is (not (contains? m :rollup)) "no :categories → no rollup")))
+    (testing "a :linger set switches :result to the lingering view (carries :stale-ids)"
+      (let [m (view/present txs {:scope :needs-review} {:linger #{2}})]
+        (is (= #{2} (:stale-ids (:result m))) "edited-out t2 kept stale")))
+    (testing ":categories add the whole-month rollup"
+      (is (= (view/category-rollup txs []) (:rollup (view/present txs vs {:categories []})))))))
+
 ;; --- Lingering --------------------------------------------------------------
 ;; A row edited out of the active filter should stay visible *in its original position*
 ;; (de-emphasised) until the next pure view change, instead of vanishing or jumping to the
