@@ -90,5 +90,5 @@
   [month-str]
   (let [{:keys [year month]} (parse-month-string month-str)
         {:keys [start end]} (month-epoch-bounds year month)]
-    {:start-date (Date. (* start 1000))
-     :end-date (Date. (* end 1000))}))
+    {:start-date (Date. (long (* start 1000)))
+     :end-date (Date. (long (* end 1000)))}))
