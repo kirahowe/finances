@@ -58,6 +58,17 @@
 ;; Rows (editable normal rows + read-only split children)
 ;; ---------------------------------------------------------------------------
 
+(defn- account-name
+  "A transaction's account display name (its external name), or \"—\". Works on any pulled
+   tx/leg carrying :transaction/account (a row, a transfer partner, a suggestion leg)."
+  [tx]
+  (or (get-in tx [:transaction/account :account/external-name]) "—"))
+
+(defn- institution-name
+  "A transaction's institution display name, or \"—\"."
+  [tx]
+  (or (get-in tx [:transaction/account :account/institution :institution/name]) "—"))
+
 (defn- amount-span
   "Signed amount with sign class. `split?` matches the split rule (0 reads positive) vs
    the normal-row rule (0 reads negative)."
@@ -206,12 +217,12 @@
            " $_rowMenuY = el.getBoundingClientRect().bottom + 4")}
      (chevron-right)]]])
 
-(defn- normal-row [stale? {:transaction/keys [posted-date account payee effective-description
+(defn- normal-row [stale? {:transaction/keys [posted-date payee effective-description
                                               amount reviewed] :as tx}]
   [:tr {:role "row" :class (row-class "" stale?)}
    [:td [:span.numeric (fmt/date posted-date)]]
-   [:td (or (:account/external-name account) "—")]
-   [:td (or (get-in account [:account/institution :institution/name]) "—")]
+   [:td (account-name tx)]
+   [:td (institution-name tx)]
    [:td payee]
    [:td.description-cell (grid-cell (:db/id tx) "description") (editable-description (:db/id tx) effective-description)]
    [:td.amount-cell (amount-span amount false)]
@@ -219,11 +230,11 @@
    [:td.reviewed-cell (grid-cell (:db/id tx) "reviewed") (reviewed-checkbox (:db/id tx) reviewed true)]
    (row-actions-cell (:db/id tx) false (some? (:transaction/transfer-pair tx)))])
 
-(defn- split-parent-row [stale? {:transaction/keys [posted-date account payee effective-description] :as tx}]
+(defn- split-parent-row [stale? {:transaction/keys [posted-date payee effective-description] :as tx}]
   [:tr {:role "row" :class (row-class "is-split-parent" stale?)}
    [:td [:span.numeric (fmt/date posted-date)]]
-   [:td (or (:account/external-name account) "—")]
-   [:td (or (get-in account [:account/institution :institution/name]) "—")]
+   [:td (account-name tx)]
+   [:td (institution-name tx)]
    [:td payee]
    [:td.description-cell (if (str/blank? effective-description) "—" effective-description)]
    [:td.amount-cell] [:td.category-cell] [:td.reviewed-cell]
@@ -412,13 +423,13 @@
 ;; ---------------------------------------------------------------------------
 
 (defn- counts-fragment
-  "The toolbar count badges as one HTML string (each morphed by id) — re-patched after an
-   edit, since reviewing/categorizing a row moves these server-authoritative counts."
+  "The toolbar count badges as a hiccup fragment (each span morphed by id) — re-patched after
+   an edit, since reviewing/categorizing a row moves these server-authoritative counts."
   [{:keys [unreviewed total uncategorized transfers-hidden]}]
-  (str (r/render [:span#count-unreviewed.filter-count unreviewed])
-       (r/render [:span#count-total.filter-count total])
-       (r/render [:span#count-uncategorized.filter-count uncategorized])
-       (r/render [:span#count-transfers.filter-count transfers-hidden])))
+  (list [:span#count-unreviewed.filter-count unreviewed]
+        [:span#count-total.filter-count total]
+        [:span#count-uncategorized.filter-count uncategorized]
+        [:span#count-transfers.filter-count transfers-hidden]))
 
 (defn- undo-redo-controls
   "Undo/redo buttons for the toolbar (stable #undo-redo morph target, re-rendered after every
@@ -470,6 +481,31 @@
 ;; ---------------------------------------------------------------------------
 ;; Routes
 ;; ---------------------------------------------------------------------------
+
+;; --- Request / SSE plumbing ------------------------------------------------
+;; Small seams every route handler shares, so a handler reads as just its domain step
+;; (load → command → patch) instead of re-spelling the Datastar SSE envelope each time.
+
+(defn- path-id
+  "Parse a tx-id path param (:id / :partner / :out / :in / :a / :b) as a long."
+  [req k]
+  (-> req :path-params k parse-long))
+
+(defn- signals-month
+  "The canonical YYYY-MM month string the Datastar signals carry."
+  [signals]
+  (month/serialize (month/parse (:month signals))))
+
+(defn- patch!
+  "Render a hiccup fragment and patch it into the live SSE response (morphed by id)."
+  [sse hiccup]
+  (d*/patch-elements! sse (r/render hiccup)))
+
+(defn- sse-response
+  "Open an SSE response, run `emit` (a fn of the sse channel) to patch fragments, then close.
+   Collapses the hk/->sse-response + on-open + close-sse! envelope every handler shares."
+  [req emit]
+  (hk/->sse-response req {hk/on-open (fn [sse] (emit sse) (d*/close-sse! sse))}))
 
 (defn- empty-state []
   [:div.empty-state
@@ -600,11 +636,11 @@
   (let [acct (view/account-options txs view-st)
         inst (view/institution-options txs view-st)
         cat  (view/category-funnel-options txs view-st)]
-    (d*/patch-elements! sse (counts-fragment (view/facet-counts txs view-st)))
-    (d*/patch-elements! sse (r/render (funnel-list "account" acct)))
-    (d*/patch-elements! sse (r/render (funnel-list "institution" inst)))
-    (d*/patch-elements! sse (r/render (funnel-list "category" cat)))
-    (d*/patch-elements! sse (r/render (active-filters acct inst cat view-st)))))
+    (patch! sse (counts-fragment (view/facet-counts txs view-st)))
+    (patch! sse (funnel-list "account" acct))
+    (patch! sse (funnel-list "institution" inst))
+    (patch! sse (funnel-list "category" cat))
+    (patch! sse (active-filters acct inst cat view-st))))
 
 ;; --- Row-actions menu + split-editor modal ---------------------------------
 
@@ -693,10 +729,9 @@
   [tx candidates]
   (let [tx-id (:db/id tx)
         partner (:transaction/transfer-pair tx)
-        acct (fn [t] (or (get-in t [:transaction/account :account/external-name]) "—"))
         leg (fn [t static?]
               (let [body [:span.transfer-suggestion-body
-                          [:span.transfer-suggestion-route (acct t)]
+                          [:span.transfer-suggestion-route (account-name t)]
                           [:span.transfer-suggestion-meta
                            (if static?
                              (fmt/date (:transaction/posted-date t))
@@ -739,15 +774,14 @@
    action that refreshes #review-list in place (the acted-on pair drops out)."
   [{:keys [outflow inflow amount day-diff]}]
   (let [out-id (:db/id outflow)
-        in-id (:db/id inflow)
-        acct (fn [t] (or (get-in t [:transaction/account :account/external-name]) "—"))]
+        in-id (:db/id inflow)]
     [:div.transfer-suggestion
      [:button.button.button-primary.transfer-confirm-button
       {:type "button" "data-on:click" (str "@put('/transactions/review/" out-id "/confirm/" in-id "')")}
       "Confirm"]
      [:div.transfer-suggestion-body
       [:div.transfer-suggestion-route
-       [:span (acct outflow)] [:span.transfer-arrow "→"] [:span (acct inflow)]]
+       [:span (account-name outflow)] [:span.transfer-arrow "→"] [:span (account-name inflow)]]
       [:div.transfer-suggestion-meta
        (str (fmt/date (:transaction/posted-date outflow)) " · "
             day-diff (if (= 1 day-diff) " day apart" " days apart"))]]
@@ -893,24 +927,20 @@
   (fn [req]
     (commands/clear-linger! auth/user-id)
     (let [signals (r/read-signals req)
-          month-str (month/serialize (month/parse (:month signals)))
-          txs (db-transactions/list-for-month db-conn month-str)
+          txs (db-transactions/list-for-month db-conn (signals-month signals))
           view-st (vs/signals->view-state signals)
           result (view/view txs view-st)]
-      (hk/->sse-response
-       req
-       {hk/on-open
-        (fn [sse]
-          ;; A view change (filter/sort/paginate) dismisses any error a prior action left up.
-          (d*/patch-elements! sse (r/render (error-banner)))
-          ;; Announce the filtered result size to screen readers.
-          (d*/patch-elements! sse (r/render (sr-status (str (:total result)
-                                                            (if (= 1 (:total result)) " transaction" " transactions")))))
-          (d*/patch-elements! sse (r/render (tbody (:rows result))))
-          (d*/patch-elements! sse (r/render (pagination-bar result)))
-          (patch-filter-feedback! sse txs view-st)
-          (d*/patch-signals! sse (r/signals {:page (:page result)}))
-          (d*/close-sse! sse))}))))
+      (sse-response req
+       (fn [sse]
+         ;; A view change (filter/sort/paginate) dismisses any error a prior action left up.
+         (patch! sse (error-banner))
+         ;; Announce the filtered result size to screen readers.
+         (patch! sse (sr-status (str (:total result)
+                                     (if (= 1 (:total result)) " transaction" " transactions"))))
+         (patch! sse (tbody (:rows result)))
+         (patch! sse (pagination-bar result))
+         (patch-filter-feedback! sse txs view-st)
+         (d*/patch-signals! sse (r/signals {:page (:page result)})))))))
 
 (defn- edit-response
   "Shared SSE response after any edit/undo/redo: re-render the tbody (lingering the touched
@@ -920,29 +950,25 @@
    in place instead of closing)."
   [db-conn req signals & {:keys [close-modal? after-patch]}]
   (let [user auth/user-id
-        month-str (month/serialize (month/parse (:month signals)))
-        txs (db-transactions/list-for-month db-conn month-str)
+        txs (db-transactions/list-for-month db-conn (signals-month signals))
         view-st (vs/signals->view-state signals)
         {:keys [stale-ids] :as result} (view/view-with-linger txs view-st (commands/linger user))
         counts (view/facet-counts txs view-st)]
-    (hk/->sse-response
-     req
-     {hk/on-open
-      (fn [sse]
-        ;; A successful edit clears any error banner a prior failed action left up.
-        (d*/patch-elements! sse (r/render (error-banner)))
-        ;; Announce the new counts to screen readers (the morphed badges are silent to them).
-        (d*/patch-elements! sse (r/render (sr-status (review-status-message counts))))
-        (d*/patch-elements! sse (r/render (tbody (:rows result) stale-ids)))
-        (d*/patch-elements! sse (r/render (pagination-bar result)))
-        (patch-filter-feedback! sse txs view-st)
-        (d*/patch-elements! sse (r/render (undo-redo-controls)))
-        ;; A recategorize/split moves money between rollup rows, so re-patch the whole-month pane.
-        (d*/patch-elements! sse (r/render (rollup-fragment txs (db-categories/list-all db-conn))))
-        (when close-modal? (d*/patch-elements! sse (r/render [:div {:id "modal-root"}])))
-        (when after-patch (after-patch sse))
-        (d*/patch-signals! sse (r/signals {:page (:page result)}))
-        (d*/close-sse! sse))})))
+    (sse-response req
+     (fn [sse]
+       ;; A successful edit clears any error banner a prior failed action left up.
+       (patch! sse (error-banner))
+       ;; Announce the new counts to screen readers (the morphed badges are silent to them).
+       (patch! sse (sr-status (review-status-message counts)))
+       (patch! sse (tbody (:rows result) stale-ids))
+       (patch! sse (pagination-bar result))
+       (patch-filter-feedback! sse txs view-st)
+       (patch! sse (undo-redo-controls))
+       ;; A recategorize/split moves money between rollup rows, so re-patch the whole-month pane.
+       (patch! sse (rollup-fragment txs (db-categories/list-all db-conn)))
+       (when close-modal? (patch! sse [:div {:id "modal-root"}]))
+       (when after-patch (after-patch sse))
+       (d*/patch-signals! sse (r/signals {:page (:page result)}))))))
 
 (defn- error-response
   "SSE response for a failed mutation: surface the message in the dismissable error bar and
@@ -951,13 +977,10 @@
    validates up front), so the table already reflects the true state — nothing else to
    re-render."
   [req msg]
-  (hk/->sse-response
-   req
-   {hk/on-open
-    (fn [sse]
-      (d*/patch-elements! sse (r/render (error-banner msg)))
-      (d*/patch-elements! sse (r/render [:div {:id "modal-root"}]))
-      (d*/close-sse! sse))}))
+  (sse-response req
+   (fn [sse]
+     (patch! sse (error-banner msg))
+     (patch! sse [:div {:id "modal-root"}]))))
 
 (defn- handle-edit
   "Run an edit handler body (a thunk returning its SSE response); if a mutation throws an
@@ -976,7 +999,7 @@
   (fn [req]
     (handle-edit req
      (fn []
-       (let [tx-id (-> req :path-params :id parse-long)
+       (let [tx-id (path-id req :id)
              after (= "true" (-> req :path-params :v))]
          (commands/apply! db-conn auth/user-id
                           {:type :set-reviewed :tx-id tx-id :before (not after) :after after
@@ -990,7 +1013,7 @@
   (fn [req]
     (handle-edit req
      (fn []
-       (let [tx-id (-> req :path-params :id parse-long)
+       (let [tx-id (path-id req :id)
              signals (r/read-signals req)
              before (db-transactions/user-description db-conn tx-id)
              after (str/trim (or (:editValue signals) ""))]
@@ -1006,7 +1029,7 @@
   (fn [req]
     (handle-edit req
      (fn []
-       (let [tx-id (-> req :path-params :id parse-long)
+       (let [tx-id (path-id req :id)
              signals (r/read-signals req)
              before (db-transactions/category-id db-conn tx-id)
              after (vs/parse-category-value (:catValue signals))]
@@ -1020,13 +1043,8 @@
    #modal-root. A pure read (no command, no lingering change)."
   [{:keys [db-conn]}]
   (fn [req]
-    (let [tx (db-transactions/by-id db-conn (-> req :path-params :id parse-long))]
-      (hk/->sse-response
-       req
-       {hk/on-open
-        (fn [sse]
-          (d*/patch-elements! sse (r/render (split-editor-modal tx)))
-          (d*/close-sse! sse))}))))
+    (let [tx (db-transactions/by-id db-conn (path-id req :id))]
+      (sse-response req (fn [sse] (patch! sse (split-editor-modal tx)))))))
 
 (defn set-splits
   "PUT /transactions/:id/splits — record + apply a :set-splits command (the new parts ride in
@@ -1036,7 +1054,7 @@
   (fn [req]
     (handle-edit req
      (fn []
-       (let [tx-id (-> req :path-params :id parse-long)
+       (let [tx-id (path-id req :id)
              signals (r/read-signals req)
              before (db-transactions/current-splits db-conn tx-id)
              after (vs/parse-splits-value (:splitValue signals))]
@@ -1052,16 +1070,11 @@
    A pure read (matched → partner + Unmatch; unmatched → match candidates)."
   [{:keys [db-conn]}]
   (fn [req]
-    (let [tx-id (-> req :path-params :id parse-long)
+    (let [tx-id (path-id req :id)
           tx (db-transactions/by-id db-conn tx-id)
           candidates (when-not (:transaction/transfer-pair tx)
                        (db-transfers/match-candidates db-conn tx-id))]
-      (hk/->sse-response
-       req
-       {hk/on-open
-        (fn [sse]
-          (d*/patch-elements! sse (r/render (match-modal tx candidates)))
-          (d*/close-sse! sse))}))))
+      (sse-response req (fn [sse] (patch! sse (match-modal tx candidates)))))))
 
 (defn confirm-match
   "PUT /transactions/:id/match/:partner — link the two legs as a transfer (a :set-match command,
@@ -1070,8 +1083,8 @@
   (fn [req]
     (handle-edit req
      (fn []
-       (let [tx-id (-> req :path-params :id parse-long)
-             partner (-> req :path-params :partner parse-long)]
+       (let [tx-id (path-id req :id)
+             partner (path-id req :partner)]
          (commands/apply! db-conn auth/user-id
                           {:type :set-match :tx-id tx-id :before nil :after partner :label "Matched transfer"})
          (edit-response db-conn req (r/read-signals req) :close-modal? true))))))
@@ -1083,7 +1096,7 @@
   (fn [req]
     (handle-edit req
      (fn []
-       (let [tx-id (-> req :path-params :id parse-long)
+       (let [tx-id (path-id req :id)
              before (get-in (db-transactions/by-id db-conn tx-id) [:transaction/transfer-pair :db/id])]
          (commands/apply! db-conn auth/user-id
                           {:type :set-match :tx-id tx-id :before before :after nil :label "Unmatched transfer"})
@@ -1095,18 +1108,13 @@
   [{:keys [db-conn]}]
   (fn [req]
     (let [suggestions (db-transfers/suggest-matches db-conn)]
-      (hk/->sse-response
-       req
-       {hk/on-open
-        (fn [sse]
-          (d*/patch-elements! sse (r/render (review-modal suggestions)))
-          (d*/close-sse! sse))}))))
+      (sse-response req (fn [sse] (patch! sse (review-modal suggestions)))))))
 
 (defn- refresh-review-list!
   "Re-patch #review-list with the recomputed suggestions (after a confirm/reject, the acted-on
    pair drops out and the modal stays open)."
   [db-conn sse]
-  (d*/patch-elements! sse (r/render (review-list (db-transfers/suggest-matches db-conn)))))
+  (patch! sse (review-list (db-transfers/suggest-matches db-conn))))
 
 (defn review-confirm
   "PUT /transactions/review/:out/confirm/:in — confirm a suggested pair (:set-match command),
@@ -1115,8 +1123,8 @@
   (fn [req]
     (handle-edit req
      (fn []
-       (let [out (-> req :path-params :out parse-long)
-             in (-> req :path-params :in parse-long)]
+       (let [out (path-id req :out)
+             in (path-id req :in)]
          (commands/apply! db-conn auth/user-id
                           {:type :set-match :tx-id out :before nil :after in :label "Matched transfer"})
          (edit-response db-conn req (r/read-signals req)
@@ -1129,8 +1137,8 @@
   (fn [req]
     (handle-edit req
      (fn []
-       (let [a (-> req :path-params :a parse-long)
-             b (-> req :path-params :b parse-long)]
+       (let [a (path-id req :a)
+             b (path-id req :b)]
          (commands/apply! db-conn auth/user-id
                           {:type :reject-match :tx-id a :partner b :before false :after true :label "Rejected transfer"})
          (edit-response db-conn req (r/read-signals req)
