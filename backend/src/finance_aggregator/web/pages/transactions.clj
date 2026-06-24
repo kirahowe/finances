@@ -55,7 +55,7 @@
 (defn- redo-icon     [] (icon [:path {:d "m15 14 5-5-5-5"}] [:path {:d "M20 9H9.5A5.5 5.5 0 0 0 4 14.5 5.5 5.5 0 0 0 9.5 20H13"}]))
 
 ;; ---------------------------------------------------------------------------
-;; Rows (read-only in cp1; editors arrive in cp2)
+;; Rows (editable normal rows + read-only split children)
 ;; ---------------------------------------------------------------------------
 
 (defn- amount-span
@@ -171,8 +171,7 @@
 
 (defn- category-options
   "Hidden source-of-truth list the combobox island reconstructs its Category[] from
-   (id/parent/sort-order as data-attrs — Replicant escaped JSON in a <script>; the DOM-carried
-   model is renderer-agnostic and we keep it)."
+   (id/parent/sort-order as data-attrs — the model is carried in the DOM as data-attrs)."
   [categories]
   [:ul#category-options {:hidden true :aria-hidden "true"}
    (for [c categories]
@@ -183,7 +182,7 @@
       (:category/name c)])])
 
 (defn- grid-cell
-  "Attrs marking a <td> as a keyboard-navigable grid cell (txId:tx:col, matching the ported
+  "Attrs marking a <td> as a keyboard-navigable grid cell (txId:tx:col, consumed by the
    gridNavigation reducer). Normal rows only; split cells aren't navigable yet."
   [tx-id col]
   {:data-cell (str tx-id ":tx:" col) :role "gridcell" :tabindex "-1"})
@@ -325,7 +324,7 @@
 
 (defn- month-navigator [m]
   ;; Full navigation (anchor). URL-state write-back (preserving filters across month
-  ;; change) lands in R3; until then a month change resets the view.
+  ;; change) isn't wired yet, so a month change resets the view.
   [:div.month-navigator
    [:div.month-navigator-controls
     [:a.button.button-secondary.month-nav-button

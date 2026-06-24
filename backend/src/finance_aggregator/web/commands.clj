@@ -1,5 +1,5 @@
 (ns finance-aggregator.web.commands
-  "Per-user undo/redo command log for the server-authoritative workspace (Phase R2 cp2).
+  "Per-user undo/redo command log for the server-authoritative workspace.
 
    Every user edit is a Command — {:type :tx-id :before :after :label} — applied by running
    the existing db mutation to :after, undone by running it to :before. The database stays

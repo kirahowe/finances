@@ -129,7 +129,7 @@
 
 (defn needs-category?
   "True when a transaction still needs a category: a split needs work when any part
-   lacks a category; an unsplit row needs a category ref. (Mirrors React needsCategory.)"
+   lacks a category; an unsplit row needs a category ref."
   [tx]
   (if-let [parts (seq (:transaction/splits tx))]
     (some #(nil? (get-in % [:split/category :db/id])) parts)

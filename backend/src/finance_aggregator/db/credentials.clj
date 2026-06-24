@@ -10,8 +10,8 @@
    - get-all-plaid-credentials - Get all Plaid credentials for user
    - delete-plaid-item-credential! - Delete credential by item-id
 
-   For Phase 2/3, all operations use hardcoded user-id 'test-user'.
-   Multi-user support will be added in Phase 7."
+   Single-user is intentional: all operations use a hardcoded user-id 'test-user'.
+   Multi-user support may come later."
   (:require
    [clojure.data.json :as json]
    [datalevin.core :as d]

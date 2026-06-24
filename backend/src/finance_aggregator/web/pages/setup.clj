@@ -1,8 +1,8 @@
 (ns finance-aggregator.web.pages.setup
-  "Server-rendered /setup page. Phase 2 covers the read-only surfaces: the stats
+  "Server-rendered /setup page. Currently shows the read-only surfaces: the stats
    bar/cards and the account list. The write actions (add/link/connect accounts,
-   CSV import) and the category manager are deferred to later phases and rendered
-   disabled so the layout matches the React original."
+   CSV import) and the category manager aren't wired yet and are rendered disabled
+   pending future work."
   (:require
    [finance-aggregator.db.accounts :as db-accounts]
    [finance-aggregator.db.stats :as db-stats]

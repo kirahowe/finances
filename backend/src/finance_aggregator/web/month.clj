@@ -1,6 +1,6 @@
 (ns finance-aggregator.web.month
-  "Month view-state helpers for the transactions page, mirroring the React
-   lib/monthState.ts: a month is {:year int :month 1-12}, serialized as YYYY-MM."
+  "Month view-state helpers for the transactions page: a month is
+   {:year int :month 1-12}, serialized as YYYY-MM."
   (:import [java.time LocalDate ZoneOffset]))
 
 (def ^:private names

@@ -1,15 +1,14 @@
 (ns finance-aggregator.web.view
   "Pure transaction view-engine for the server-authoritative transactions page:
    filter → sort → paginate over a month's derived transactions, given the view-state
-   the URL carries. This ports the rules that used to live in client `data-show`
-   expressions and the sort/pagination islands into plain, kaocha-tested Clojure — the
-   server now owns which rows render (see doc/plans/datastar-server-authoritative-rewrite.md).
+   the URL carries. The filter/sort/pagination rules are plain, kaocha-tested Clojure — the
+   server owns which rows render (see doc/plans/datastar-server-authoritative-rewrite.md).
 
    Input transactions already carry the derived fields (db.transactions/with-derived-fields):
    :transaction/reviewed (effective, split-rolled-up), :transaction/transfer-hidden,
    :transaction/effective-description, and nested :transaction/splits. Because a split's
    parts are nested in its transaction, sorting the transaction list keeps each split's
-   rows together for free — no leader/group bookkeeping (unlike the client sort island).
+   rows together for free — no leader/group bookkeeping.
 
    View-state shape (keyword map; the page parses it from query params):
      {:search \"text\"               ; case-insensitive substring over the haystack
@@ -30,7 +29,7 @@
 
 (defn- search-haystack
   "Lower-cased text a search matches against (payee, effective description, category,
-   and each split part's memo + category) — mirrors the React searchTransactions rule."
+   and each split part's memo + category) — the case-insensitive substring search rule."
   [tx]
   (->> (concat [(:transaction/payee tx)
                 (:transaction/effective-description tx)
@@ -60,7 +59,7 @@
   (or (empty? selected) (contains? selected id)))
 
 (defn- matches-category?
-  "Category funnel ∪ Uncategorized chip, split-aware (mirrors the old category-show-clause):
+  "Category funnel ∪ Uncategorized chip, split-aware:
    passes when neither is active, OR the row touches a selected category, OR (the chip is on
    AND the row still needs a category)."
   [tx {:keys [categories uncat]}]
@@ -71,8 +70,7 @@
                    (and uncat (db-transactions/needs-category? tx)))))))
 
 (defn- match?
-  "True when a transaction passes every active filter — the server-side equivalent of the
-   old per-row data-show expression."
+  "True when a transaction passes every active filter."
   [tx {:keys [search scope hide-transfers accounts institutions] :as vs}]
   (and (or (str/blank? search)
            (str/includes? (search-haystack tx) (str/lower-case search)))
@@ -89,8 +87,8 @@
 ;; --- Sorting ----------------------------------------------------------------
 
 (def ^:private sort-key-fns
-  ;; Numeric columns sort by value; string columns by lower-cased text (matching the
-  ;; client island's localeCompare-on-lowercased-cell-text).
+  ;; Numeric columns sort by value; string columns by lower-cased text
+  ;; (localeCompare-on-lowercased-cell-text).
   {:date        #(if-let [d (:transaction/posted-date %)] (.getTime ^java.util.Date d) 0)
    :amount      #(or (:transaction/amount %) 0)
    :account     #(str/lower-case (or (get-in % [:transaction/account :account/external-name]) ""))
@@ -246,7 +244,7 @@
                   :seed-cents  (.longValueExact (.movePointRight scaled 2))})))))
 
 ;; --- Category rollup --------------------------------------------------------
-;; A per-category breakdown of a month for the summary pane (ports frontend categoryRollup.ts).
+;; A per-category breakdown of a month for the summary pane.
 ;; Splits attribute to each part's own category; an unsplit tx to its category; a missing/unknown
 ;; category falls into an Uncategorized bucket split by sign. Single-level parent hierarchy.
 

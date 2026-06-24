@@ -1,9 +1,8 @@
 (ns finance-aggregator.web.render
-  "The hiccup2 render seam for server-authoritative Datastar pages — the replacement
-   for the Replicant seam (web.hiccup), introduced in the server-authoritative rewrite
+  "The hiccup2 render seam for the server-authoritative Datastar SSR pages
    (see doc/plans/datastar-server-authoritative-rewrite.md).
 
-   hiccup2 escapes attribute values by default, which collapses the old seam to almost
+   hiccup2 escapes attribute values by default, which collapses the seam to almost
    nothing:
 
      - String (and colon-bearing) attribute keys render verbatim, so Datastar's
@@ -43,7 +42,7 @@
 
 (defn read-signals
   "Read the Datastar signals map off a Ring request as a keyword-keyed map (or nil).
-   Renderer-agnostic; unchanged from the Replicant seam.
+   Renderer-agnostic.
 
    Datastar sends the full signals object two ways, both already surfaced by the
    middleware stack:

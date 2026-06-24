@@ -1,5 +1,5 @@
 (ns finance-aggregator.web.view-state
-  "Pure view-state codec for the server-authoritative transactions page (Phase R2).
+  "Pure view-state codec for the server-authoritative transactions page.
 
    Three representations of the same persistent view state, and the pure maps between them:
 
