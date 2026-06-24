@@ -3,13 +3,12 @@
 
    Creates and configures the main application router with:
    - WebSocket endpoint (at /ws)
-   - API routes (under /api)
+   - Server-rendered hypermedia pages (the live app surface)
    - Static file routes
    - Middleware (CORS, JSON, query params, exception handling)"
   (:require
    [reitit.ring :as ring]
    [ring.middleware.params :as params]
-   [finance-aggregator.http.routes.api :as api]
    [finance-aggregator.http.routes.static :as static]
    [finance-aggregator.http.middleware :as middleware]
    [finance-aggregator.http.errors :as errors]
@@ -33,7 +32,6 @@
   [deps]
   (ring/router
    [(ws-routes)
-    (api/api-routes deps)
     ;; Server-rendered hypermedia pages. Listed before static so a hypermedia
     ;; route (e.g. "/") wins over the static catch-all when both match.
     (web/html-routes deps)
