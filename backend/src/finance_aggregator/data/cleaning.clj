@@ -18,4 +18,4 @@
         (tc/add-column :group-size tc/row-count)
         (tc/ungroup)
         (tc/select-rows #(> (:group-size %) 1))
-        (tc/order-by [:transaction/transaction-date :transaction/amount]))))
+        (tc/order-by [:transaction/posted-date :transaction/amount]))))

@@ -89,3 +89,23 @@
 
   (testing "Returns nil for empty input"
     (is (nil? (cleaning/find-likely-dupes [])))))
+
+(deftest find-likely-dupes-orders-by-posted-date
+  (testing "duplicate groups come back ordered by posted-date (ascending), not by amount"
+    ;; Adversarial: the earlier-dated group has the LARGER amount. A regressed order-by that
+    ;; names a non-existent first column (the old :transaction/transaction-date typo) falls
+    ;; through to the second key (:transaction/amount) and inverts the rows; ordering by the
+    ;; real :transaction/posted-date keeps the earlier group first.
+    (let [early (java.util.Date. 1700000000000)
+          late  (java.util.Date. 1700086400000)
+          dup   (fn [id date amount payee]
+                  {:transaction/external-id id :transaction/posted-date date
+                   :transaction/amount (bigdec amount) :transaction/payee payee
+                   :transaction/description payee :transaction/memo ""})
+          dupes (cleaning/find-likely-dupes
+                 [(dup "late-1"  late  "-100.00" "P")
+                  (dup "late-2"  late  "-100.00" "P")
+                  (dup "early-1" early "900.00"  "Q")
+                  (dup "early-2" early "900.00"  "Q")])]
+      (is (= [early early late late] (vec (:transaction/posted-date dupes)))
+          "early group (larger amount) sorts first because it is earlier-dated"))))
