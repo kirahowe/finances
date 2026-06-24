@@ -6,12 +6,9 @@
    orchestration lives in the handler namespace, which :refers the fragments here."
   (:require
    [clojure.string :as str]
-   [finance-aggregator.auth :as auth]
-   [finance-aggregator.web.commands :as commands]
    [finance-aggregator.web.format :as fmt]
    [finance-aggregator.web.month :as month]
    [finance-aggregator.web.render :as r]
-   [finance-aggregator.web.view :as view]
    [finance-aggregator.web.view-state :as vs]))
 
 ;; ---------------------------------------------------------------------------
@@ -361,7 +358,7 @@
     "data-class" (str "{'is-active': $" signal "}")}
    label [:span.filter-count {:id span-id} count]])
 
-(defn toolbar [m counts]
+(defn toolbar [m counts undo]
   [:div.toolbar
    [:div.toolbar-controls
     (month-navigator m)
@@ -374,7 +371,7 @@
     [:button.button.button-secondary.filter-button
      {:type "button" :aria-haspopup "dialog" "data-on:click" "@get('/transactions/review-transfers')"}
      "Review transfers"]
-    (undo-redo-controls) (column-picker)]])
+    (undo-redo-controls undo) (column-picker)]])
 
 ;; ---------------------------------------------------------------------------
 ;; Pagination (fully server-rendered each response → disabled states stay correct)
@@ -421,22 +418,20 @@
 (defn undo-redo-controls
   "Undo/redo buttons for the toolbar (stable #undo-redo morph target, re-rendered after every
    edit so the enabled state + tooltip track the command log). The keyboard shortcuts
-   (Cmd/Ctrl+Z / +Shift) do the same thing."
-  []
-  (let [user auth/user-id
-        undoable (commands/undo-label user)
-        redoable (commands/redo-label user)]
-    [:div.undo-redo {:id "undo-redo" :role "group" :aria-label "Undo and redo"}
-     [:button (cond-> {:class "button button-secondary undo-redo-btn" :type "button"
-                       :aria-label "Undo" :title (if undoable (str "Undo: " undoable) "Nothing to undo")
-                       "data-on:click" "@post('/transactions/undo')"}
-                (not undoable) (assoc :disabled true))
-      (undo-icon)]
-     [:button (cond-> {:class "button button-secondary undo-redo-btn" :type "button"
-                       :aria-label "Redo" :title (if redoable (str "Redo: " redoable) "Nothing to redo")
-                       "data-on:click" "@post('/transactions/redo')"}
-                (not redoable) (assoc :disabled true))
-      (redo-icon)]]))
+   (Cmd/Ctrl+Z / +Shift) do the same thing. Dumb: the handler supplies the current
+   `{:undo-label :redo-label}` (nil label = nothing to undo/redo)."
+  [{:keys [undo-label redo-label]}]
+  [:div.undo-redo {:id "undo-redo" :role "group" :aria-label "Undo and redo"}
+   [:button (cond-> {:class "button button-secondary undo-redo-btn" :type "button"
+                     :aria-label "Undo" :title (if undo-label (str "Undo: " undo-label) "Nothing to undo")
+                     "data-on:click" "@post('/transactions/undo')"}
+              (not undo-label) (assoc :disabled true))
+    (undo-icon)]
+   [:button (cond-> {:class "button button-secondary undo-redo-btn" :type "button"
+                     :aria-label "Redo" :title (if redo-label (str "Redo: " redo-label) "Nothing to redo")
+                     "data-on:click" "@post('/transactions/redo')"}
+              (not redo-label) (assoc :disabled true))
+    (redo-icon)]])
 
 (defn column-picker
   "Toolbar dropdown toggling which columns show. The `cols.<id>` checkboxes flip the table's
@@ -632,7 +627,7 @@
    (islands/lib/splitMath), and on save writes the JSON payload into #split-courier (whose
    change @put's). Cancel/Esc/backdrop close client-side (the island wipes #modal-root); save
    closes server-side (the PUT response re-patches #modal-root empty)."
-  [tx]
+  [tx seed]
   (let [tx-id (:db/id tx)
         amount (:transaction/amount tx)
         split? (boolean (seq (:transaction/splits tx)))]
@@ -640,7 +635,7 @@
      [:div.modal-backdrop.split-modal-backdrop {:role "presentation"}
       [:div.modal-content.split-modal-content
        {:data-split-editor "" :data-tx-id (str tx-id) :data-amount (str amount)
-        :data-seed (r/signals (view/split-editor-seed tx)) :data-split (str split?)
+        :data-seed (r/signals seed) :data-split (str split?)
         :role "dialog" :aria-modal "true" :aria-labelledby "split-modal-title"}
        [:h2#split-modal-title (if split? "Edit split" "Split transaction")]
        [:div.split-modal-sub
@@ -815,9 +810,3 @@
        [:span.rollup-net-label "Net"]
        [:span {:class (str "rollup-amount " (if (neg? grand-total) "negative" "positive"))}
         (fmt/amount grand-total)]]]]))
-
-(defn rollup-fragment
-  "The #category-rollup pane for `txs` (whole month) + `categories` — rendered on load and
-   re-patched after edits."
-  [txs categories]
-  (rollup-pane (view/category-rollup txs categories)))

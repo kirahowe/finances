@@ -18,7 +18,7 @@
    [finance-aggregator.web.pages.transactions-view :as tv
     :refer [active-filters category-options counts-fragment empty-state error-banner
             funnel-list funnel-popovers match-modal pagination-bar review-list review-modal
-            review-status-message rollup-fragment row-actions-menu split-editor-modal
+            review-status-message rollup-pane row-actions-menu split-editor-modal
             sr-status table tbody toolbar undo-key-js undo-redo-controls url-sync]]
    [finance-aggregator.web.render :as r]
    [finance-aggregator.web.shell :as shell]
@@ -55,6 +55,13 @@
    Collapses the hk/->sse-response + on-open + close-sse! envelope every handler shares."
   [req emit]
   (hk/->sse-response req {hk/on-open (fn [sse] (emit sse) (d*/close-sse! sse))}))
+
+(defn- undo-labels
+  "The current undo/redo command labels for `user` (nil = nothing) — the data the dumb
+   undo-redo-controls view renders."
+  [user]
+  {:undo-label (commands/undo-label user)
+   :redo-label (commands/redo-label user)})
 
 
 (defn- patch-filter-feedback!
@@ -100,12 +107,12 @@
          (sr-status)
          [:div.transactions-layout
           [:div.card
-           (toolbar m counts)
+           (toolbar m counts (undo-labels auth/user-id))
            (active-filters acct inst cat view-st)
            (if (empty? txs)
              (empty-state)
              (list (table (:rows result)) (pagination-bar result)))]
-          (rollup-fragment txs categories)]
+          (rollup-pane (view/category-rollup txs categories))]
          (when (seq txs) (list (funnel-popovers acct inst cat) (row-actions-menu)))
          (category-options categories)
          (url-sync)
@@ -155,9 +162,9 @@
        (patch! sse (tbody (:rows result) stale-ids))
        (patch! sse (pagination-bar result))
        (patch-filter-feedback! sse txs view-st)
-       (patch! sse (undo-redo-controls))
+       (patch! sse (undo-redo-controls (undo-labels user)))
        ;; A recategorize/split moves money between rollup rows, so re-patch the whole-month pane.
-       (patch! sse (rollup-fragment txs (db-categories/list-all db-conn)))
+       (patch! sse (rollup-pane (view/category-rollup txs (db-categories/list-all db-conn))))
        (when close-modal? (patch! sse [:div {:id "modal-root"}]))
        (when after-patch (after-patch sse))
        (d*/patch-signals! sse (r/signals {:page (:page result)}))))))
@@ -236,7 +243,7 @@
   [{:keys [db-conn]}]
   (fn [req]
     (let [tx (db-transactions/by-id db-conn (path-id req :id))]
-      (sse-response req (fn [sse] (patch! sse (split-editor-modal tx)))))))
+      (sse-response req (fn [sse] (patch! sse (split-editor-modal tx (view/split-editor-seed tx))))))))
 
 (defn set-splits
   "PUT /transactions/:id/splits — record + apply a :set-splits command (the new parts ride in
