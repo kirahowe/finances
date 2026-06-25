@@ -51,8 +51,32 @@
       (is (= "0000" (:account/mask result)))
       (is (= "USD" (:account/currency result)))
       (is (= :plaid (:account/provider result)))
+      (is (= (bigdec 1000.0) (:account/reported-balance result)))
       (is (= [:institution/id "ins_123"] (:account/institution result)))
       (is (= [:user/id "test-user"] (:account/user result))))))
+
+(deftest test-parse-account-extracts-balances
+  (testing "Extracts reported (current) and available balances as bigdec"
+    (let [account {:account_id "acc-bal"
+                   :name "Checking"
+                   :type "depository"
+                   :subtype "checking"
+                   :balance {:iso_currency_code "USD"
+                             :current 1234.56
+                             :available 1200.00}}
+          result (data/parse-account account "ins_123" "test-user")]
+      (is (= (bigdec 1234.56) (:account/reported-balance result)))
+      (is (= (bigdec 1200.00) (:account/available-balance result))))))
+
+(deftest test-parse-account-omits-absent-balances
+  (testing "No balance keys when the institution doesn't report them"
+    (let [account {:account_id "acc-nobal"
+                   :name "Checking"
+                   :type "depository"
+                   :balance {:iso_currency_code "USD"}}
+          result (data/parse-account account "ins_123" "test-user")]
+      (is (not (contains? result :account/reported-balance)))
+      (is (not (contains? result :account/available-balance))))))
 
 (deftest test-parse-account-defaults-currency
   (testing "Defaults to USD when currency not provided"

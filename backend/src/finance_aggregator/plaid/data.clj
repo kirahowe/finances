@@ -47,28 +47,34 @@
             :account/provider-subtype string
             :account/mask string (optional, omitted if nil)
             :account/currency string
+            :account/reported-balance bigdec (optional, from balance.current)
+            :account/available-balance bigdec (optional, from balance.available)
             :account/institution lookup-ref
             :account/user lookup-ref}
 
+   Pure: extracts the reported/available balance numbers but does NOT stamp
+   when they were captured - balance-as-of and the snapshot history are stamped
+   at persist time (db.snapshots), which is where the clock lives.
+
    Note: Filters out nil values to avoid 'Cannot store nil as a value' errors."
   [account institution-id user-id]
-  (-> account
-      (select-keys [:account_id :name :official_name :type :subtype :mask :balance])
-      (set/rename-keys {:account_id :account/external-id
-                        :name :account/external-name
-                        :type :account/provider-type
-                        :subtype :account/provider-subtype
-                        :mask :account/mask})
-      (assoc :account/institution [:institution/id institution-id]
-             :account/user [:user/id user-id]
-             :account/provider :plaid)
-      ;; Extract currency from balance, default to USD
-      (assoc :account/currency (or (get-in account [:balance :iso_currency_code]) "USD"))
-      ;; Remove balance (we don't store it in schema yet)
-      (dissoc :balance :official_name)
-      ;; Remove nil values to avoid database errors
-      (->> (remove (fn [[_ v]] (nil? v)))
-           (into {}))))
+  (let [{:keys [current available iso_currency_code]} (:balance account)]
+    (cond-> (-> account
+                (select-keys [:account_id :name :type :subtype :mask])
+                (set/rename-keys {:account_id :account/external-id
+                                  :name :account/external-name
+                                  :type :account/provider-type
+                                  :subtype :account/provider-subtype
+                                  :mask :account/mask})
+                (assoc :account/institution [:institution/id institution-id]
+                       :account/user [:user/id user-id]
+                       :account/provider :plaid
+                       :account/currency (or iso_currency_code "USD")))
+      (some? current)   (assoc :account/reported-balance (bigdec current))
+      (some? available) (assoc :account/available-balance (bigdec available))
+      ;; Remove any nil values to avoid database errors
+      :always (->> (remove (fn [[_ v]] (nil? v)))
+                   (into {})))))
 
 (defn parse-transaction
   "Transform Plaid transaction to database schema.
