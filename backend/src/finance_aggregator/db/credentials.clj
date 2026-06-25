@@ -222,14 +222,16 @@
          encrypted-data-str (pr-str encrypted-data)
          ;; Use item-id as the credential ID for easy lookup
          credential-id (str "plaid-item-" item-id)
+         ;; Sync status/cursor live on :connection/* now (seeded by
+         ;; db.connections/ensure-from-credential!); storing a credential only
+         ;; records the token + identity, never sync state.
          credential (cond-> {:credential/id credential-id
                              :credential/user [:user/id auth/user-id]
                              :credential/institution :plaid
                              :credential/item-id item-id
                              :credential/institution-name institution-name
                              :credential/encrypted-data encrypted-data-str
-                             :credential/created-at (java.util.Date.)
-                             :credential/sync-status :pending}
+                             :credential/created-at (java.util.Date.)}
                       ;; Add selected account IDs if provided
                       (seq selected-account-ids)
                       (assoc :credential/selected-account-ids (json/write-str selected-account-ids)))]
@@ -379,158 +381,23 @@
              :created-at (:credential/created-at cred)})
           credentials)))
 
-;;; Sync Cursor Functions (for /transactions/sync incremental updates)
+(defn list-plaid-item-credential-entities
+  "All Plaid Item credential entities as raw pulled :credential/* maps (tokens
+   stay encrypted - not decrypted here). Used by the resync engine to reconcile
+   the credential registry into :connection/* rows and seed the lazy cursor
+   migration from the legacy sync fields.
 
-(defn get-sync-cursor
-  "Get the current sync cursor for a Plaid Item.
-
-   The cursor tracks the position in the /transactions/sync update stream.
-   Returns nil if:
-   - The item doesn't exist
-   - No sync has occurred yet (cursor not set)
-
-   Parameters:
-   - conn: Datalevin connection
-   - item-id: Plaid item_id
-
-   Returns:
-   Cursor string, or nil if not found or never synced
-
-   Example:
-   (get-sync-cursor conn \"item_abc123\")
-   ;; => \"cursor_xyz789\" or nil"
-  [conn item-id]
-  (let [db (d/db conn)
-        credential-id (str "plaid-item-" item-id)
-        credential (d/pull db '[:credential/sync-cursor] [:credential/id credential-id])]
-    (:credential/sync-cursor credential)))
-
-(defn update-sync-cursor!
-  "Update the sync cursor for a Plaid Item after successful sync.
-
-   Call this after successfully persisting transactions from /transactions/sync
-   to record the cursor position for the next incremental sync.
-
-   Parameters:
-   - conn: Datalevin connection
-   - item-id: Plaid item_id
-   - cursor: New cursor string from /transactions/sync response
-
-   Returns:
-   True if updated, false if item not found
-
-   Example:
-   (update-sync-cursor! conn \"item_abc123\" \"cursor_xyz789\")"
-  [conn item-id cursor]
-  (let [db (d/db conn)
-        credential-id (str "plaid-item-" item-id)
-        credential (d/pull db '[:db/id] [:credential/id credential-id])]
-    (if (:db/id credential)
-      (do
-        (d/transact! conn [{:db/id (:db/id credential)
-                            :credential/sync-cursor cursor}])
-        true)
-      false)))
-
-;;; Sync Status Functions (for frontend polling during initial sync)
-
-(defn get-sync-status
-  "Get the sync status for a Plaid Item.
-
-   Returns a map with sync status fields for frontend polling.
-
-   Parameters:
-   - conn: Datalevin connection
-   - item-id: Plaid item_id
-
-   Returns:
-   {:sync-status keyword (:pending, :syncing, :synced, :failed)
-    :transaction-count int
-    :last-sync-at instant or nil
-    :institution-name string}
-   Or nil if item not found
-
-   Example:
-   (get-sync-status conn \"item_abc123\")
-   ;; => {:sync-status :synced :transaction-count 42 :last-sync-at #inst \"...\"}"
-  [conn item-id]
-  (let [db (d/db conn)
-        credential-id (str "plaid-item-" item-id)
-        credential (d/pull db '[:credential/sync-status
-                                :credential/transaction-count
-                                :credential/last-sync-at
-                                :credential/institution-name]
-                           [:credential/id credential-id])]
-    (when (:credential/sync-status credential)
-      {:sync-status (:credential/sync-status credential)
-       :transaction-count (or (:credential/transaction-count credential) 0)
-       :last-sync-at (:credential/last-sync-at credential)
-       :institution-name (:credential/institution-name credential)})))
-
-(defn update-sync-status!
-  "Update the sync status for a Plaid Item.
-
-   Parameters:
-   - conn: Datalevin connection
-   - item-id: Plaid item_id
-   - status: Keyword (:pending, :syncing, :synced, :failed)
-   - opts: Optional map with:
-     - :transaction-count - Number of transactions synced
-     - :error - Error message (for :failed status)
-
-   Returns:
-   True if updated, false if item not found
-
-   Example:
-   (update-sync-status! conn \"item_abc123\" :synced {:transaction-count 42})"
-  ([conn item-id status]
-   (update-sync-status! conn item-id status {}))
-  ([conn item-id status {:keys [transaction-count]}]
-   (let [db (d/db conn)
-         credential-id (str "plaid-item-" item-id)
-         credential (d/pull db '[:db/id] [:credential/id credential-id])]
-     (if (:db/id credential)
-       (do
-         (d/transact! conn [(cond-> {:db/id (:db/id credential)
-                                     :credential/sync-status status}
-                              ;; Add last-sync-at when synced
-                              (= status :synced)
-                              (assoc :credential/last-sync-at (java.util.Date.))
-                              ;; Add transaction count if provided
-                              transaction-count
-                              (assoc :credential/transaction-count transaction-count))])
-         true)
-       false))))
-
-(defn reset-sync-cursor!
-  "Reset the sync cursor for a Plaid Item to enable full re-sync.
-
-   Clears the cursor and resets sync-status to :pending.
-   The next sync will fetch full history based on :days-requested in plaid-config.
-
-   Parameters:
-   - conn: Datalevin connection
-   - item-id: Plaid item_id
-
-   Returns:
-   True if reset, false if item not found
-
-   Example:
-   (reset-sync-cursor! conn \"item_abc123\")"
-  [conn item-id]
-  (let [db (d/db conn)
-        credential-id (str "plaid-item-" item-id)
-        credential (d/pull db '[:db/id] [:credential/id credential-id])]
-    (if (:db/id credential)
-      (do
-        (log/info "Resetting sync cursor for Plaid Item" {:item-id item-id})
-        ;; Retract the cursor (set to nil) and reset status
-        (d/transact! conn [[:db/retract (:db/id credential) :credential/sync-cursor]
-                           {:db/id (:db/id credential)
-                            :credential/sync-status :pending
-                            :credential/transaction-count 0}])
-        true)
-      false)))
+   Returns: vector of {:credential/item-id .. :credential/sync-cursor .. ...}"
+  [conn]
+  (vec (d/q '[:find [(pull ?e [*]) ...]
+              :in $ ?user-id
+              :where
+              [?u :user/id ?user-id]
+              [?e :credential/user ?u]
+              [?e :credential/institution :plaid]
+              [?e :credential/item-id _]]
+            (d/db conn)
+            auth/user-id)))
 
 (defn get-institution-name
   "Get the institution name for a Plaid Item.
