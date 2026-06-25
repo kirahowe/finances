@@ -27,6 +27,9 @@
    :account/provider      {:db/valueType :db.type/keyword}  ; :plaid, :lunchflow, :manual, ...
    :account/csv-mapping   {:db/valueType :db.type/string}  ; EDN-encoded CSV column mapping (manual only)
    :account/invert-amount {:db/valueType :db.type/boolean}  ; Flip amount signs (applies to all accounts)
+   :account/reported-balance  {:db/valueType :db.type/bigdec}   ; institution-reported current balance (latest sync)
+   :account/available-balance {:db/valueType :db.type/bigdec}   ; institution-reported available balance (nil when not provided)
+   :account/balance-as-of     {:db/valueType :db.type/instant}  ; when the reported balance was captured
    :account/user          {:db/valueType :db.type/ref}      ; ref to user (for data isolation)
 
    ;; Transactions
@@ -72,11 +75,13 @@
    :payee-rule/category {:db/valueType :db.type/ref}
    :payee-rule/user     {:db/valueType :db.type/ref}     ; ref to user
 
-   ;; Balance snapshots (for reconciliation)
+   ;; Balance snapshots (reported-balance history for reconciliation).
+   ;; One row per account per UTC day; :snapshot/id makes the daily write idempotent.
+   :snapshot/id      {:db/unique :db.unique/identity}    ; "<account-external-id>:<yyyy-MM-dd>"
    :snapshot/account {:db/valueType :db.type/ref}
    :snapshot/date    {:db/valueType :db.type/instant}
    :snapshot/balance {:db/valueType :db.type/bigdec}
-   :snapshot/source  {:db/valueType :db.type/keyword}    ; e.g. :manual, :calculated
+   :snapshot/source  {:db/valueType :db.type/keyword}    ; :reported, :manual, :calculated
 
    ;; Credentials (encrypted storage for API access tokens)
    :credential/id                  {:db/unique :db.unique/identity}
@@ -87,9 +92,35 @@
    :credential/encrypted-data      {:db/valueType :db.type/string}   ; AES-256-GCM encrypted
    :credential/created-at          {:db/valueType :db.type/instant}
    :credential/last-used           {:db/valueType :db.type/instant}
-   :credential/sync-cursor         {:db/valueType :db.type/string}   ; Plaid /transactions/sync cursor
    :credential/selected-account-ids {:db/valueType :db.type/string}  ; JSON-encoded vector of Plaid account IDs
-   :credential/sync-status         {:db/valueType :db.type/keyword}  ; :pending, :syncing, :synced, :failed
-   :credential/last-sync-at        {:db/valueType :db.type/instant}  ; When last successful sync completed
-   :credential/transaction-count   {:db/valueType :db.type/long}     ; Number of transactions synced
+   ;; LEGACY sync fields - sync state now lives on :connection/* (below). These
+   ;; are read once by db.connections/ensure-from-credential! to seed a
+   ;; connection's cursor/status on first migration, then never written again.
+   ;; Don't wire new logic onto them.
+   :credential/sync-cursor         {:db/valueType :db.type/string}   ; legacy: Plaid /transactions/sync cursor
+   :credential/sync-status         {:db/valueType :db.type/keyword}  ; legacy: :pending, :syncing, :synced, :failed
+   :credential/last-sync-at        {:db/valueType :db.type/instant}  ; legacy: when last successful sync completed
+   :credential/transaction-count   {:db/valueType :db.type/long}     ; legacy: number of transactions synced
+
+   ;; Connections (provider-agnostic sync-state for a linked institution).
+   ;; One connection = one linked provider instance whose transactions we sync
+   ;; (a Plaid Item, a Lunchflow link, a future Open-Banking grant). Holds only
+   ;; sync bookkeeping; the encrypted token lives on :credential/*. The
+   ;; sync-state is opaque - only the provider interprets it (Plaid's cursor).
+   :connection/id                {:db/unique :db.unique/identity}    ; e.g. "plaid:<item-id>", "lunchflow"
+   :connection/user              {:db/valueType :db.type/ref}
+   :connection/provider          {:db/valueType :db.type/keyword}    ; :plaid, :lunchflow, ...
+   :connection/external-id       {:db/valueType :db.type/string}     ; provider's connection id (Plaid item_id); absent for single-connection providers
+   :connection/institution-name  {:db/valueType :db.type/string}
+   :connection/sync-state        {:db/valueType :db.type/string}     ; opaque per-provider (Plaid cursor); provider interprets
+   :connection/status            {:db/valueType :db.type/keyword}    ; :pending :syncing :backfilling :synced :stale :needs-reconnect :failed
+   :connection/last-attempt-at   {:db/valueType :db.type/instant}    ; start of the most recent sync attempt
+   :connection/last-success-at   {:db/valueType :db.type/instant}    ; completion of the most recent successful sync
+   :connection/error-code        {:db/valueType :db.type/string}     ; provider error code (e.g. ITEM_LOGIN_REQUIRED)
+   :connection/error-message     {:db/valueType :db.type/string}
+   :connection/retry-count       {:db/valueType :db.type/long}       ; consecutive transient failures (backoff)
+   :connection/first-failure-at  {:db/valueType :db.type/instant}    ; start of the current failure streak (bounds the elapsed-time ceiling)
+   :connection/next-retry-at     {:db/valueType :db.type/instant}    ; earliest next attempt while backing off
+   :connection/transaction-count {:db/valueType :db.type/long}
+   :connection/created-at        {:db/valueType :db.type/instant}
    })
