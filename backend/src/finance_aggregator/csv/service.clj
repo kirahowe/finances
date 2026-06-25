@@ -12,6 +12,7 @@
    [finance-aggregator.csv.data :as csv-data]
    [finance-aggregator.lib.log :as log]
    [finance-aggregator.manual.data :as manual-data]
+   [finance-aggregator.provider.sync :as sync]
    [tablecloth.api :as tc]))
 
 ;;; CSV Mapping Configuration
@@ -159,9 +160,11 @@
           parsed-count (count transactions)
           errors []
 
-          ;; Insert transactions (upsert semantics via external-id)
+          ;; Insert through the provider ingest point (per-account invert
+          ;; normalization + overlay-key guard + upsert-by-external-id), so a CSV
+          ;; import is treated identically to a provider sync.
           _ (when (seq transactions)
-              (d/transact! db-conn transactions))
+              (sync/persist-transactions! db-conn transactions))
 
           ;; Calculate skipped (total - parsed)
           skipped (- total-rows parsed-count)]
