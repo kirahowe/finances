@@ -16,3 +16,14 @@
          :in $ pattern
          :where [?e :account/external-id _]]
        (d/db db-conn) account-pull-pattern))
+
+(defn inverted-account-ids
+  "Set of account external-ids whose :account/invert-amount is true - the
+   accounts whose canonical transaction sign is flipped once at import (see
+   provider.normalize)."
+  [db-conn]
+  (set (d/q '[:find [?ext ...]
+              :where
+              [?a :account/invert-amount true]
+              [?a :account/external-id ?ext]]
+            (d/db db-conn))))
