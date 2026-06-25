@@ -94,6 +94,15 @@
   ;; CLI development (uses env/dev/resources/config.edn)
   :cli {:extra-paths ["env/dev/resources"]}
 
+  ;; One resilient-sync pass, then exit (the `bb resync` trigger / cron target).
+  ;; Headless: inits secrets + db + Plaid config, no http server. Defaults to the
+  ;; dev env; compose with :prod (`-M:prod:resync`) for production.
+  :resync {:extra-paths ["env/dev/resources"]
+           :main-opts ["-m" "finance-aggregator.resync.main"]
+           :jvm-opts ["--enable-native-access=ALL-UNNAMED"
+                      "-Djava.library.path=/opt/homebrew/opt/libomp/lib"
+                      "-Djna.library.path=/opt/homebrew/opt/libomp/lib"]}
+
   ;; Production config (for Docker builds, uses env/prod/resources/config.edn)
   :prod {:extra-paths ["env/prod/resources"]}
 

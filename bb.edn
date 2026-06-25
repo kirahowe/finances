@@ -21,6 +21,9 @@
                                  (Thread. (fn [] (p/destroy-tree watcher))))
                (shell {:dir "backend"} "clojure" "-M:dev" "-m" "finance-aggregator.main"))}
 
+  resync {:doc "Run one resilient sync pass over all connections, then exit (JVM: Datalevin + Plaid SDK)"
+          :task (shell {:dir "backend"} "clojure" "-M:resync")}
+
   ;; ── Quality ──────────────────────────────────────────────────────────
   test {:doc "Run all tests: backend (kaocha) + islands (vitest)"
         :task (do

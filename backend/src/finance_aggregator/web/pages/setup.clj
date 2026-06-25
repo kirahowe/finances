@@ -6,6 +6,8 @@
   (:require
    [finance-aggregator.db.accounts :as db-accounts]
    [finance-aggregator.db.stats :as db-stats]
+   [finance-aggregator.lib.log :as log]
+   [finance-aggregator.resync :as resync]
    [finance-aggregator.web.accounts :as accounts]
    [finance-aggregator.web.format :as fmt]
    [finance-aggregator.web.layout :as layout]
@@ -29,8 +31,10 @@
   [:div.card
    [:div.section-head
     [:h2 "Accounts " [:span.section-count (count accounts)]]
-    ;; Connect actions are write operations, deferred; disabled to keep the layout.
+    ;; Sync now is the one live action; the connect/link actions are deferred.
     [:div.button-group
+     [:form {:method "post" :action "/setup/sync"}
+      [:button.button {:type "submit"} "Sync now"]]
      [:button.button.button-secondary {:disabled true} "Add Manual Account"]
      [:button.button {:disabled true} "Link Bank Account"]
      [:button.button.button-secondary {:disabled true} "Connect Lunchflow"]]]
@@ -49,6 +53,21 @@
   [:div.stat-card
    [:div.stat-value value]
    [:div.stat-label label]])
+
+(defn sync-now
+  "Factory: POST /setup/sync handler. Fires one resilient-sync pass over all
+   connections in the background (statuses persist; refreshing /setup shows
+   progress) and redirects back. The engine is internally isolated per
+   connection, so the future never needs the request to wait on it; a failure
+   outside that isolation (e.g. registry reconciliation) is logged, not lost."
+  [deps]
+  (fn [_req]
+    (future
+      (try
+        (resync/resync-all! deps)
+        (catch Throwable t
+          (log/error "Background resync pass failed" {:error (.getMessage t)}))))
+    {:status 303 :headers {"Location" "/setup"}}))
 
 (defn page
   "Factory: GET /setup handler. Renders the stats bar/cards + account list."
