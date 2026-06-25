@@ -1,8 +1,14 @@
 (ns finance-aggregator.plaid.client
   "Pure Plaid API client functions using Plaid Java SDK.
-   All functions are pure - they take configuration and parameters,
-   call the Plaid API, and return data. No side effects or component dependencies."
+   All functions take configuration and parameters, call the Plaid API, and
+   return data. No component dependencies.
+
+   Every call goes through `execute!`, which inspects the Retrofit response and,
+   on a non-2xx, parses Plaid's structured error body so the thrown ex-info
+   carries the `error_code` (classification reads it directly - no second
+   round-trip). A transport failure surfaces as the underlying IOException."
   (:require
+   [clojure.data.json :as json]
    [clojure.string :as str]
    [finance-aggregator.lib.log :as log]
    [finance-aggregator.plaid.types :as types])
@@ -10,11 +16,13 @@
    [com.plaid.client ApiClient]
    [com.plaid.client.model LinkTokenCreateRequest
     LinkTokenCreateRequestUser LinkTokenTransactions
-    ItemPublicTokenExchangeRequest AccountsGetRequest TransactionsGetRequest
+    ItemPublicTokenExchangeRequest AccountsGetRequest
     ItemGetRequest InstitutionsGetByIdRequest TransactionsSyncRequest
     TransactionsSyncRequestOptions]
    [com.plaid.client.request PlaidApi]
-   [java.util HashMap]))
+   [java.util HashMap]
+   [okhttp3 ResponseBody]
+   [retrofit2 Call Response]))
 
 (defn- create-api-client
   "Create a Plaid API client from configuration.
@@ -31,6 +39,32 @@
                         environment)]
     (.setPlaidAdapter api-client plaid-adapter)
     api-client))
+
+(defn- error->ex-info
+  "Parse a Plaid error response body into an ex-info, surfacing the structured
+   `error_code` / `error_type` / `error_message` in the ex-data (Plaid says to
+   branch on error_code, not HTTP status). `ctx` adds call-site context."
+  [^Response resp ctx]
+  (let [eb   (.errorBody resp)
+        body (when eb (.string ^ResponseBody eb))
+        {:strs [error_code error_type error_message]}
+        (when (seq body) (try (json/read-str body) (catch Exception _ nil)))]
+    (ex-info (or error_message "Plaid API error")
+             (merge ctx
+                    {:error-code    error_code
+                     :error-type    error_type
+                     :error-message error_message
+                     :http-status   (.code resp)}))))
+
+(defn- execute!
+  "Run a Retrofit `Call` and return its deserialized body, or throw on an API
+   error (see `error->ex-info`). The single chokepoint every Plaid call passes
+   through, so error_code surfacing is uniform."
+  [^Call call ctx]
+  (let [^Response resp (.execute call)]
+    (if (.isSuccessful resp)
+      (.body resp)
+      (throw (error->ex-info resp ctx)))))
 
 (defn- ensure-enum
   "Ensure value is the expected enum type, converting if needed.
@@ -75,35 +109,57 @@
                :days-requested days-requested
                :products products
                :country-codes country-codes})
-    (try
-      (let [api-client (create-api-client plaid-config)
-            plaid-api (.createService api-client PlaidApi)
-            user (-> (LinkTokenCreateRequestUser.)
-                     (.clientUserId user-id))
-            ;; Ensure values are proper enum types
-            product-enums (mapv #(ensure-enum % types/products "product") products)
-            country-enums (mapv #(ensure-enum % types/country-codes "country code") country-codes)
-            ;; Configure transactions options for maximum history
-            transactions-options (-> (LinkTokenTransactions.)
-                                     (.daysRequested (int days-requested)))
-            _ (log/info "Plaid LinkTokenTransactions object configured"
-                        {:transactions-options-str (str transactions-options)
-                         :days-requested-value (.getDaysRequested transactions-options)})
-            request (-> (LinkTokenCreateRequest.)
-                        (.user user)
-                        (.clientName client-name)
-                        (.products product-enums)
-                        (.countryCodes country-enums)
-                        (.language language)
-                        (.transactions transactions-options))
-            response (.linkTokenCreate plaid-api request)
-            result (.body (.execute response))]
-        (.getLinkToken result))
-      (catch Exception e
-        (throw (ex-info "Failed to create link token"
-                        {:user-id user-id
-                         :error (.getMessage e)}
-                        e))))))
+    (let [api-client (create-api-client plaid-config)
+          plaid-api (.createService api-client PlaidApi)
+          user (-> (LinkTokenCreateRequestUser.)
+                   (.clientUserId user-id))
+          ;; Ensure values are proper enum types
+          product-enums (mapv #(ensure-enum % types/products "product") products)
+          country-enums (mapv #(ensure-enum % types/country-codes "country code") country-codes)
+          ;; Configure transactions options for maximum history
+          transactions-options (-> (LinkTokenTransactions.)
+                                   (.daysRequested (int days-requested)))
+          request (-> (LinkTokenCreateRequest.)
+                      (.user user)
+                      (.clientName client-name)
+                      (.products product-enums)
+                      (.countryCodes country-enums)
+                      (.language language)
+                      (.transactions transactions-options))
+          result (execute! (.linkTokenCreate plaid-api request)
+                           {:operation :create-link-token :user-id user-id})]
+      (.getLinkToken result))))
+
+(defn create-update-link-token
+  "Generate a link token for re-auth via Link **update mode**. Built from an
+   existing access_token with **no `products`** (update mode reuses the Item's
+   existing products); the user re-authenticates a broken Item (e.g. after
+   ITEM_LOGIN_REQUIRED) without creating a new Item or access_token.
+
+   plaid-config: same map as create-link-token (credentials + client-name,
+                 country-codes, language)
+   access-token: the existing Item's access_token
+   user-id: string identifying the user
+
+   Returns: link_token string"
+  [plaid-config access-token user-id]
+  (let [{:keys [client-name country-codes language]} plaid-config]
+    (log/info "Creating Plaid update-mode link token" {:user-id user-id})
+    (let [api-client (create-api-client plaid-config)
+          plaid-api (.createService api-client PlaidApi)
+          user (-> (LinkTokenCreateRequestUser.)
+                   (.clientUserId user-id))
+          country-enums (mapv #(ensure-enum % types/country-codes "country code") country-codes)
+          ;; No .products: update mode reuses the existing Item's products.
+          request (-> (LinkTokenCreateRequest.)
+                      (.user user)
+                      (.clientName client-name)
+                      (.countryCodes country-enums)
+                      (.language language)
+                      (.accessToken access-token))
+          result (execute! (.linkTokenCreate plaid-api request)
+                           {:operation :create-update-link-token :user-id user-id})]
+      (.getLinkToken result))))
 
 (defn exchange-public-token
   "Exchange public_token for access_token.
@@ -111,20 +167,14 @@
    public-token: string from Plaid Link onSuccess callback
    Returns: {:access_token string :item_id string}"
   [plaid-config public-token]
-  (try
-    (let [api-client (create-api-client plaid-config)
-          plaid-api (.createService api-client PlaidApi)
-          request (-> (ItemPublicTokenExchangeRequest.)
-                      (.publicToken public-token))
-          response (.itemPublicTokenExchange plaid-api request)
-          result (.body (.execute response))]
-      {:access_token (.getAccessToken result)
-       :item_id (.getItemId result)})
-    (catch Exception e
-      (throw (ex-info "Failed to exchange public token"
-                      {:public-token public-token
-                       :error (.getMessage e)}
-                      e)))))
+  (let [api-client (create-api-client plaid-config)
+        plaid-api (.createService api-client PlaidApi)
+        request (-> (ItemPublicTokenExchangeRequest.)
+                    (.publicToken public-token))
+        result (execute! (.itemPublicTokenExchange plaid-api request)
+                         {:operation :exchange-public-token})]
+    {:access_token (.getAccessToken result)
+     :item_id (.getItemId result)}))
 
 (defn fetch-accounts
   "Fetch account list using access_token.
@@ -132,68 +182,25 @@
    access-token: string from exchange-public-token
    Returns: list of account maps"
   [plaid-config access-token]
-  (try
-    (let [api-client (create-api-client plaid-config)
-          plaid-api (.createService api-client PlaidApi)
-          request (-> (AccountsGetRequest.)
-                      (.accessToken access-token))
-          response (.accountsGet plaid-api request)
-          result (.body (.execute response))
-          accounts (.getAccounts result)]
-      (mapv (fn [account]
-              {:account_id (.getAccountId account)
-               :name (.getName account)
-               :official_name (.getOfficialName account)
-               :type (str (.getType account))
-               :subtype (str (.getSubtype account))
-               :mask (.getMask account)
-               :balance {:available (some-> account .getBalances .getAvailable)
-                        :current (some-> account .getBalances .getCurrent)
-                        :limit (some-> account .getBalances .getLimit)
-                        :iso_currency_code (some-> account .getBalances .getIsoCurrencyCode)}})
-            accounts))
-    (catch Exception e
-      (throw (ex-info "Failed to fetch accounts"
-                      {:access-token access-token
-                       :error (.getMessage e)}
-                      e)))))
-
-(defn fetch-transactions
-  "Fetch transactions for date range.
-   plaid-config: map with :client-id, :secret, :environment
-   access-token: string
-   start-date: string 'YYYY-MM-DD'
-   end-date: string 'YYYY-MM-DD'
-   Returns: list of transaction maps"
-  [plaid-config access-token start-date end-date]
-  (try
-    (let [api-client (create-api-client plaid-config)
-          plaid-api (.createService api-client PlaidApi)
-          request (-> (TransactionsGetRequest.)
-                      (.accessToken access-token)
-                      (.startDate (java.time.LocalDate/parse start-date))
-                      (.endDate (java.time.LocalDate/parse end-date)))
-          response (.transactionsGet plaid-api request)
-          result (.body (.execute response))
-          transactions (.getTransactions result)]
-      (mapv (fn [txn]
-              {:transaction_id (.getTransactionId txn)
-               :account_id (.getAccountId txn)
-               :amount (.getAmount txn)
-               :date (str (.getDate txn))
-               :name (.getName txn)
-               :merchant_name (.getMerchantName txn)
-               :pending (.getPending txn)
-               :category (vec (.getCategory txn))
-               :payment_channel (str (.getPaymentChannel txn))})
-            transactions))
-    (catch Exception e
-      (throw (ex-info "Failed to fetch transactions"
-                      {:access-token access-token
-                       :start-date start-date
-                       :end-date end-date
-                       :error (.getMessage e)}
-                      e)))))
+  (let [api-client (create-api-client plaid-config)
+        plaid-api (.createService api-client PlaidApi)
+        request (-> (AccountsGetRequest.)
+                    (.accessToken access-token))
+        result (execute! (.accountsGet plaid-api request)
+                         {:operation :fetch-accounts})
+        accounts (.getAccounts result)]
+    (mapv (fn [account]
+            {:account_id (.getAccountId account)
+             :name (.getName account)
+             :official_name (.getOfficialName account)
+             :type (str (.getType account))
+             :subtype (str (.getSubtype account))
+             :mask (.getMask account)
+             :balance {:available (some-> account .getBalances .getAvailable)
+                       :current (some-> account .getBalances .getCurrent)
+                       :limit (some-> account .getBalances .getLimit)
+                       :iso_currency_code (some-> account .getBalances .getIsoCurrencyCode)}})
+          accounts)))
 
 (defn fetch-item
   "Fetch item metadata including institution_id.
@@ -209,23 +216,46 @@
             :available_products vector of product strings
             :billed_products vector of product strings}"
   [plaid-config access-token]
+  (let [api-client (create-api-client plaid-config)
+        plaid-api (.createService api-client PlaidApi)
+        request (-> (ItemGetRequest.)
+                    (.accessToken access-token))
+        result (execute! (.itemGet plaid-api request)
+                         {:operation :fetch-item})
+        item (.getItem result)]
+    {:item_id (.getItemId item)
+     :institution_id (.getInstitutionId item)
+     :available_products (vec (.getAvailableProducts item))
+     :billed_products (vec (.getBilledProducts item))}))
+
+(defn fetch-item-error
+  "Fetch the structured `item.error` from /item/get - the health signal for a
+   broken Item. Returns {:error-code string :error-message string} when Plaid
+   reports an error on the Item, or nil when the Item is healthy. Best-effort:
+   any failure to read the error (network, etc.) returns nil rather than masking
+   the original sync failure that prompted the check.
+
+   This is the *supplement* to the error_code carried by the failing call: item-
+   level problems (ITEM_LOGIN_REQUIRED, PENDING_EXPIRATION, ...) are reported
+   here even when the failing call didn't carry a code.
+
+   plaid-config: map with :client-id, :secret, :environment
+   access-token: string from exchange-public-token"
+  [plaid-config access-token]
   (try
     (let [api-client (create-api-client plaid-config)
           plaid-api (.createService api-client PlaidApi)
           request (-> (ItemGetRequest.)
                       (.accessToken access-token))
-          response (.itemGet plaid-api request)
-          result (.body (.execute response))
-          item (.getItem result)]
-      {:item_id (.getItemId item)
-       :institution_id (.getInstitutionId item)
-       :available_products (vec (.getAvailableProducts item))
-       :billed_products (vec (.getBilledProducts item))})
+          result (execute! (.itemGet plaid-api request)
+                           {:operation :fetch-item-error})
+          error (some-> (.getItem result) .getError)]
+      (when error
+        {:error-code (some-> (.getErrorCode error) str)
+         :error-message (.getErrorMessage error)}))
     (catch Exception e
-      (throw (ex-info "Failed to fetch item"
-                      {:access-token access-token
-                       :error (.getMessage e)}
-                      e)))))
+      (log/warn "Failed to fetch item error" {:error (.getMessage e)})
+      nil)))
 
 (defn fetch-institution
   "Fetch institution details by institution ID.
@@ -242,27 +272,20 @@
   ([plaid-config institution-id]
    (fetch-institution plaid-config institution-id ["US"]))
   ([plaid-config institution-id country-codes]
-   (try
-     (let [api-client (create-api-client plaid-config)
-           plaid-api (.createService api-client PlaidApi)
-           country-enums (mapv #(ensure-enum % types/country-codes "country code") country-codes)
-           request (-> (InstitutionsGetByIdRequest.)
-                       (.institutionId institution-id)
-                       (.countryCodes country-enums))
-           response (.institutionsGetById plaid-api request)
-           result (.body (.execute response))
-           institution (.getInstitution result)]
-       {:institution_id (.getInstitutionId institution)
-        :name (.getName institution)
-        :url (.getUrl institution)
-        :primary_color (.getPrimaryColor institution)
-        :logo (.getLogo institution)})
-     (catch Exception e
-       (throw (ex-info "Failed to fetch institution"
-                       {:institution-id institution-id
-                        :country-codes country-codes
-                        :error (.getMessage e)}
-                       e))))))
+   (let [api-client (create-api-client plaid-config)
+         plaid-api (.createService api-client PlaidApi)
+         country-enums (mapv #(ensure-enum % types/country-codes "country code") country-codes)
+         request (-> (InstitutionsGetByIdRequest.)
+                     (.institutionId institution-id)
+                     (.countryCodes country-enums))
+         result (execute! (.institutionsGetById plaid-api request)
+                          {:operation :fetch-institution :institution-id institution-id})
+         institution (.getInstitution result)]
+     {:institution_id (.getInstitutionId institution)
+      :name (.getName institution)
+      :url (.getUrl institution)
+      :primary_color (.getPrimaryColor institution)
+      :logo (.getLogo institution)})))
 
 (defn- txn->map
   "Convert Plaid Transaction object to a Clojure map.
@@ -321,35 +344,28 @@
      (when (and (nil? cursor) (nil? days-requested))
        (throw (ex-info "days-requested is required for initial sync (cursor is nil)"
                        {:hint "Pass :days-requested in opts from plaid-config"})))
-     (try
-       (let [api-client (create-api-client plaid-config)
-             plaid-api (.createService api-client PlaidApi)
-             ;; Build request with access token and optional cursor
-             request (cond-> (-> (TransactionsSyncRequest.)
-                                 (.accessToken access-token)
-                                 (.count (int count)))
-                       ;; Add cursor if provided (incremental sync)
-                       cursor (.cursor cursor)
-                       ;; On initial sync (no cursor), set days_requested for max history
-                       (nil? cursor) (.options (-> (TransactionsSyncRequestOptions.)
-                                                   (.daysRequested (int days-requested)))))
-             response (.transactionsSync plaid-api request)
-             result (.body (.execute response))
-             ;; Parse transactions_update_status enum to keyword
-             update-status (some-> (.getTransactionsUpdateStatus result)
-                                   str
-                                   str/lower-case
-                                   (str/replace "_" "-")
-                                   keyword)]
-         {:added (mapv txn->map (.getAdded result))
-          :modified (mapv txn->map (.getModified result))
-          :removed (mapv removed-txn->map (.getRemoved result))
-          :next_cursor (.getNextCursor result)
-          :has_more (.getHasMore result)
-          :transactions_update_status update-status})
-       (catch Exception e
-         (throw (ex-info "Failed to sync transactions"
-                         {:access-token access-token
-                          :cursor cursor
-                          :error (.getMessage e)}
-                         e)))))))
+     (let [api-client (create-api-client plaid-config)
+           plaid-api (.createService api-client PlaidApi)
+           ;; Build request with access token and optional cursor
+           request (cond-> (-> (TransactionsSyncRequest.)
+                               (.accessToken access-token)
+                               (.count (int count)))
+                     ;; Add cursor if provided (incremental sync)
+                     cursor (.cursor cursor)
+                     ;; On initial sync (no cursor), set days_requested for max history
+                     (nil? cursor) (.options (-> (TransactionsSyncRequestOptions.)
+                                                 (.daysRequested (int days-requested)))))
+           result (execute! (.transactionsSync plaid-api request)
+                            {:operation :sync-transactions :cursor cursor})
+           ;; Parse transactions_update_status enum to keyword
+           update-status (some-> (.getTransactionsUpdateStatus result)
+                                 str
+                                 str/lower-case
+                                 (str/replace "_" "-")
+                                 keyword)]
+       {:added (mapv txn->map (.getAdded result))
+        :modified (mapv txn->map (.getModified result))
+        :removed (mapv removed-txn->map (.getRemoved result))
+        :next_cursor (.getNextCursor result)
+        :has_more (.getHasMore result)
+        :transactions_update_status update-status}))))

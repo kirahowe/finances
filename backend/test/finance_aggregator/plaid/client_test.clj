@@ -69,14 +69,6 @@
     (when *plaid-config*
       (is true "fetch-accounts requires a real access_token from token exchange"))))
 
-(deftest ^:integration fetch-transactions-test
-  (testing "fetch-transactions requires a valid access token"
-    ;; Note: This test cannot be run in isolation because access_tokens
-    ;; are only obtained by exchanging a public_token. This test documents
-    ;; the expected behavior for manual testing.
-    (when *plaid-config*
-      (is true "fetch-transactions requires a real access_token from token exchange"))))
-
 (deftest ^:integration fetch-item-test
   (testing "fetch-item retrieves item metadata including institution_id"
     ;; Note: This test cannot be run in isolation because access_tokens
