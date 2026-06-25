@@ -100,7 +100,7 @@
   [channel-id item-id]
   (contains? (get-in @connections [channel-id :subscriptions]) item-id))
 
-;;; Sync State Updates (called by plaid.service)
+;;; Sync State Updates (called by the provider.sync orchestrator)
 
 (defn update-sync-status!
   "Update sync status for an item. Triggers broadcast to subscribers.

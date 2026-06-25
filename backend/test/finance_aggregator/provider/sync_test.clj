@@ -6,6 +6,7 @@
   (:require
    [clojure.test :refer [deftest is testing use-fixtures]]
    [datalevin.core :as d]
+   [finance-aggregator.db.connections :as connections]
    [finance-aggregator.provider :as provider]
    [finance-aggregator.provider.sync :as sync]
    [finance-aggregator.test-utils.setup :as setup]
@@ -37,16 +38,20 @@
                 :account/institution [:institution/id "test-inst"]
                 :account/user [:user/id "test-user"]}}})
 
-;; Two pages: page 0 inserts t1+t2; page 1 inserts t3 and removes t1.
+;; Two pages: page 0 inserts t1+t2; page 1 inserts t3 and removes t1. Each page
+;; carries an opaque :sync-state so the orchestrator's per-page cursor advance
+;; (when a :connection-id is present) can be exercised.
 (defmethod provider/fetch-transactions :test
   [_ {:keys [page] :or {page 0} :as opts}]
   (case (long page)
     0 {:transactions [(canonical-txn "t1") (canonical-txn "t2")]
        :removed []
        :more? true
+       :sync-state "cur-0"
        :next-opts (assoc opts :page 1)}
     1 {:transactions [(canonical-txn "t3")]
        :removed ["t1"]
+       :sync-state "cur-1"
        :more? false}))
 
 ;;; Fake `:test-rich` provider: exercises the provider-driven terminal status,
@@ -114,6 +119,57 @@
 
     (testing "ws status advanced to :synced"
       (is (= :synced (:status (ws/get-sync-status "test")))))))
+
+(deftest sync-provider-advances-connection-sync-state-per-page
+  (testing "With a :connection-id, the opaque sync-state is persisted after each page"
+    (let [conn setup/*test-conn*]
+      (seed-user! conn)
+      (connections/ensure-connection! conn {:id "test-conn-1" :provider :test})
+      (is (= :synced (sync/sync-provider! {:db-conn conn :connection-id "test-conn-1"} :test)))
+      ;; The last page's sync-state wins (cursor advanced past both pages).
+      (is (= "cur-1" (connections/get-sync-state conn "test-conn-1"))))))
+
+(deftest sync-provider-without-connection-id-skips-sync-state
+  (testing "No :connection-id => no connection writes, sync still completes"
+    (let [conn setup/*test-conn*]
+      (seed-user! conn)
+      (is (= :synced (sync/sync-provider! {:db-conn conn} :test)))
+      (is (empty? (connections/list-connections conn))))))
+
+(deftest modified-upsert-preserves-user-overlays
+  ;; The load-bearing invariant: a Plaid `modified` re-import (same external-id,
+  ;; changed imported fields) updates provenance fields but never clobbers the
+  ;; user's append-only overlays. persist-transactions! is the path it flows through.
+  (let [conn setup/*test-conn*]
+    (seed-user! conn)
+    (d/transact! conn [{:account/external-id "test-acc-1" :account/provider :test
+                        :account/user [:user/id "test-user"]}])
+    (sync/persist-transactions! conn [(assoc (canonical-txn "tx-1")
+                                             :transaction/description "Original")])
+    (let [eid (d/q '[:find ?e . :where [?e :transaction/external-id "tx-1"]] (d/db conn))]
+      (d/transact! conn [{:db/id eid
+                          :transaction/reviewed true
+                          :transaction/user-description "My label"}]))
+    ;; Re-import the same transaction with bank-changed fields.
+    (sync/persist-transactions! conn [(assoc (canonical-txn "tx-1")
+                                             :transaction/description "Bank renamed"
+                                             :transaction/amount (bigdec "12.00"))])
+    (let [t (d/pull (d/db conn) '[*] [:transaction/external-id "tx-1"])]
+      (testing "imported fields updated by the re-import"
+        (is (= "Bank renamed" (:transaction/description t)))
+        (is (= (bigdec "12.00") (:transaction/amount t))))
+      (testing "user overlays preserved"
+        (is (= true (:transaction/reviewed t)))
+        (is (= "My label" (:transaction/user-description t)))))))
+
+(deftest persist-transactions-rejects-overlay-keys
+  (let [conn setup/*test-conn*]
+    (seed-user! conn)
+    (d/transact! conn [{:account/external-id "test-acc-1" :account/provider :test
+                        :account/user [:user/id "test-user"]}])
+    (is (thrown? clojure.lang.ExceptionInfo
+                 (sync/persist-transactions!
+                  conn [(assoc (canonical-txn "tx-x") :transaction/reviewed true)])))))
 
 (deftest sync-provider-marks-failed-and-rethrows-on-error
   (let [conn setup/*test-conn*]

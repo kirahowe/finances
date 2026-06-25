@@ -39,6 +39,20 @@
    secrets-based, selectable providers implement it - polymorphism a la carte."
   (fn [provider-key _opts] provider-key))
 
+(defmulti classify-sync-error
+  "(provider-key, deps, exception) -> {:action .. :error-code .. :error-message ..}
+
+   :action is the generic vocabulary the resync core acts on:
+     :retry     - transient; back off and try again
+     :reconnect - user must re-auth; never auto-retried
+     :fail      - unknown/other; surface, don't auto-retry
+     :resolved  - the failure already self-healed (e.g. Plaid LOGIN_REPAIRED)
+
+   Each provider owns its own error vocabulary; the core never names a provider
+   error code. deps is the per-connection deps the orchestrator assembled, so the
+   provider can reach its client/secrets to resolve the code."
+  (fn [provider-key _deps _e] provider-key))
+
 (defn registered-providers
   "Set of provider-keys that have a fetch-accounts method registered."
   []
