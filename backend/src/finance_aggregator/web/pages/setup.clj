@@ -8,6 +8,10 @@
    [finance-aggregator.db.connections :as db-connections]
    [finance-aggregator.db.stats :as db-stats]
    [finance-aggregator.lib.log :as log]
+   ;; Load-only: registers the :lunchflow provider methods (available-accounts /
+   ;; fetch-* / classify-sync-error) used by the connect page + the resync drive.
+   [finance-aggregator.lunchflow.provider]
+   [finance-aggregator.provider :as provider]
    [finance-aggregator.resync :as resync]
    [finance-aggregator.web.accounts :as accounts]
    [finance-aggregator.web.layout :as layout]
@@ -60,3 +64,46 @@
        :headers {"Content-Type" "text/html"}
        :body (layout/document {:title "Setup · Finance Aggregator"}
                               (view/body model))})))
+
+(defn lunchflow-page
+  "Factory: GET /setup/lunchflow — list Lunchflow's available accounts grouped by
+   institution, pre-marking the ones already imported. A failure to reach
+   Lunchflow (missing key / network) renders as an inline error, not a 500."
+  [{:keys [db-conn secrets]}]
+  (fn [_req]
+    (let [stats (db-stats/entity-counts db-conn)
+          model (try
+                  {:stats stats
+                   :groups (accounts/provider-selection
+                            (provider/available-accounts :lunchflow {:secrets secrets})
+                            (db-accounts/external-ids-for-provider db-conn :lunchflow))}
+                  (catch Exception e
+                    (log/warn "Lunchflow available-accounts failed" {:error (.getMessage e)})
+                    {:stats stats
+                     :error (str "Couldn't load Lunchflow accounts: " (.getMessage e))}))]
+      {:status 200
+       :headers {"Content-Type" "text/html"}
+       :body (layout/document {:title "Connect Lunchflow · Finance Aggregator"}
+                              (view/lunchflow-body model))})))
+
+(defn- form-set
+  "Coerce a wrap-params form field (absent / single string / repeated -> vector)
+   into a set of strings."
+  [v]
+  (set (cond (nil? v) nil (string? v) [v] :else v)))
+
+(defn lunchflow-connect
+  "Factory: POST /setup/lunchflow — ensure the single Lunchflow connection and
+   sync the newly-selected accounts (form field account-id, repeated) in the
+   background. The selection is remembered as the imported accounts themselves, so
+   later resyncs need no stored selection. No selection is a no-op redirect."
+  [{:keys [db-conn] :as deps}]
+  (fn [req]
+    (let [selected (form-set (get-in req [:params "account-id"]))]
+      (when (seq selected)
+        (db-connections/ensure-connection! db-conn {:id "lunchflow" :provider :lunchflow})
+        (background "Background Lunchflow connect failed"
+                    #(resync/resync-connection!
+                      (assoc deps :extra-opts {:selected-account-ids selected})
+                      {:connection/id "lunchflow"}))))
+    (redirect-to-setup)))

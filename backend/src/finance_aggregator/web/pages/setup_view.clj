@@ -17,15 +17,15 @@
    [:div.stat-label label]])
 
 (defn- action-bar
-  "Top actions. Sync all is live; the link affordances land in later chunks and
-   stay disabled until then."
+  "Top actions. Sync all + Connect Lunchflow are live; Link Bank Account lands in
+   the next chunk; Add Manual Account stays deferred."
   []
   [:div.button-group
    [:form {:method "post" :action "/setup/sync"}
     [:button.button {:type "submit"} "Sync all"]]
    [:button.button.button-secondary {:disabled true :title "Coming soon"} "Add Manual Account"]
    [:button.button {:disabled true :title "Coming soon"} "Link Bank Account"]
-   [:button.button.button-secondary {:disabled true :title "Coming soon"} "Connect Lunchflow"]])
+   [:a.button.button-secondary {:href "/setup/lunchflow"} "Connect Lunchflow"]])
 
 (defn- accounts-table [accounts]
   [:table.table
@@ -97,3 +97,52 @@
      (list
       (for [group groups] (connection-card group))
       (when (seq unlinked) (unlinked-card unlinked))))])
+
+;;; Lunchflow account selection -------------------------------------------
+
+(defn- lunchflow-institution [{:keys [institution-name institution-logo accounts]}]
+  [:div.provider-institution
+   [:h3.provider-institution-name
+    (when institution-logo [:img.provider-institution-logo {:src institution-logo :alt ""}])
+    institution-name]
+   [:ul.provider-account-list
+    (for [{:keys [external-id name connected?]} accounts]
+      [:li.provider-account-row
+       [:label.provider-account-label
+        [:input (cond-> {:type "checkbox" :name "account-id" :value external-id}
+                  ;; Connected accounts are already imported: shown checked +
+                  ;; disabled (a disabled box doesn't re-submit, and fetch-accounts
+                  ;; keeps connected ∪ selected, so they stay connected).
+                  connected? (assoc :checked true :disabled true))]
+        [:span.provider-account-name name]]
+       (when connected? [:span.provider-connected-tag "Connected"])])]])
+
+(defn lunchflow-body
+  "Full-page Lunchflow account selection: institutions with per-account checkboxes,
+   already-connected accounts pre-marked. Model {:stats :groups :error}."
+  [{:keys [stats groups error]}]
+  [:div.container
+   (shell/masthead {:active :setup :stats stats})
+   [:div.page-head
+    [:span.eyebrow "Configuration"]
+    [:h2.page-title "Connect Lunchflow"]
+    [:p.page-lede
+     "Choose which Lunchflow accounts to import. Already-connected accounts stay connected."]]
+   [:div.card
+    (cond
+      error
+      [:div.error-banner [:span error]]
+
+      (empty? groups)
+      [:div.empty-state
+       [:div.empty-state-title "No Lunchflow accounts found"]
+       [:p "Lunchflow returned no accounts. Check that your API key is set and that "
+        "accounts are connected in Lunchflow."]]
+
+      :else
+      [:form {:method "post" :action "/setup/lunchflow"}
+       [:div.provider-connection-scroll
+        (map lunchflow-institution groups)]
+       [:div.button-group
+        [:button.button {:type "submit"} "Connect selected accounts"]
+        [:a.button.button-secondary {:href "/setup"} "Cancel"]]])]])

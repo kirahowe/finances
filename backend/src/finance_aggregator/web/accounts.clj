@@ -92,3 +92,25 @@
    stay testable."
   [{:keys [stats connections accounts now]}]
   (assoc (connection-groups connections accounts now) :stats stats))
+
+(defn provider-selection
+  "Group a provider's available accounts by institution for the link/selection UI,
+   flagging the ones already imported (connected). `available` is the provider's
+   available-accounts output [{:external-id :name :institution-id :institution-name
+   :institution-logo}]; `connected-ids` the set of already-imported external-ids.
+   Returns [{:institution-name :institution-logo
+             :accounts [{:external-id :name :connected?}]}] ordered by institution,
+   accounts by name."
+  [available connected-ids]
+  (->> available
+       (group-by :institution-name)
+       (sort-by key)
+       (mapv (fn [[institution-name accts]]
+               {:institution-name institution-name
+                :institution-logo (some :institution-logo accts)
+                :accounts (->> accts
+                               (sort-by :name)
+                               (mapv (fn [{:keys [external-id name]}]
+                                       {:external-id external-id
+                                        :name name
+                                        :connected? (contains? connected-ids external-id)})))}))))

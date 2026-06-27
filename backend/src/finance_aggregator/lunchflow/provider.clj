@@ -51,6 +51,13 @@
 (defn- ->date-str [^Date d]
   (str (utils/date->local-date d)))
 
+(defmethod provider/classify-sync-error :lunchflow
+  [_ _deps ^Exception e]
+  ;; Lunchflow has no item-health / error-code vocabulary; a failed pull is
+  ;; surfaced (:fail) and retried on the next manual/scheduled pass rather than
+  ;; auto-backed-off. The cause (network, bad key) rides in the message.
+  {:action :fail :error-code nil :error-message (.getMessage e)})
+
 (defmethod provider/available-accounts :lunchflow
   [_ {:keys [secrets]}]
   (mapv (fn [account]

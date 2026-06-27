@@ -7,6 +7,7 @@
    [clojure.test :refer [deftest is testing use-fixtures]]
    [datalevin.core :as d]
    [finance-aggregator.db.connections :as connections]
+   [finance-aggregator.provider :as provider]
    [finance-aggregator.test-utils.setup :as setup]
    [finance-aggregator.web.pages.setup :as setup-page])
   (:import
@@ -46,3 +47,25 @@
       (is (= 303 (:status (handler {:params {"connection-id" ""}})))))
     (testing "unknown connection-id redirects without firing a resync"
       (is (= 303 (:status (handler {:params {"connection-id" "nope"}})))))))
+
+(deftest lunchflow-page-renders-selection
+  (with-redefs [provider/available-accounts
+                (fn [_ _] [{:external-id "lunchflow-1" :name "Chequing"
+                            :institution-name "Tangerine"}])]
+    (let [body (:body ((setup-page/lunchflow-page {:db-conn setup/*test-conn* :secrets {}}) {}))]
+      (is (str/includes? body "Connect Lunchflow"))
+      (is (str/includes? body "Tangerine"))
+      (is (str/includes? body "Chequing")))))
+
+(deftest lunchflow-page-renders-error-on-failure
+  (with-redefs [provider/available-accounts (fn [_ _] (throw (ex-info "no key" {})))]
+    (let [body (:body ((setup-page/lunchflow-page {:db-conn setup/*test-conn* :secrets {}}) {}))]
+      ;; hiccup HTML-escapes the apostrophe (Couldn&apos;t), so match past it.
+      (is (str/includes? body "load Lunchflow accounts: no key")))))
+
+(deftest lunchflow-connect-no-op-without-selection
+  (testing "no checkboxes selected -> redirect, no connection created, no future"
+    (let [resp ((setup-page/lunchflow-connect {:db-conn setup/*test-conn* :secrets {}})
+                {:params {}})]
+      (is (= 303 (:status resp)))
+      (is (nil? (connections/get-connection setup/*test-conn* "lunchflow"))))))

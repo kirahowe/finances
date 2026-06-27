@@ -26,10 +26,11 @@
    [finance-aggregator.db.connections :as connections]
    [finance-aggregator.db.credentials :as creds]
    [finance-aggregator.lib.log :as log]
-   ;; Load-only: registers the :plaid provider multimethods (fetch-accounts /
-   ;; fetch-transactions / classify-sync-error). Without it the seam dispatch
+   ;; Load-only: registers the provider multimethods (fetch-accounts /
+   ;; fetch-transactions / classify-sync-error). Without these the seam dispatch
    ;; would have no methods.
    [finance-aggregator.plaid.provider]
+   [finance-aggregator.lunchflow.provider]
    [finance-aggregator.provider :as provider]
    [finance-aggregator.provider.retry :as retry]
    [finance-aggregator.provider.sync :as sync])
@@ -57,7 +58,13 @@
    context, the ws :status-key (item-id), :connection-id (enables resumable cursor
    persistence), and the starting :cursor seeded from the stored sync-state. A
    missing token leaves :access-token nil; the drive then fails naturally and the
-   error path records it."
+   error path records it.
+
+   For :lunchflow: a single-connection provider whose API key lives in secrets and
+   whose selection is the set of already-imported accounts - so the deps are just
+   the base deps plus :connection-id / :status-key (= the connection id). Any
+   per-call extras (the connect-time :selected-account-ids) ride in via deps'
+   :extra-opts and are merged through to the provider's fetch-accounts."
   [{:keys [db-conn secrets] :as deps}
    {:connection/keys [provider id external-id institution-name sync-state]}]
   (case provider
@@ -68,6 +75,9 @@
                   :institution-name institution-name
                   :access-token (creds/get-plaid-item-credential db-conn secrets external-id)
                   :cursor sync-state)
+    :lunchflow (merge deps
+                      {:connection-id id :status-key id}
+                      (:extra-opts deps))
     (throw (ex-info "No resync driver for provider" {:provider provider}))))
 
 ;;; Outcome handling --------------------------------------------------------

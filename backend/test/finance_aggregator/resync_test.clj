@@ -12,6 +12,7 @@
    [datalevin.core :as d]
    [finance-aggregator.db.connections :as connections]
    [finance-aggregator.db.credentials :as creds]
+   [finance-aggregator.lunchflow.client :as lf-client]
    [finance-aggregator.plaid.client :as client]
    [finance-aggregator.resync :as resync]
    [finance-aggregator.test-utils.setup :as setup]
@@ -283,6 +284,34 @@
           (is (= 8 (:connection/retry-count c)) "retry-count frozen at the cap")
           (is (> (- (.getTime ^Date (:connection/next-retry-at c)) before) 1800000)
               "next retry is the slow cadence (>30m), not the 15m backoff cap"))))))
+
+(deftest resync-lunchflow-connection-syncs-selection-and-stamps-accounts
+  (testing "connection-deps :lunchflow threads :extra-opts (the connect-time
+            selection); the selected account imports, is stamped to the lunchflow
+            connection, txns land, and the connection is marked :synced"
+    (let [conn setup/*test-conn*
+          deps {:db-conn conn :secrets {:lunchflow "fake-key"} :plaid-config {}}]
+      (seed-user! conn)
+      (connections/ensure-connection! conn {:id "lunchflow" :provider :lunchflow})
+      (with-redefs-fn
+        {#'lf-client/list-accounts
+         (fn [_] [{:id 1 :name "Chequing" :institution_name "Tangerine" :provider "quiltt"}])
+         #'lf-client/fetch-account-transactions
+         (fn [_ _ _] [{:id 5 :accountId 1 :amount -10 :date "2026-06-01"
+                       :merchant "Shop" :isPending false}])}
+        (fn []
+          (resync/resync-connection!
+           (assoc deps :extra-opts {:selected-account-ids #{"lunchflow-1"}})
+           {:connection/id "lunchflow"})))
+      (let [c (connections/get-connection conn "lunchflow")]
+        (is (= :synced (:connection/status c)))
+        (is (some? (:connection/last-success-at c))))
+      (is (= "lunchflow"
+             (get-in (d/pull (d/db conn) '[{:account/connection [:connection/id]}]
+                             [:account/external-id "lunchflow-1"])
+                     [:account/connection :connection/id]))
+          "the lunchflow account is stamped to its connection")
+      (is (contains? (tx-ids conn) "lunchflow-5")))))
 
 (deftest resync-all-skips-in-flight-syncing
   (testing "A connection already :syncing with a recent attempt is not re-driven"

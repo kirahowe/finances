@@ -26,6 +26,8 @@
    ["/transactions/review/:a/reject/:b"     {:put {:handler (transactions/review-reject deps) :name ::review-reject}}]
    ["/transactions/undo"            {:post {:handler (transactions/undo deps) :name ::undo}}]
    ["/transactions/redo"            {:post {:handler (transactions/redo deps) :name ::redo}}]
-   ["/setup"        {:get  {:handler (setup/page deps) :name ::setup}}]
-   ["/setup/sync"   {:post {:handler (setup/sync-now deps) :name ::setup-sync}}]
-   ["/setup/resync" {:post {:handler (setup/resync-connection deps) :name ::setup-resync}}]])
+   ["/setup"          {:get  {:handler (setup/page deps) :name ::setup}}]
+   ["/setup/sync"     {:post {:handler (setup/sync-now deps) :name ::setup-sync}}]
+   ["/setup/resync"   {:post {:handler (setup/resync-connection deps) :name ::setup-resync}}]
+   ["/setup/lunchflow" {:get  {:handler (setup/lunchflow-page deps) :name ::setup-lunchflow}
+                        :post {:handler (setup/lunchflow-connect deps) :name ::setup-lunchflow-connect}}]])

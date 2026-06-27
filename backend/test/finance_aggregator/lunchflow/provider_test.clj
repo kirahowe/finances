@@ -98,6 +98,11 @@
             "the unselected account stays out of the DB")
         (is (= 2 (count (tx-ids conn))) "no duplicate transactions on re-sync")))))
 
+(deftest lunchflow-classify-sync-error-surfaces-as-fail
+  (testing "Lunchflow has no error-code vocabulary -> :fail with the cause message"
+    (is (= {:action :fail :error-code nil :error-message "boom"}
+           (provider/classify-sync-error :lunchflow {} (ex-info "boom" {}))))))
+
 (deftest lunchflow-available-accounts-lists-everything
   (with-redefs [client/list-accounts (fn [_] [sample-account other-account])]
     (let [result (provider/available-accounts :lunchflow {:secrets {:lunchflow "fake-key"}})]

@@ -72,3 +72,18 @@
     (is (= {:accounts 1} (:stats model)))
     (is (= [] (:groups model)))
     (is (= [] (:unlinked model)))))
+
+(deftest provider-selection-groups-and-marks-connected
+  (let [available [{:external-id "lunchflow-1" :name "Chequing" :institution-name "Tangerine"}
+                   {:external-id "lunchflow-2" :name "Savings" :institution-name "Tangerine"
+                    :institution-logo "logo.png"}
+                   {:external-id "lunchflow-3" :name "Visa" :institution-name "EQ Bank"}]
+        groups (accounts/provider-selection available #{"lunchflow-1"})]
+    (testing "grouped + ordered by institution name"
+      (is (= ["EQ Bank" "Tangerine"] (map :institution-name groups))))
+    (testing "accounts ordered by name, connected flag set, logo picked up"
+      (let [tangerine (second groups)]
+        (is (= "logo.png" (:institution-logo tangerine)))
+        (is (= [{:external-id "lunchflow-1" :name "Chequing" :connected? true}
+                {:external-id "lunchflow-2" :name "Savings" :connected? false}]
+               (:accounts tangerine)))))))

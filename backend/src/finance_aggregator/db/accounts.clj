@@ -28,3 +28,15 @@
               [?a :account/invert-amount true]
               [?a :account/external-id ?ext]]
             (d/db db-conn))))
+
+(defn external-ids-for-provider
+  "Set of :account/external-id for accounts of `provider` already imported - the
+   'remembered selection' for selectable providers (the setup link UI pre-checks
+   these; the provider's fetch-accounts re-syncs them)."
+  [db-conn provider]
+  (set (d/q '[:find [?ext ...]
+              :in $ ?prov
+              :where
+              [?a :account/provider ?prov]
+              [?a :account/external-id ?ext]]
+            (d/db db-conn) provider)))
