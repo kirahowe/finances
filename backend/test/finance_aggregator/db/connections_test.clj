@@ -33,6 +33,15 @@
     (is (= :synced (:connection/status (conn/get-connection setup/*test-conn* "plaid:item_abc"))))
     (is (= 1 (count (conn/list-connections setup/*test-conn*))))))
 
+(deftest reset-sync-state-retracts-the-cursor
+  (testing "reset-sync-state! discards the opaque cursor so the next pass re-syncs fresh"
+    (conn/ensure-connection! setup/*test-conn* plaid-conn)
+    (conn/set-sync-state! setup/*test-conn* "plaid:item_abc" "mid-pagination-cursor")
+    (is (= "mid-pagination-cursor" (conn/get-sync-state setup/*test-conn* "plaid:item_abc")))
+    (is (true? (conn/reset-sync-state! setup/*test-conn* "plaid:item_abc")))
+    (is (nil? (conn/get-sync-state setup/*test-conn* "plaid:item_abc")))
+    (is (nil? (conn/reset-sync-state! setup/*test-conn* "missing")))))
+
 (deftest ensure-connection-without-optional-attrs
   (testing "A single-connection provider needs only :id + :provider"
     (let [created (conn/ensure-connection! setup/*test-conn*

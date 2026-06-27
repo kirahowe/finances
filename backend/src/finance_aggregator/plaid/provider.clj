@@ -7,8 +7,9 @@
    uniform data contract:
    - cursor-based `/transactions/sync` pagination - ONE page per
      `fetch-transactions` call; the orchestrator loops via :more?/:next-opts and
-     advances the connection's opaque sync-state (the cursor) after each page is
-     persisted (cursor-after-persist),
+     persists the connection's opaque sync-state (the cursor) only once the loop
+     COMPLETES (never a mid-pagination cursor, which Plaid invalidates on a data
+     change),
    - the `transactions_update_status` -> terminal status mapping
      (:synced / :syncing-historical / :pending). A `:syncing-historical` terminal
      means the backfill is incomplete; the engine maps that to the connection's

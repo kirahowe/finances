@@ -54,7 +54,7 @@
    classification downstream are generic.
 
    For :plaid: the decrypted access token (by external-id = item-id), the item
-   context, the ws :status-key (item-id), :connection-id (enables per-page cursor
+   context, the ws :status-key (item-id), :connection-id (enables resumable cursor
    persistence), and the starting :cursor seeded from the stored sync-state. A
    missing token leaves :access-token nil; the drive then fails naturally and the
    error path records it."
@@ -87,6 +87,8 @@
                    (attempt count OR elapsed wall-clock) is spent, then a slow
                    steady :stale retry cadence so a long outage still self-heals
      :reconnect -> :needs-reconnect (user must re-auth; never auto-retried)
+     :reset     -> discard the corrupt resumable sync-state, park :pending, and
+                   signal :reset so the pass restarts from scratch
      :fail      -> :failed (surfaced; retried next pass, no backoff)"
   [{:keys [db-conn]} conn-deps
    {:connection/keys [id provider retry-count first-failure-at]} ^Exception e]
@@ -96,6 +98,10 @@
       :resolved  (do (connections/clear-error! db-conn id)
                      (connections/set-status! db-conn id :pending)
                      :pending)
+      :reset     (do (connections/reset-sync-state! db-conn id)
+                     (connections/clear-error! db-conn id)
+                     (connections/set-status! db-conn id :pending)
+                     :reset)
       :retry     (let [now (Date.)
                        started (or first-failure-at now)
                        elapsed (- (.getTime now) (.getTime ^Date started))
@@ -121,29 +127,56 @@
 
 ;;; Public entry points -----------------------------------------------------
 
+(def ^:private max-reset-retries
+  "A sync-state reset (the provider's resumable cursor was corrupt - e.g. Plaid
+   TRANSACTIONS_SYNC_MUTATION_DURING_PAGINATION) discards the cursor and re-syncs
+   from scratch. Bound the in-pass restarts so a feed that mutates faster than we
+   can paginate parks :pending rather than spinning."
+  2)
+
+(defn- drive!
+  "One sync attempt for a connection (re-pulled fresh so a prior :reset's cleared
+   cursor is seen). Marks :syncing, drives the provider, records the terminal
+   status - or classifies the error into backoff/reconnect/reset/fail. The
+   provider sync itself never escapes: any failure is captured into the
+   connection's state. Returns the resulting connection status keyword, where
+   :reset signals the cursor was discarded and a from-scratch retry is warranted."
+  [{:keys [db-conn] :as deps} connection]
+  (let [{:connection/keys [id provider]} connection]
+    (connections/record-attempt! db-conn id)
+    (let [conn-deps (connection-deps deps connection)]
+      (try
+        (let [terminal (sync/sync-provider! conn-deps provider)]
+          (if (= :synced terminal)
+            (do (connections/record-success! db-conn id :synced) :synced)
+            ;; A page succeeded -> clear any prior error, then park at the mapped
+            ;; non-terminal status (:backfilling / :pending) for the next pass.
+            (let [status (get provider-status->connection-status terminal terminal)]
+              (connections/clear-error! db-conn id)
+              (connections/set-status! db-conn id status)
+              status)))
+        (catch Exception e
+          (log/error "Resync failed for connection" {:connection-id id :error (.getMessage e)})
+          (handle-error! deps conn-deps connection e))))))
+
 (defn resync-connection!
-  "Run one resumable sync pass for a single connection. Marks :syncing, drives the
-   provider, then records the terminal connection status - or classifies the
-   error into backoff/reconnect/fail. The provider sync itself never escapes:
-   any failure is captured into the connection's state. (A failure to even record
-   the attempt or assemble deps propagates to resync-all!'s per-connection
-   isolation.) Returns the resulting connection status keyword."
-  [{:keys [db-conn] :as deps} {:connection/keys [id] :as connection}]
-  (connections/record-attempt! db-conn id)
-  (let [conn-deps (connection-deps deps connection)]
-    (try
-      (let [terminal (sync/sync-provider! conn-deps (:connection/provider connection))]
-        (if (= :synced terminal)
-          (do (connections/record-success! db-conn id :synced) :synced)
-          ;; A page succeeded -> clear any prior error, then park at the mapped
-          ;; non-terminal status (:backfilling / :pending) for the next pass.
-          (let [status (get provider-status->connection-status terminal terminal)]
-            (connections/clear-error! db-conn id)
-            (connections/set-status! db-conn id status)
-            status)))
-      (catch Exception e
-        (log/error "Resync failed for connection" {:connection-id id :error (.getMessage e)})
-        (handle-error! deps conn-deps connection e)))))
+  "Run one resumable sync pass for a single connection, returning the resulting
+   connection status keyword. (A failure to even record the attempt or assemble
+   deps propagates to resync-all!'s per-connection isolation.)
+
+   If the provider reports its resumable sync-state is corrupt (handle-error! ->
+   :reset, e.g. a Plaid mid-pagination cursor a data mutation invalidated), the
+   cursor is discarded and the pass restarts from scratch, bounded by
+   max-reset-retries; once exhausted the connection is left parked :pending for
+   the next pass."
+  [{:keys [db-conn] :as deps} {:connection/keys [id]}]
+  (loop [n 0]
+    (let [status (drive! deps (connections/get-connection db-conn id))]
+      (if (= status :reset)
+        (if (< n max-reset-retries)
+          (recur (inc n))
+          :pending)                       ; exhausted; handle-error! parked :pending
+        status))))
 
 (def ^:private stuck-syncing-ms
   "A resync pass should finish well within this; a connection still :syncing past

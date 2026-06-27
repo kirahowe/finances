@@ -45,6 +45,8 @@
    :action is the generic vocabulary the resync core acts on:
      :retry     - transient; back off and try again
      :reconnect - user must re-auth; never auto-retried
+     :reset     - the provider's resumable sync-state is corrupt; discard it and
+                  re-sync from scratch
      :fail      - unknown/other; surface, don't auto-retry
      :resolved  - the failure already self-healed (e.g. Plaid LOGIN_REPAIRED)
 

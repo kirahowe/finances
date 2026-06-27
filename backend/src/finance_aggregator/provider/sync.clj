@@ -60,15 +60,20 @@
    opts to fetch-accounts and as the initial opts to fetch-transactions.
    An optional :status-key in deps overrides the WebSocket status key (Plaid
    keys status per item-id rather than per provider). An optional :connection-id
-   in deps enables per-page sync-state persistence (the resumable cursor).
+   in deps enables resumable sync-state persistence (the cursor, on loop completion).
 
    Each `fetch-transactions` page may carry:
    - :sync-state  the new opaque per-provider sync-state (Plaid's next cursor),
-                  persisted to the connection AFTER this page is inserted -
-                  cursor-after-persist, so a crash loses <=1 page (re-pulled by
-                  the idempotent upsert). Generic: the provider supplies it, the
-                  orchestrator never interprets it. Only advanced when deps carry
-                  a :connection-id.
+                  persisted to the connection only once the pagination loop
+                  COMPLETES (the terminal page) - never mid-loop. A mid-pagination
+                  cursor must not be durably stored: Plaid invalidates it if the
+                  underlying data mutates, and resuming from it then fails
+                  permanently (TRANSACTIONS_SYNC_MUTATION_DURING_PAGINATION). On a
+                  crash mid-loop the durable cursor stays at the loop's start; the
+                  next pass restarts the whole loop and idempotently re-pulls
+                  (replay is safe; skipping is prevented). Generic: the provider
+                  supplies it, the orchestrator never interprets it. Only advanced
+                  when deps carry a :connection-id.
 
    The final page may additionally carry provider-specific finalization:
    - :status      terminal ws status to publish (default :synced). Lets Plaid
@@ -102,8 +107,12 @@
                 (provider/fetch-transactions provider-key opts)]
             (persist-transactions! db-conn transactions inverted-ids)
             (retract-removed! db-conn removed)
-            ;; Advance the resumable cursor only after the page is persisted.
-            (when (and connection-id sync-state)
+            ;; Advance the resumable cursor only when the pagination loop COMPLETES
+            ;; (terminal page). Storing a mid-pagination cursor is what Plaid then
+            ;; rejects with TRANSACTIONS_SYNC_MUTATION_DURING_PAGINATION on resume;
+            ;; a crash mid-loop instead leaves the durable cursor at the loop start
+            ;; and the next pass restarts cleanly (idempotent re-pull).
+            (when (and connection-id sync-state (not more?))
               (connections/set-sync-state! db-conn connection-id sync-state))
             (let [skipped (+ skipped (count errors))]
               (if more?

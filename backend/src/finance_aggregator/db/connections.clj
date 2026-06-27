@@ -130,6 +130,17 @@
     (d/transact! conn [{:db/id e :connection/sync-state sync-state}])
     true))
 
+(defn reset-sync-state!
+  "Discard the opaque sync-state (retract :connection/sync-state) so the next pass
+   re-syncs from scratch. Used when a provider reports its resumable state is
+   unusable - e.g. a Plaid mid-pagination cursor Plaid invalidated because the
+   underlying data changed (TRANSACTIONS_SYNC_MUTATION_DURING_PAGINATION), which
+   then fails permanently if resumed. Returns true if the connection exists."
+  [conn id]
+  (when-let [e (eid conn id)]
+    (d/transact! conn [[:db/retract e :connection/sync-state]])
+    true))
+
 (defn set-status!
   "Set status, with optional :transaction-count. Returns true if it exists."
   ([conn id status] (set-status! conn id status {}))

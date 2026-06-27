@@ -38,9 +38,10 @@
                 :account/institution [:institution/id "test-inst"]
                 :account/user [:user/id "test-user"]}}})
 
-;; Two pages: page 0 inserts t1+t2; page 1 inserts t3 and removes t1. Each page
-;; carries an opaque :sync-state so the orchestrator's per-page cursor advance
-;; (when a :connection-id is present) can be exercised.
+;; Two pages: page 0 inserts t1+t2; page 1 inserts t3 and removes t1. Page 0
+;; carries a mid-pagination :sync-state ("cur-0") that the orchestrator must NOT
+;; persist; only the terminal page's cursor ("cur-1") is stored (when a
+;; :connection-id is present).
 (defmethod provider/fetch-transactions :test
   [_ {:keys [page] :or {page 0} :as opts}]
   (case (long page)
@@ -53,6 +54,29 @@
        :removed ["t1"]
        :sync-state "cur-1"
        :more? false}))
+
+;;; Fake `:test-crash` provider: page 0 paginates (mid cursor "crash-cur-0"),
+;;; page 1 throws - to prove a crash mid-loop never persists the mid cursor.
+
+(defmethod provider/fetch-accounts :test-crash
+  [_ _opts]
+  {:institutions #{{:institution/id "test-inst" :institution/name "Test Inst"}}
+   :accounts #{{:account/external-id "test-acc-1"
+                :account/external-name "Test Account"
+                :account/currency "USD"
+                :account/provider :test-crash
+                :account/institution [:institution/id "test-inst"]
+                :account/user [:user/id "test-user"]}}})
+
+(defmethod provider/fetch-transactions :test-crash
+  [_ {:keys [page] :or {page 0} :as opts}]
+  (case (long page)
+    0 {:transactions [(canonical-txn "tc1")]
+       :removed []
+       :more? true
+       :sync-state "crash-cur-0"
+       :next-opts (assoc opts :page 1)}
+    1 (throw (ex-info "boom mid-pagination" {}))))
 
 ;;; Fake `:test-rich` provider: exercises the provider-driven terminal status,
 ;;; status-opts ws payload, and the post-persist :on-complete hook.
@@ -120,14 +144,30 @@
     (testing "ws status advanced to :synced"
       (is (= :synced (:status (ws/get-sync-status "test")))))))
 
-(deftest sync-provider-advances-connection-sync-state-per-page
-  (testing "With a :connection-id, the opaque sync-state is persisted after each page"
+(deftest sync-provider-persists-terminal-sync-state-not-mid-pagination
+  (testing "With a :connection-id, only the terminal page's cursor is persisted -
+            the mid-pagination cursor is never durably stored"
     (let [conn setup/*test-conn*]
       (seed-user! conn)
       (connections/ensure-connection! conn {:id "test-conn-1" :provider :test})
       (is (= :synced (sync/sync-provider! {:db-conn conn :connection-id "test-conn-1"} :test)))
-      ;; The last page's sync-state wins (cursor advanced past both pages).
+      ;; "cur-0" (page 0, has_more=true) is mid-pagination and must be skipped;
+      ;; "cur-1" (terminal page) is the stored cursor.
       (is (= "cur-1" (connections/get-sync-state conn "test-conn-1"))))))
+
+(deftest sync-provider-does-not-persist-mid-pagination-cursor-on-crash
+  (testing "A crash mid-pagination leaves the durable cursor at the loop start
+            (nil here), never the mid-page cursor - so the next pass restarts the
+            whole loop cleanly instead of resuming an invalidated cursor"
+    (let [conn setup/*test-conn*]
+      (seed-user! conn)
+      (connections/ensure-connection! conn {:id "crash-conn" :provider :test-crash})
+      (is (thrown? clojure.lang.ExceptionInfo
+                   (sync/sync-provider! {:db-conn conn :connection-id "crash-conn"} :test-crash)))
+      (is (nil? (connections/get-sync-state conn "crash-conn"))
+          "mid-pagination cursor 'crash-cur-0' must NOT be persisted")
+      ;; ws status-key defaults to the provider name when deps carry no :status-key.
+      (is (= :failed (:status (ws/get-sync-status "test-crash")))))))
 
 (deftest sync-provider-without-connection-id-skips-sync-state
   (testing "No :connection-id => no connection writes, sync still completes"

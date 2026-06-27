@@ -8,6 +8,7 @@
   (is (= :retry (errors/classify "RATE_LIMIT_EXCEEDED")))
   (is (= :reconnect (errors/classify "ITEM_LOGIN_REQUIRED")))
   (is (= :reconnect (errors/classify "PENDING_EXPIRATION")))
+  (is (= :reset (errors/classify "TRANSACTIONS_SYNC_MUTATION_DURING_PAGINATION")))
   (is (= :fail (errors/classify "SOMETHING_NEW")))
   (is (= :fail (errors/classify nil))))
 

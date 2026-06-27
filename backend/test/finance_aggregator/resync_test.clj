@@ -1,9 +1,10 @@
 (ns finance-aggregator.resync-test
   "Behavioral tests for the trigger-decoupled resilient-sync core.
 
-   Exercises the real engine - registry reconciliation, per-page cursor
-   persistence, the resumable backfill (:backfilling -> :synced), cursor-after-
-   persist on a mid-pass crash, and error classification into backoff /
+   Exercises the real engine - registry reconciliation, resumable cursor
+   persistence (terminal page only), the resumable backfill (:backfilling ->
+   :synced), the no-mid-pagination-cursor guarantee on a mid-pass crash, the
+   mutation-during-pagination cursor reset, and error classification into backoff /
    needs-reconnect / fail - against a real temporary Datalevin database with only
    the side-effecting Plaid client functions and the token lookup stubbed."
   (:require
@@ -159,8 +160,11 @@
       (is (= "cur-2" (:connection/sync-state (get-conn "item_1"))))
       (is (= #{"tx-1" "tx-2"} (tx-ids conn))))))
 
-(deftest resync-crash-mid-pass-keeps-last-persisted-cursor
-  (testing "Cursor-after-persist: a crash on page 2 leaves page 1's cursor stored"
+(deftest resync-crash-mid-pass-does-not-persist-mid-pagination-cursor
+  (testing "A crash on page 2 leaves the durable cursor at the loop start (nil),
+            NOT the mid-pagination cursor - so the next pass restarts the whole
+            loop instead of resuming a cursor Plaid would later invalidate.
+            Page 1's transactions are still persisted (idempotently re-pulled)."
     (let [conn setup/*test-conn*]
       (seed-user! conn)
       (seed-account! conn)
@@ -172,16 +176,52 @@
                               #'client/sync-transactions
                               (fn [_config _token cursor _opts]
                                 (if (nil? cursor)
-                                  ;; Page 1: persists, advances cursor to "page-1", more pages.
+                                  ;; Page 1: persists tx-1, more pages (mid-pagination cursor "page-1").
                                   (sync-response :added [(plaid-txn "tx-1")]
                                                  :next-cursor "page-1" :has-more true
                                                  :status :initial-update-complete)
-                                  ;; Page 2: boom (network drop) before any further cursor advance.
+                                  ;; Page 2: boom (network drop) mid-loop.
                                   (throw (ex-info "plaid boom" {}))))})
         (fn [] (resync/resync-connection! (with-conn deps) (get-conn "item_1"))))
-      ;; tx-1 persisted; cursor advanced to page-1 (not lost); status reflects the failure.
+      ;; tx-1 persisted; the mid-pagination cursor "page-1" was NOT durably stored.
       (is (contains? (tx-ids conn) "tx-1"))
-      (is (= "page-1" (:connection/sync-state (get-conn "item_1")))))))
+      (is (nil? (:connection/sync-state (get-conn "item_1")))
+          "mid-pagination cursor must not be persisted on a mid-loop crash")
+      (is (= :failed (:connection/status (get-conn "item_1")))))))
+
+(deftest resync-mutation-during-pagination-resets-cursor-and-resyncs
+  (testing "A stored mid-pagination cursor Plaid rejects with
+            TRANSACTIONS_SYNC_MUTATION_DURING_PAGINATION is discarded; the pass
+            restarts from scratch (cursor nil) and completes :synced - self-healing
+            the corrupt cursors the old per-page-persist behavior left behind."
+    (let [conn setup/*test-conn*
+          calls (atom [])]
+      (seed-user! conn)
+      (seed-account! conn)
+      (seed-credential! conn "item_1")
+      (connections/ensure-from-credential! conn {:credential/item-id "item_1"})
+      ;; Seed a corrupt mid-pagination cursor (as the old per-page-persist left).
+      (connections/set-sync-state! conn "plaid:item_1" "corrupt-mid-cursor")
+      (with-redefs-fn (merge (stub-accounts)
+                             {#'creds/get-plaid-item-credential (constantly "tok")
+                              #'client/sync-transactions
+                              (fn [_config _token cursor _opts]
+                                (swap! calls conj cursor)
+                                (if (= cursor "corrupt-mid-cursor")
+                                  (throw (ex-info "Underlying transaction data changed"
+                                                  {:error-code "TRANSACTIONS_SYNC_MUTATION_DURING_PAGINATION"}))
+                                  (sync-response :added [(plaid-txn "tx-1")]
+                                                 :next-cursor "fresh-cursor"
+                                                 :status :historical-update-complete)))})
+        (fn [] (resync/resync-connection! (with-conn deps) (get-conn "item_1"))))
+      (testing "first call used the corrupt cursor; the retry re-synced from nil"
+        (is (= ["corrupt-mid-cursor" nil] @calls)))
+      (let [c (get-conn "item_1")]
+        (testing "recovered: synced, fresh cursor stored, error cleared, txns pulled"
+          (is (= :synced (:connection/status c)))
+          (is (= "fresh-cursor" (:connection/sync-state c)))
+          (is (nil? (:connection/error-code c)))
+          (is (contains? (tx-ids conn) "tx-1")))))))
 
 (deftest resync-transient-error-backs-off-stale
   (testing "A retryable error_code -> :stale with retry-count + next-retry-at"

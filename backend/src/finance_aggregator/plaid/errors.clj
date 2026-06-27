@@ -23,15 +23,27 @@
     "ITEM_LOCKED" "USER_PERMISSION_REVOKED" "USER_SETUP_REQUIRED"
     "ACCESS_NOT_GRANTED" "INSTITUTION_NO_LONGER_SUPPORTED"})
 
+(def reset-error-codes
+  "The stored cursor is unusable and must be discarded, not resumed. Plaid
+   invalidates a mid-pagination cursor (one returned with has_more=true) once the
+   underlying transaction data changes; resuming from it fails permanently with
+   the SAME error every pass. The fix is to restart pagination from the loop's
+   start cursor - here, discard the cursor and re-sync from scratch. (We no longer
+   store mid-pagination cursors, so this only surfaces for a cursor left behind by
+   the old per-page-persist behavior.)"
+  #{"TRANSACTIONS_SYNC_MUTATION_DURING_PAGINATION"})
+
 (defn classify
   "Map a Plaid error-code string to a generic action:
      :retry     - transient, back off and try again
      :reconnect - user must re-auth (Link update mode)
+     :reset     - the resumable cursor is corrupt; discard it and re-sync fresh
      :fail      - unknown/other; surface it, don't auto-retry."
   [error-code]
   (cond
     (contains? retryable-error-codes error-code) :retry
     (contains? reconnect-error-codes error-code) :reconnect
+    (contains? reset-error-codes error-code)     :reset
     :else :fail))
 
 (defn sync-error
