@@ -221,8 +221,15 @@ status (Plaid). Numbers encoded in `provider.retry/default-policy`.
 - **Overlapping passes:** `Sync now` and a cron `resync` can run concurrently. `due?` skips a connection
   already `:syncing` within `stuck-syncing-ms` (10m); past that it's presumed crashed and runs again.
   There's no cross-process lock — fine for single-user; revisit if a scheduler is added.
-- **Cursor-after-persist invariant:** the sync cursor must only advance after the page's transactions
-  are persisted (Plaid replay is safe; skipping is not). Per-page persistence keeps this.
+- **Cursor-on-loop-completion invariant (CORRECTED 2026-06-26):** the durable sync-state advances ONLY
+  when the pagination loop completes (the terminal `has_more=false` page), never mid-loop. The earlier
+  per-page "cursor-after-persist" was a bug: Plaid invalidates a mid-pagination cursor once the
+  underlying data changes, so resuming from a persisted mid-pagination cursor fails permanently with
+  `TRANSACTIONS_SYNC_MUTATION_DURING_PAGINATION` (must restart the loop from its start cursor, not re-run
+  from where it failed). A crash mid-loop now leaves the durable cursor at the loop start; the next pass
+  restarts and idempotently re-pulls (replay safe; skipping still prevented). The mutation error
+  classifies to the generic `:reset` action → discard the cursor + re-sync from scratch (bounded), which
+  self-heals any cursor the old behavior corrupted.
 - **WebSocket status** (`ws/state.clj`) is keyed per item-id for Plaid (the `:status-key` dep). When the
   engine moves to connections, derive the status key from the connection; keep `:syncing-historical`
   semantics behind Plaid (don't let it leak into generic code) — this seals the last seam leaks.
