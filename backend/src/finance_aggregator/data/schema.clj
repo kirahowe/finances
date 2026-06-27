@@ -25,6 +25,7 @@
    :account/provider-subtype {:db/valueType :db.type/string}  ; provider-native subtype (e.g. Plaid checking/savings)
    :account/mask          {:db/valueType :db.type/string}  ; Last 4 digits of account number
    :account/provider      {:db/valueType :db.type/keyword}  ; :plaid, :lunchflow, :manual, ...
+   :account/connection    {:db/valueType :db.type/ref}      ; the :connection/* that syncs this account (stamped at sync time); the unit of resync/last-synced
    :account/csv-mapping   {:db/valueType :db.type/string}  ; EDN-encoded CSV column mapping (manual only)
    :account/invert-amount {:db/valueType :db.type/boolean}  ; Flip amount signs (applies to all accounts)
    :account/reported-balance  {:db/valueType :db.type/bigdec}   ; institution-reported current balance (latest sync)

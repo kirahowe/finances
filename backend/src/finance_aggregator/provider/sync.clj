@@ -92,7 +92,14 @@
   (let [status-key (or (:status-key deps) (name provider-key))]
     (ws/update-sync-status! status-key :syncing)
     (try
-      (let [{:keys [institutions accounts]} (provider/fetch-accounts provider-key deps)]
+      (let [{:keys [institutions accounts]} (provider/fetch-accounts provider-key deps)
+            ;; Stamp the owning connection onto each account (when this is a
+            ;; connection-driven sync), so the setup view can group accounts by
+            ;; connection and show per-connection sync freshness. Generic: the
+            ;; orchestrator knows the connection-id; the provider stays unaware.
+            accounts (cond->> accounts
+                       connection-id
+                       (map #(assoc % :account/connection [:connection/id connection-id])))]
         (db/insert! {:institutions (set institutions)
                      :accounts (set accounts)
                      :transactions []}

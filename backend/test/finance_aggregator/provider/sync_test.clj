@@ -155,6 +155,26 @@
       ;; "cur-1" (terminal page) is the stored cursor.
       (is (= "cur-1" (connections/get-sync-state conn "test-conn-1"))))))
 
+(deftest sync-provider-stamps-account-connection-when-connection-id-present
+  (testing "Accounts are linked to the driving connection so the setup view can
+            group + show per-connection freshness"
+    (let [conn setup/*test-conn*]
+      (seed-user! conn)
+      (connections/ensure-connection! conn {:id "test-conn-1" :provider :test})
+      (is (= :synced (sync/sync-provider! {:db-conn conn :connection-id "test-conn-1"} :test)))
+      (let [acct (d/pull (d/db conn) '[{:account/connection [:connection/id]}]
+                         [:account/external-id "test-acc-1"])]
+        (is (= "test-conn-1" (get-in acct [:account/connection :connection/id])))))))
+
+(deftest sync-provider-skips-account-connection-without-connection-id
+  (testing "A non-connection sync (no :connection-id) leaves accounts unstamped"
+    (let [conn setup/*test-conn*]
+      (seed-user! conn)
+      (is (= :synced (sync/sync-provider! {:db-conn conn} :test)))
+      (is (nil? (:account/connection
+                 (d/pull (d/db conn) '[:account/connection]
+                         [:account/external-id "test-acc-1"])))))))
+
 (deftest sync-provider-does-not-persist-mid-pagination-cursor-on-crash
   (testing "A crash mid-pagination leaves the durable cursor at the loop start
             (nil here), never the mid-page cursor - so the next pass restarts the
