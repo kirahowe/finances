@@ -1,0 +1,99 @@
+(ns finance-aggregator.web.pages.setup-view
+  "Dumb, presentational hiccup for /setup. Data in, hiccup out: every value is
+   precomputed by the handler's presenter (web.accounts/present) — this namespace
+   never fetches, transforms, or reads ambient state. The handler
+   (web.pages.setup) wires the model in.
+
+   Surfaces: the stats strip, the action bar (Sync all + the link affordances),
+   and one card per sync connection (status pill, humanized last-synced, a Resync
+   action, and the accounts the connection owns)."
+  (:require
+   [finance-aggregator.web.format :as fmt]
+   [finance-aggregator.web.shell :as shell]))
+
+(defn- stat-card [value label]
+  [:div.stat-card
+   [:div.stat-value value]
+   [:div.stat-label label]])
+
+(defn- action-bar
+  "Top actions. Sync all is live; the link affordances land in later chunks and
+   stay disabled until then."
+  []
+  [:div.button-group
+   [:form {:method "post" :action "/setup/sync"}
+    [:button.button {:type "submit"} "Sync all"]]
+   [:button.button.button-secondary {:disabled true :title "Coming soon"} "Add Manual Account"]
+   [:button.button {:disabled true :title "Coming soon"} "Link Bank Account"]
+   [:button.button.button-secondary {:disabled true :title "Coming soon"} "Connect Lunchflow"]])
+
+(defn- accounts-table [accounts]
+  [:table.table
+   [:thead
+    [:tr [:th "Name"] [:th "Type"] [:th "Mask"] [:th "Currency"]]]
+   [:tbody
+    (for [{:keys [name type mask currency]} accounts]
+      [:tr
+       [:td name]
+       [:td type]
+       [:td [:span.numeric mask]]
+       [:td currency]])]])
+
+(defn- connection-card
+  "One sync connection: institution + provider badge, status pill, last-synced,
+   a Resync action, an optional error line, and the accounts it owns."
+  [{:keys [id badge-label badge-class institution-name status last-synced
+           error-message accounts]}]
+  [:div.card.connection-card
+   [:div.connection-head
+    [:div.connection-id
+     [:span {:class (str "badge " badge-class)} badge-label]
+     [:span.connection-name institution-name]]
+    [:div.connection-meta
+     [:span {:class (str "status-pill status-pill--" (:tone status))} (:label status)]
+     [:span.connection-synced "Last synced " last-synced]
+     [:form.connection-resync {:method "post" :action "/setup/resync"}
+      [:input {:type "hidden" :name "connection-id" :value id}]
+      [:button.button.button-secondary.button-small {:type "submit"} "Resync"]]]]
+   (when error-message
+     [:p.connection-error error-message])
+   (if (seq accounts)
+     (accounts-table accounts)
+     [:p.connection-empty "No accounts on this connection yet."])])
+
+(defn- unlinked-card
+  "Accounts not yet stamped to a connection (legacy rows; their next sync links
+   them). Shown so nothing silently disappears."
+  [accounts]
+  [:div.card.connection-card
+   [:div.connection-head
+    [:div.connection-id [:span.connection-name "Not yet linked to a sync"]]]
+   [:p.connection-empty "These accounts will attach to their connection on the next sync."]
+   (accounts-table accounts)])
+
+(defn body
+  "The full /setup page body for the given view-model
+   {:stats :groups :unlinked}."
+  [{:keys [stats groups unlinked]}]
+  [:div.container
+   (shell/masthead {:active :setup :stats stats})
+   [:div.page-head
+    [:span.eyebrow "Configuration"]
+    [:h2.page-title "Setup"]
+    [:p.page-lede
+     "Connect institutions, manage accounts, and keep your transactions in sync."]]
+   [:div.stats-grid
+    (stat-card (fmt/integer (:institutions stats)) "Institutions")
+    (stat-card (fmt/integer (:accounts stats)) "Accounts")
+    (stat-card (fmt/integer (:transactions stats)) "Transactions")]
+   [:div.section-head
+    [:h2 "Connections " [:span.section-count (count groups)]]
+    (action-bar)]
+   (if (and (empty? groups) (empty? unlinked))
+     [:div.card
+      [:div.empty-state
+       [:div.empty-state-title "No connections yet"]
+       [:p "Link a bank through Plaid or connect Lunchflow to start importing transactions."]]]
+     (list
+      (for [group groups] (connection-card group))
+      (when (seq unlinked) (unlinked-card unlinked))))])

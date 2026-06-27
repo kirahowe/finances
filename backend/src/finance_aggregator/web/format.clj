@@ -36,3 +36,21 @@
    and the /setup stat cards."
   [n]
   (format "%,d" (long n)))
+
+(defn relative-time
+  "Humanize a past instant `d` relative to `now` (both java.util.Date): \"just now\",
+   \"3 min ago\", \"5 hr ago\", \"2 days ago\", else the absolute date for anything a
+   week or older. nil -> \"never\". `now` is passed in so callers stay testable."
+  [^Date d ^Date now]
+  (if (nil? d)
+    "never"
+    (let [secs (quot (- (.getTime now) (.getTime d)) 1000)
+          mins (quot secs 60)
+          hrs  (quot mins 60)
+          days (quot hrs 24)]
+      (cond
+        (< secs 45) "just now"
+        (< mins 60) (str mins " min ago")
+        (< hrs 24)  (str hrs " hr ago")
+        (< days 7)  (str days (if (= 1 days) " day ago" " days ago"))
+        :else       (date d)))))

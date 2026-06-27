@@ -208,3 +208,110 @@
 .error-banner button:hover {
   opacity: 0.7;
 }
+
+/* ============================================================
+   Connection cards (Setup)
+   ============================================================
+   One card per sync connection (a Plaid Item / a Lunchflow link): a header
+   row carrying the institution, a status pill, the humanized last-synced and
+   a Resync action, then the accounts that connection owns. */
+.connection-card {
+  margin-bottom: var(--spacing-md);
+}
+
+.connection-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: var(--spacing-sm) var(--spacing-md);
+  margin-bottom: var(--spacing-md);
+}
+
+.connection-id {
+  display: flex;
+  align-items: center;
+  gap: var(--spacing-sm);
+}
+
+.connection-name {
+  font-family: var(--font-display);
+  font-size: var(--text-md);
+  font-weight: 500;
+  color: var(--color-ink);
+}
+
+.connection-meta {
+  display: flex;
+  align-items: center;
+  gap: var(--spacing-md);
+}
+
+.connection-synced {
+  color: var(--color-text-muted);
+  font-size: var(--text-xs);
+}
+
+.connection-resync {
+  margin: 0;
+}
+
+.connection-error {
+  color: var(--color-error-text);
+  background: var(--color-error-bg);
+  border: 1px solid var(--color-error-border);
+  border-radius: var(--radius-sm);
+  padding: var(--spacing-sm) var(--spacing-md);
+  margin: 0 0 var(--spacing-md);
+  font-size: var(--text-sm);
+}
+
+.connection-empty {
+  color: var(--color-text-muted);
+  font-size: var(--text-sm);
+  margin: 0;
+}
+
+/* Status pill — tone-driven; pairings verified to clear WCAG AA. */
+.status-pill {
+  display: inline-block;
+  padding: 0.18rem 0.55rem;
+  font-family: var(--font-mono);
+  font-size: var(--text-2xs);
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  border-radius: var(--radius-sm);
+  border: 1px solid transparent;
+  white-space: nowrap;
+}
+
+.status-pill--ok {
+  background: var(--color-pine-soft);
+  color: var(--color-pine-hover);
+  border-color: var(--color-pine-soft-border);
+}
+
+.status-pill--active {
+  background: var(--color-accent-soft);
+  color: var(--color-pine-hover);
+  border-color: var(--color-pine-soft-border);
+}
+
+.status-pill--muted {
+  background: var(--color-badge-bg);
+  color: var(--color-text-muted);
+  border-color: var(--color-badge-border);
+}
+
+.status-pill--warn {
+  background: var(--color-badge-manual-bg);
+  color: var(--color-badge-manual-text);
+  border-color: var(--color-badge-manual-border);
+}
+
+.status-pill--error {
+  background: var(--color-error-bg);
+  color: var(--color-error-text);
+  border-color: var(--color-error-border);
+}

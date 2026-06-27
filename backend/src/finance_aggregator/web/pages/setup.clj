@@ -1,95 +1,62 @@
 (ns finance-aggregator.web.pages.setup
-  "Server-rendered /setup page. Currently shows the read-only surfaces: the stats
-   bar/cards and the account list. The write actions (add/link/connect accounts,
-   CSV import) and the category manager aren't wired yet and are rendered disabled
-   pending future work."
+  "Handler (glue) for /setup: fetch → present → render → respond. Business rules
+   live in the data layer (db.*) and the presenter (web.accounts/present); the
+   hiccup lives in web.pages.setup-view. The sync actions fire a background resync
+   (statuses persist; refreshing /setup shows progress) and redirect back."
   (:require
    [finance-aggregator.db.accounts :as db-accounts]
+   [finance-aggregator.db.connections :as db-connections]
    [finance-aggregator.db.stats :as db-stats]
    [finance-aggregator.lib.log :as log]
    [finance-aggregator.resync :as resync]
    [finance-aggregator.web.accounts :as accounts]
-   [finance-aggregator.web.format :as fmt]
    [finance-aggregator.web.layout :as layout]
-   [finance-aggregator.web.shell :as shell]))
+   [finance-aggregator.web.pages.setup-view :as view])
+  (:import
+   [java.util Date]))
 
-(defn- account-row [{:account/keys [external-name currency provider mask institution] :as acct}]
-  [:tr
-   [:td [:span {:class (str "badge badge-" (if provider (name provider) "unknown"))}
-         (accounts/provider-label provider)]]
-   [:td (or (:institution/name institution) "—")]
-   [:td external-name]
-   [:td (accounts/display-type acct)]
-   [:td [:span.numeric (if mask (str "••••" mask) "—")]]
-   [:td currency]
-   [:td (when (= provider :manual)
-          [:button.button.button-secondary.button-small
-           {:disabled true :title "CSV import — coming in a later migration phase"}
-           "Import CSV"])]])
+(defn- redirect-to-setup []
+  {:status 303 :headers {"Location" "/setup"}})
 
-(defn- accounts-section [accounts]
-  [:div.card
-   [:div.section-head
-    [:h2 "Accounts " [:span.section-count (count accounts)]]
-    ;; Sync now is the one live action; the connect/link actions are deferred.
-    [:div.button-group
-     [:form {:method "post" :action "/setup/sync"}
-      [:button.button {:type "submit"} "Sync now"]]
-     [:button.button.button-secondary {:disabled true} "Add Manual Account"]
-     [:button.button {:disabled true} "Link Bank Account"]
-     [:button.button.button-secondary {:disabled true} "Connect Lunchflow"]]]
-   (if (empty? accounts)
-     [:div.empty-state
-      [:div.empty-state-title "No accounts yet"]
-      [:p "Link a bank through Plaid, connect Lunchflow, or add a manual account "
-       "to start importing transactions."]]
-     [:table.table
-      [:thead
-       [:tr [:th "Source"] [:th "Institution"] [:th "Name"] [:th "Type"]
-        [:th "Mask"] [:th "Currency"] [:th "Actions"]]]
-      [:tbody (map account-row (accounts/sort-accounts accounts))]])])
-
-(defn- stat-card [value label]
-  [:div.stat-card
-   [:div.stat-value value]
-   [:div.stat-label label]])
+(defn- background
+  "Run a resync action in the background, logging (never propagating) failures
+   outside the engine's per-connection isolation. The 303 never waits on it."
+  [label thunk]
+  (future
+    (try (thunk)
+         (catch Throwable t
+           (log/error label {:error (.getMessage t)})))))
 
 (defn sync-now
-  "Factory: POST /setup/sync handler. Fires one resilient-sync pass over all
-   connections in the background (statuses persist; refreshing /setup shows
-   progress) and redirects back. The engine is internally isolated per
-   connection, so the future never needs the request to wait on it; a failure
-   outside that isolation (e.g. registry reconciliation) is logged, not lost."
+  "Factory: POST /setup/sync — fire one resilient-sync pass over every due
+   connection in the background, then redirect back."
   [deps]
   (fn [_req]
-    (future
-      (try
-        (resync/resync-all! deps)
-        (catch Throwable t
-          (log/error "Background resync pass failed" {:error (.getMessage t)}))))
-    {:status 303 :headers {"Location" "/setup"}}))
+    (background "Background resync pass failed" #(resync/resync-all! deps))
+    (redirect-to-setup)))
+
+(defn resync-connection
+  "Factory: POST /setup/resync — resync a single connection (form field
+   connection-id) in the background, then redirect back. Unknown/blank ids are a
+   no-op redirect."
+  [{:keys [db-conn] :as deps}]
+  (fn [req]
+    (when-let [id (not-empty (get-in req [:params "connection-id"]))]
+      (when (db-connections/get-connection db-conn id)
+        (background "Background per-connection resync failed"
+                    #(resync/resync-connection! deps {:connection/id id}))))
+    (redirect-to-setup)))
 
 (defn page
-  "Factory: GET /setup handler. Renders the stats bar/cards + account list."
+  "Factory: GET /setup — render the stats strip + connection cards."
   [{:keys [db-conn]}]
   (fn [_req]
-    (let [stats (db-stats/entity-counts db-conn)
-          accounts (db-accounts/list-with-institution db-conn)]
+    (let [model (accounts/present
+                 {:stats       (db-stats/entity-counts db-conn)
+                  :connections (db-connections/list-connections db-conn)
+                  :accounts    (db-accounts/list-with-institution db-conn)
+                  :now         (Date.)})]
       {:status 200
        :headers {"Content-Type" "text/html"}
-       :body
-       (layout/document
-        {:title "Setup · Finance Aggregator"}
-        [:div.container
-         (shell/masthead {:active :setup :stats stats})
-         [:div.page-head
-          [:span.eyebrow "Configuration"]
-          [:h2.page-title "Setup"]
-          [:p.page-lede
-           "Connect institutions, manage accounts, and curate the category system "
-           "your transactions are sorted into."]]
-         [:div.stats-grid
-          (stat-card (fmt/integer (:institutions stats)) "Institutions")
-          (stat-card (fmt/integer (:accounts stats)) "Accounts")
-          (stat-card (fmt/integer (:transactions stats)) "Transactions")]
-         (accounts-section accounts)])})))
+       :body (layout/document {:title "Setup · Finance Aggregator"}
+                              (view/body model))})))

@@ -5,9 +5,10 @@
    [datalevin.core :as d]))
 
 (def account-pull-pattern
-  "Pull an account with its institution name — the shape both the JSON API and
-   the hypermedia setup page render."
-  '[* {:account/institution [:db/id :institution/name]}])
+  "Pull an account with its institution name and the id of the connection that
+   syncs it — the shape both the JSON API and the hypermedia setup page render."
+  '[* {:account/institution [:db/id :institution/name]
+       :account/connection [:connection/id]}])
 
 (defn list-with-institution
   "All accounts (with institution info) as pulled maps."

@@ -1,6 +1,6 @@
 (ns finance-aggregator.web.accounts-test
   (:require
-   [clojure.test :refer [deftest is]]
+   [clojure.test :refer [deftest is testing]]
    [finance-aggregator.web.accounts :as accounts]))
 
 (deftest provider-label
@@ -24,3 +24,51 @@
               (accounts/sort-accounts [{:account/external-name "C"}
                                        {:account/external-name "A"}
                                        {:account/external-name "B"}])))))
+
+(deftest connection-status-presentation
+  (is (= {:label "Synced" :tone "ok"} (accounts/connection-status :synced)))
+  (is (= {:label "Needs reconnect" :tone "error"} (accounts/connection-status :needs-reconnect)))
+  (is (= {:label "Retrying" :tone "warn"} (accounts/connection-status :stale)))
+  (is (= "muted" (:tone (accounts/connection-status :something-new)))
+      "unknown status -> muted tone")
+  (is (= "Something-new" (:label (accounts/connection-status :something-new)))))
+
+(def ^:private fixed-now (java.util.Date. 1700000000000))
+
+(defn- acct [name conn-id]
+  (cond-> {:account/external-name name :account/provider :plaid}
+    conn-id (assoc :account/connection {:connection/id conn-id})))
+
+(deftest connection-groups-buckets-accounts-by-connection
+  (let [connections [{:connection/id "plaid:b" :connection/provider :plaid
+                      :connection/institution-name "Bravo" :connection/status :synced
+                      :connection/last-success-at (java.util.Date. (- 1700000000000 (* 3 60 1000)))}
+                     {:connection/id "plaid:a" :connection/provider :plaid
+                      :connection/institution-name "Alpha" :connection/status :pending}]
+        accounts [(acct "Acct-A1" "plaid:a")
+                  (acct "Acct-B1" "plaid:b")
+                  (acct "Acct-B2" "plaid:b")
+                  (acct "Orphan" "plaid:gone")     ; dangling ref -> unlinked
+                  (acct "Legacy" nil)]             ; no ref yet -> unlinked
+        {:keys [groups unlinked]} (accounts/connection-groups connections accounts fixed-now)]
+    (testing "groups ordered by institution name"
+      (is (= ["Alpha" "Bravo"] (map :institution-name groups))))
+    (testing "each group carries its accounts, status pill and last-synced"
+      (let [bravo (second groups)]
+        (is (= ["Acct-B1" "Acct-B2"] (map :name (:accounts bravo))))
+        (is (= {:label "Synced" :tone "ok"} (:status bravo)))
+        (is (= "3 min ago" (:last-synced bravo)))
+        (is (= "Plaid" (:badge-label bravo)))
+        (is (= "badge-plaid" (:badge-class bravo)))))
+    (testing "a pending connection with no accounts still renders, last-synced 'never'"
+      (let [alpha (first groups)]
+        (is (= ["Acct-A1"] (map :name (:accounts alpha))))
+        (is (= "never" (:last-synced alpha)))))
+    (testing "accounts with no/dangling connection ref are returned as unlinked"
+      (is (= ["Legacy" "Orphan"] (map :name unlinked))))))
+
+(deftest present-bundles-stats-and-groups
+  (let [model (accounts/present {:stats {:accounts 1} :connections [] :accounts [] :now fixed-now})]
+    (is (= {:accounts 1} (:stats model)))
+    (is (= [] (:groups model)))
+    (is (= [] (:unlinked model)))))

@@ -16,3 +16,16 @@
   (is (= "1,234" (fmt/integer 1234)))
   (is (= "0" (fmt/integer 0)))
   (is (= "1,000,000" (fmt/integer 1000000))))
+
+(deftest relative-time-humanizes
+  (let [now (java.util.Date. 1700000000000)
+        ago (fn [ms] (java.util.Date. (- 1700000000000 ms)))]
+    (is (= "never" (fmt/relative-time nil now)))
+    (is (= "just now" (fmt/relative-time (ago 5000) now)))
+    (is (= "3 min ago" (fmt/relative-time (ago (* 3 60 1000)) now)))
+    (is (= "5 hr ago" (fmt/relative-time (ago (* 5 60 60 1000)) now)))
+    (is (= "1 day ago" (fmt/relative-time (ago (* 24 60 60 1000)) now)))
+    (is (= "2 days ago" (fmt/relative-time (ago (* 2 24 60 60 1000)) now)))
+    ;; A week or older falls back to the absolute date.
+    (is (= (fmt/date (ago (* 30 24 60 60 1000)))
+           (fmt/relative-time (ago (* 30 24 60 60 1000)) now)))))
