@@ -17,12 +17,12 @@
    [:div.stat-label label]])
 
 (defn- action-bar
-  "Top actions. Sync all + Connect Lunchflow are live; Link Bank Account lands in
-   the next chunk; Add Manual Account stays deferred."
+  "Top actions. Sync all is a Datastar @post that live-patches the connections
+   list (no page reload); Connect Lunchflow links out; Link Bank Account is the
+   Plaid-link island trigger; Add Manual Account stays deferred."
   []
   [:div.button-group
-   [:form {:method "post" :action "/setup/sync"}
-    [:button.button {:type "submit"} "Sync all"]]
+   [:button.button {"data-on:click" "@post('/setup/sync')"} "Sync all"]
    [:button.button.button-secondary {:disabled true :title "Coming soon"} "Add Manual Account"]
    ;; The plaid-link island (loaded on /setup) wires this button to the embedded
    ;; Plaid Link flow; it stays inert (no handler) if the island fails to load.
@@ -43,25 +43,28 @@
 
 (defn- connection-card
   "One sync connection: institution + provider badge, status pill, last-synced,
-   a Resync action, an optional error line, and the accounts it owns."
-  [{:keys [id badge-label badge-class institution-name status last-synced
-           error-message accounts]}]
-  [:div.card.connection-card
-   [:div.connection-head
-    [:div.connection-id
-     [:span {:class (str "badge " badge-class)} badge-label]
-     [:span.connection-name institution-name]]
-    [:div.connection-meta
-     [:span {:class (str "status-pill status-pill--" (:tone status))} (:label status)]
-     [:span.connection-synced "Last synced " last-synced]
-     [:form.connection-resync {:method "post" :action "/setup/resync"}
-      [:input {:type "hidden" :name "connection-id" :value id}]
-      [:button.button.button-secondary.button-small {:type "submit"} "Resync"]]]]
-   (when error-message
-     [:p.connection-error error-message])
-   (if (seq accounts)
-     (accounts-table accounts)
-     [:p.connection-empty "No accounts on this connection yet."])])
+   a Resync action (Datastar @post — patches the card live, no page reload), an
+   optional error line, and the accounts it owns. Disabled while :syncing."
+  [{:keys [badge-label badge-class institution-name status-kw status last-synced
+           error-message resync-url accounts]}]
+  (let [syncing? (= :syncing status-kw)]
+    [:div.card.connection-card
+     [:div.connection-head
+      [:div.connection-id
+       [:span {:class (str "badge " badge-class)} badge-label]
+       [:span.connection-name institution-name]]
+      [:div.connection-meta
+       [:span {:class (str "status-pill status-pill--" (:tone status))} (:label status)]
+       [:span.connection-synced "Last synced " last-synced]
+       [:button.button.button-secondary.button-small
+        (cond-> {"data-on:click" (str "@post('" resync-url "')")}
+          syncing? (assoc :disabled true))
+        "Resync"]]]
+     (when error-message
+       [:p.connection-error error-message])
+     (if (seq accounts)
+       (accounts-table accounts)
+       [:p.connection-empty "No accounts on this connection yet."])]))
 
 (defn- unlinked-card
   "Accounts not yet stamped to a connection (legacy rows; their next sync links
@@ -73,10 +76,25 @@
    [:p.connection-empty "These accounts will attach to their connection on the next sync."]
    (accounts-table accounts)])
 
+(defn connections-section
+  "The #connections container: a card per connection (+ any unlinked accounts), or
+   the empty state. This is the fragment the sync SSE actions morph in place, so it
+   carries the stable #connections id and is rendered both on first load and on
+   every live patch."
+  [{:keys [groups unlinked]}]
+  [:div#connections
+   (if (and (empty? groups) (empty? unlinked))
+     [:div.card
+      [:div.empty-state
+       [:div.empty-state-title "No connections yet"]
+       [:p "Link a bank through Plaid or connect Lunchflow to start importing transactions."]]]
+     (list
+      (for [group groups] (connection-card group))
+      (when (seq unlinked) (unlinked-card unlinked))))])
+
 (defn body
-  "The full /setup page body for the given view-model
-   {:stats :groups :unlinked}."
-  [{:keys [stats groups unlinked]}]
+  "The full /setup page body for the given view-model {:stats :groups :unlinked}."
+  [{:keys [stats groups] :as model}]
   [:div.container
    (shell/masthead {:active :setup :stats stats})
    [:div.page-head
@@ -91,14 +109,7 @@
    [:div.section-head
     [:h2 "Connections " [:span.section-count (count groups)]]
     (action-bar)]
-   (if (and (empty? groups) (empty? unlinked))
-     [:div.card
-      [:div.empty-state
-       [:div.empty-state-title "No connections yet"]
-       [:p "Link a bank through Plaid or connect Lunchflow to start importing transactions."]]]
-     (list
-      (for [group groups] (connection-card group))
-      (when (seq unlinked) (unlinked-card unlinked))))])
+   (connections-section model)])
 
 ;;; Lunchflow account selection -------------------------------------------
 

@@ -54,6 +54,12 @@
 (defn- connection-id-of [account]
   (get-in account [:account/connection :connection/id]))
 
+(defn- resync-url
+  "POST URL for resyncing one connection — the id rides as a query param so the
+   colon in 'plaid:<item>' needs no path-segment decoding (wrap-params decodes it)."
+  [id]
+  (str "/setup/resync?connection-id=" (java.net.URLEncoder/encode (str id) "UTF-8")))
+
 (defn- connection-group
   "Presentation map for one connection: its badge, status pill, humanized
    last-synced, error, and the (display-shaped) accounts stamped to it."
@@ -68,6 +74,7 @@
    :status           (connection-status status)
    :last-synced      (fmt/relative-time last-success-at now)
    :error-message    error-message
+   :resync-url       (resync-url id)
    :accounts         (mapv account-display (sort-accounts (get accounts-by-conn id [])))})
 
 (defn connection-groups

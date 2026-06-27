@@ -18,7 +18,10 @@
    [finance-aggregator.resync :as resync]
    [finance-aggregator.web.accounts :as accounts]
    [finance-aggregator.web.layout :as layout]
-   [finance-aggregator.web.pages.setup-view :as view])
+   [finance-aggregator.web.pages.setup-view :as view]
+   [finance-aggregator.web.render :as r]
+   [starfederation.datastar.clojure.adapter.http-kit :as hk]
+   [starfederation.datastar.clojure.api :as d*])
   (:import
    [java.util Date]))
 
@@ -26,33 +29,70 @@
   {:status 303 :headers {"Location" "/setup"}})
 
 (defn- background
-  "Run a resync action in the background, logging (never propagating) failures
-   outside the engine's per-connection isolation. The 303 never waits on it."
+  "Run an action in the background, logging (never propagating) failures outside
+   the engine's per-connection isolation. The response never waits on it."
   [label thunk]
   (future
     (try (thunk)
          (catch Throwable t
            (log/error label {:error (.getMessage t)})))))
 
-(defn sync-now
-  "Factory: POST /setup/sync — fire one resilient-sync pass over every due
-   connection in the background, then redirect back."
-  [deps]
-  (fn [_req]
-    (background "Background resync pass failed" #(resync/resync-all! deps))
-    (redirect-to-setup)))
+(defn- sse
+  "Open an SSE response, run `emit` (a fn of the sse channel), then close — the
+   hk/->sse-response + on-open + close-sse! envelope."
+  [req emit]
+  (hk/->sse-response req {hk/on-open (fn [s] (emit s) (d*/close-sse! s))}))
 
-(defn resync-connection
-  "Factory: POST /setup/resync — resync a single connection (form field
-   connection-id) in the background, then redirect back. Unknown/blank ids are a
-   no-op redirect."
+(defn- connections-model
+  "Present model for the #connections fragment, overriding the status of any
+   connection in `syncing-ids` to :syncing with its error cleared — the optimistic
+   in-flight render shown while a sync runs (so the stale error banner disappears
+   immediately and the pill reads Syncing…)."
+  [db-conn now syncing-ids]
+  (let [conns (mapv (fn [c]
+                      (if (contains? syncing-ids (:connection/id c))
+                        (-> c (assoc :connection/status :syncing)
+                            (dissoc :connection/error-message))
+                        c))
+                    (db-connections/list-connections db-conn))]
+    (accounts/present {:stats (db-stats/entity-counts db-conn)
+                       :connections conns
+                       :accounts (db-accounts/list-with-institution db-conn)
+                       :now now})))
+
+(defn- patch-connections!
+  "Morph the #connections fragment into the live SSE response from fresh DB state,
+   showing the connections in `syncing-ids` as in-flight."
+  [sse-chan db-conn syncing-ids]
+  (d*/patch-elements! sse-chan
+                      (r/render (view/connections-section
+                                 (connections-model db-conn (Date.) syncing-ids)))))
+
+(defn sync-now
+  "Factory: POST /setup/sync — live-sync every connection over SSE: flip all cards
+   to Syncing…, run one resilient-sync pass, then patch the final state. No reload."
   [{:keys [db-conn] :as deps}]
   (fn [req]
-    (when-let [id (not-empty (get-in req [:params "connection-id"]))]
-      (when (db-connections/get-connection db-conn id)
-        (background "Background per-connection resync failed"
-                    #(resync/resync-connection! deps {:connection/id id}))))
-    (redirect-to-setup)))
+    (sse req
+         (fn [sse-chan]
+           (let [ids (set (map :connection/id (db-connections/list-connections db-conn)))]
+             (patch-connections! sse-chan db-conn ids)
+             (resync/resync-all! deps)
+             (patch-connections! sse-chan db-conn #{}))))))
+
+(defn resync-connection
+  "Factory: POST /setup/resync?connection-id=… — live-resync one connection over
+   SSE: flip its card to Syncing… (clearing any error), run the resync, patch the
+   result. Unknown/blank ids close the stream with no change."
+  [{:keys [db-conn] :as deps}]
+  (fn [req]
+    (let [id (not-empty (get-in req [:params "connection-id"]))]
+      (sse req
+           (fn [sse-chan]
+             (when (and id (db-connections/get-connection db-conn id))
+               (patch-connections! sse-chan db-conn #{id})
+               (resync/resync-connection! deps {:connection/id id})
+               (patch-connections! sse-chan db-conn #{})))))))
 
 (defn page
   "Factory: GET /setup — render the stats strip + connection cards."

@@ -49,8 +49,12 @@ const synced = await page.locator('.connection-card .connection-synced').first()
 check('shows last synced', /last synced/i.test(synced), synced);
 
 // 5. Per-connection Resync action present, posting to /setup/resync.
-const resyncAction = await page.locator('.connection-card form.connection-resync').getAttribute('action');
-check('resync form posts to /setup/resync', resyncAction === '/setup/resync', String(resyncAction));
+// Resync is a Datastar @post (patches the card live), NOT a reload-causing form.
+const resyncAttr = await page.locator('.connection-card button', { hasText: 'Resync' })
+  .getAttribute('data-on:click');
+check('Resync is a Datastar @post to /setup/resync', /@post\('\/setup\/resync/.test(resyncAttr || ''),
+  String(resyncAttr));
+check('no reload-causing resync form', await page.locator('form.connection-resync').count() === 0);
 
 // 6. The connection's account table has 4 rows, names sorted in the first column.
 const rowCount = await page.locator('.connection-card table.table tbody tr').count();
@@ -66,8 +70,12 @@ check('type column = [chequing, loan, savings, credit]',
   JSON.stringify(types.map((t) => t.trim())) === '["chequing","loan","savings","credit"]',
   JSON.stringify(types));
 
-// 8. Action bar: Sync all, Link Bank Account (island button), Connect Lunchflow.
-check('Sync all button present', await page.locator('form[action="/setup/sync"] button').count() === 1);
+// 8. Action bar: Sync all (Datastar @post, no form → no flash), Link Bank Account
+//    (island button), Connect Lunchflow.
+const syncAllAttr = await page.locator('button', { hasText: 'Sync all' }).getAttribute('data-on:click');
+check('Sync all is a Datastar @post to /setup/sync', /@post\('\/setup\/sync'\)/.test(syncAllAttr || ''),
+  String(syncAllAttr));
+check('no reload-causing sync form', await page.locator('form[action="/setup/sync"]').count() === 0);
 check('Link Bank Account button present (#plaid-link-btn)',
   await page.locator('#plaid-link-btn').count() === 1);
 const lunchHref = await page.locator('a', { hasText: 'Connect Lunchflow' }).getAttribute('href');
@@ -77,7 +85,23 @@ check('Connect Lunchflow links to /setup/lunchflow', lunchHref === '/setup/lunch
 const bodyFont = await page.evaluate(() => getComputedStyle(document.body).fontFamily);
 check('design system CSS applied (Hanken Grotesk on body)', /Hanken Grotesk/i.test(bodyFont), bodyFont);
 
-// 10. The Lunchflow selection page renders. The handler renders an inline error
+// 10. Clicking "Sync all" must NOT reload the page (the bug: a full-page flash).
+//     A window marker set before the click survives only if there's no navigation;
+//     the Datastar SSE action patches in place. (The sync itself needs real Plaid
+//     creds the e2e env lacks, so we assert the no-reload contract, not the
+//     outcome — the live-patch render is covered by the kaocha render test.)
+await page.evaluate(() => {
+  (window as unknown as { __noReload?: boolean }).__noReload = true;
+});
+await page.locator('button', { hasText: 'Sync all' }).click();
+await page.waitForTimeout(600);
+const noReload = await page.evaluate(
+  () => (window as unknown as { __noReload?: boolean }).__noReload === true,
+);
+check('Sync all does not reload the page (no flash)', noReload && page.url().endsWith('/setup'),
+  `noReload=${noReload} url=${page.url()}`);
+
+// 11. The Lunchflow selection page renders. The handler renders an inline error
 //     when Lunchflow is unreachable (no key in the e2e env), which still proves
 //     the page + masthead render.
 await page.goto(`${BASE}/setup/lunchflow`, { waitUntil: 'networkidle' });

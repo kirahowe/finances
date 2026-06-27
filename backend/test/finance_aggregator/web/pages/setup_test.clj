@@ -41,15 +41,14 @@
       (is (str/includes? body "Test Bank"))
       (is (str/includes? body "Chequing"))
       (is (str/includes? body "Synced"))
-      (is (str/includes? body "Resync"))
-      (is (str/includes? body "••••0001")))))
-
-(deftest resync-connection-handler-no-op-guards
-  (let [handler (setup-page/resync-connection {:db-conn setup/*test-conn*})]
-    (testing "blank connection-id redirects without firing a resync"
-      (is (= 303 (:status (handler {:params {"connection-id" ""}})))))
-    (testing "unknown connection-id redirects without firing a resync"
-      (is (= 303 (:status (handler {:params {"connection-id" "nope"}})))))))
+      (is (str/includes? body "••••0001"))
+      (testing "the connections list is the patchable #connections fragment"
+        (is (str/includes? body "id=\"connections\"")))
+      (testing "Resync is a Datastar @post action (no full-page form), not a reload"
+        (is (str/includes? body "data-on:click"))
+        (is (str/includes? body "/setup/resync?connection-id="))
+        (is (not (str/includes? body "action=\"/setup/resync\""))
+            "the old reload-causing form is gone")))))
 
 (deftest lunchflow-page-renders-selection
   (with-redefs [provider/available-accounts
