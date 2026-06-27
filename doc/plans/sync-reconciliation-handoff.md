@@ -176,9 +176,9 @@ update-mode re-auth token; (e) `bb resync` / `clojure -M:resync` / "Sync now".
 
 **Realized differently from the (a)-(e) sketch (intentional, cleaner):** rather than repointing the dead
 per-item `plaid.service`, it was **deleted** — `resync.clj` is the single sync entry. The cursor moved
-out of Plaid's `:on-complete` into the generic per-page `provider/sync.clj` advance, so cursor-after-
-persist holds per page. ws status stays Plaid-flavored (`:syncing-historical`, keyed by item-id) while
-the connection vocab is generic (`:backfilling`); the orchestrator never names a Plaid-ism.
+out of Plaid's `:on-complete` into the generic `provider/sync.clj` advance (persisted on loop
+completion). The connection-status vocabulary is generic (`:backfilling` etc.); the orchestrator never
+names a Plaid-ism. (The old WebSocket sync-status push was removed 2026-06-26 — see below.)
 
 **NEXT — Phase 3** (see the Deferred section below and the plan doc): dedup/merge across providers;
 surface drift when a Plaid `modified` changes a user-overridden field; manual↔synced match (exact amount
@@ -248,9 +248,12 @@ status (Plaid). Numbers encoded in `provider.retry/default-policy`.
   restarts and idempotently re-pulls (replay safe; skipping still prevented). The mutation error
   classifies to the generic `:reset` action → discard the cursor + re-sync from scratch (bounded), which
   self-heals any cursor the old behavior corrupted.
-- **WebSocket status** (`ws/state.clj`) is keyed per item-id for Plaid (the `:status-key` dep). When the
-  engine moves to connections, derive the status key from the connection; keep `:syncing-historical`
-  semantics behind Plaid (don't let it leak into generic code) — this seals the last seam leaks.
+- **Live sync status is Datastar SSE (no WebSocket).** The old `ws/state.clj` + `ws/handler.clj` + `/ws`
+  endpoint were REMOVED 2026-06-26 — nothing connected to the socket, so the engine was broadcasting to
+  zero subscribers. `provider/sync.clj` no longer pushes status (or carries `:status-key`/`:status-opts`);
+  exceptions propagate to `resync`'s per-connection isolation. The /setup page shows live progress by
+  re-rendering the `#connections` fragment over SSE (`web/pages/setup` sync-now/resync-connection);
+  connection status lives in the DB (`:connection/status`), read on each render.
 - **Datalevin schema is additive** at every `get-conn` — new attrs need no migration; moved *data* (the
   cursor seed) does, handled lazily in (a).
 - **No `Date.now()`/`rand` purity issues in app code** (only workflow scripts forbid them) — but keep

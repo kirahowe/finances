@@ -259,7 +259,8 @@ The app is wired through a reitit router (`http/router.clj`) that serves:
 - `/api/*` JSON endpoints — see `http/routes/` (stats, categories, transactions,
   transfers, entities, plaid, providers, csv) with handlers in `http/handlers/`
 - Server-rendered hypermedia pages (hiccup2 SSR + Datastar) — see `web/routes.clj`
-- A `/ws` WebSocket endpoint and static assets (`/js/*`, `/css/*`) from `resources/public/`
+- Static assets (`/js/*`, `/css/*`) from `resources/public/` (live updates are
+  Datastar SSE on the page routes; the old `/ws` WebSocket was removed 2026-06-26)
 
 Browse `http/routes/` for the authoritative, current route list.
 

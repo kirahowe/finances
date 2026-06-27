@@ -88,7 +88,7 @@ backend/
 │   │   └── credentials.clj         # Encrypted token storage (:credential/*)
 │   ├── http/
 │   │   ├── server.clj              # HTTP server component (lifecycle)
-│   │   ├── router.clj              # Reitit router: SSR pages + WebSocket + static
+│   │   ├── router.clj              # Reitit router: SSR pages + static
 │   │   ├── middleware.clj          # Params / request processing
 │   │   ├── errors.clj              # Exception handling middleware
 │   │   └── routes/
@@ -105,9 +105,6 @@ backend/
 │   │   ├── accounts.clj            # Account view fragments
 │   │   ├── month.clj               # Month navigation helpers
 │   │   └── format.clj              # Display formatting
-│   ├── ws/
-│   │   ├── handler.clj             # WebSocket endpoint (/ws)
-│   │   └── state.clj               # WebSocket connection state
 │   ├── provider/
 │   │   ├── sync.clj                # Shared sync orchestration + persist-transactions! ingest point
 │   │   ├── normalize.clj           # Canonical amount normalization (invert-amount, once at import)
@@ -258,16 +255,17 @@ Datalevin provides a Datalog database with:
 
 ## Routes
 
-The router (`http/router.clj`) mounts the server-rendered hypermedia app plus a
-WebSocket endpoint and static assets. There is **no `/api` JSON layer** — it was
-removed when the app moved to server-side rendering.
+The router (`http/router.clj`) mounts the server-rendered hypermedia app plus
+static assets. There is **no `/api` JSON layer** — it was removed when the app
+moved to server-side rendering. Live updates (transaction edits, setup sync
+progress) are Datastar SSE on the page routes, not a separate socket.
 
 - **Server-rendered hypermedia pages** (`web/routes.clj`) — the Datastar UI: `/`
   (transactions workspace) and `/setup`, plus the fragment/SSE routes the workspace
-  morphs (transaction edits, splits, transfer match/review, undo/redo). See the
-  workspace handoff [`datastar-handoff.md`](../doc/plans/datastar-handoff.md) for the
-  full route list.
-- **WebSocket** at `/ws` (`ws/handler.clj`) — live sync-status push.
+  morphs (transaction edits, splits, transfer match/review, undo/redo) and the
+  setup sync actions (`/setup/sync`, `/setup/resync`) that live-patch the
+  connections list. See the workspace handoff
+  [`datastar-handoff.md`](../doc/plans/datastar-handoff.md) for the full route list.
 - **Static assets** (`http/routes/static.clj`) — built islands + Datastar runtime.
 
 See `src/finance_aggregator/web/routes.clj` for the page/fragment routes.
