@@ -123,10 +123,7 @@
           upsert-txns (concat added modified)
           {parsed-txns :success
            tx-errors :errors} (safe-parse-transactions upsert-txns auth/user-id)
-          removed-ext-ids (mapv :transaction_id removed)
-          progress {:added (count added)
-                    :modified (count modified)
-                    :removed (count removed)}]
+          removed-ext-ids (mapv :transaction_id removed)]
       (if has-more
         ;; Mid-paging: hand the orchestrator this page, advance the cursor, and
         ;; loop. next-cursor is always valid here, so persist it unconditionally.
@@ -165,7 +162,4 @@
            :more? false
            :sync-state (when store-cursor? next-cursor)
            :status final-status
-           :status-opts {:institution-name institution-name
-                         :transaction-count (count parsed-txns)
-                         :progress progress}
            :errors tx-errors})))))

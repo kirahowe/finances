@@ -15,19 +15,13 @@
    [finance-aggregator.lunchflow.client :as lf-client]
    [finance-aggregator.plaid.client :as client]
    [finance-aggregator.resync :as resync]
-   [finance-aggregator.test-utils.setup :as setup]
-   [finance-aggregator.ws.state :as ws-state])
+   [finance-aggregator.test-utils.setup :as setup])
   (:import
    [java.util Date]))
 
 ;;; Fixtures ---------------------------------------------------------------
 
-(defn clear-ws-state [f]
-  (doseq [[item-id _] (ws-state/get-all-sync-states)]
-    (ws-state/clear-sync-status! item-id))
-  (f))
-
-(use-fixtures :each setup/with-empty-db clear-ws-state)
+(use-fixtures :each setup/with-empty-db)
 
 ;;; Helpers ----------------------------------------------------------------
 

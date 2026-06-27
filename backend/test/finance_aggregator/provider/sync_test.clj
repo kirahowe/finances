@@ -1,16 +1,15 @@
 (ns finance-aggregator.provider.sync-test
   "Tests the generic sync orchestrator against a fake in-memory `:test`
    provider (no network). Locks down account-before-transaction ordering,
-   cross-page removed-transaction retraction, :more?/:next-opts looping, and
-   WebSocket status transitions."
+   cross-page removed-transaction retraction, :more?/:next-opts looping, the
+   terminal-status / on-complete hooks, and the no-mid-pagination-cursor guarantee."
   (:require
    [clojure.test :refer [deftest is testing use-fixtures]]
    [datalevin.core :as d]
    [finance-aggregator.db.connections :as connections]
    [finance-aggregator.provider :as provider]
    [finance-aggregator.provider.sync :as sync]
-   [finance-aggregator.test-utils.setup :as setup]
-   [finance-aggregator.ws.state :as ws])
+   [finance-aggregator.test-utils.setup :as setup])
   (:import
    [java.util Date]))
 
@@ -100,9 +99,6 @@
    :removed []
    :more? false
    :status :syncing-historical
-   :status-opts {:institution-name "Rich Inst"
-                 :transaction-count 1
-                 :progress {:added 1 :modified 0 :removed 0}}
    ;; Records what the db looks like at on-complete time, to prove it runs
    ;; AFTER transactions are persisted.
    :on-complete (fn []
@@ -139,10 +135,7 @@
 
     (testing "paged transactions land, and cross-page removed id is retracted"
       ;; t1 inserted on page 0 then removed on page 1; t2 and t3 remain.
-      (is (= #{"t2" "t3"} (tx-external-ids conn))))
-
-    (testing "ws status advanced to :synced"
-      (is (= :synced (:status (ws/get-sync-status "test")))))))
+      (is (= #{"t2" "t3"} (tx-external-ids conn))))))
 
 (deftest sync-provider-persists-terminal-sync-state-not-mid-pagination
   (testing "With a :connection-id, only the terminal page's cursor is persisted -
@@ -185,9 +178,7 @@
       (is (thrown? clojure.lang.ExceptionInfo
                    (sync/sync-provider! {:db-conn conn :connection-id "crash-conn"} :test-crash)))
       (is (nil? (connections/get-sync-state conn "crash-conn"))
-          "mid-pagination cursor 'crash-cur-0' must NOT be persisted")
-      ;; ws status-key defaults to the provider name when deps carry no :status-key.
-      (is (= :failed (:status (ws/get-sync-status "test-crash")))))))
+          "mid-pagination cursor 'crash-cur-0' must NOT be persisted"))))
 
 (deftest sync-provider-without-connection-id-skips-sync-state
   (testing "No :connection-id => no connection writes, sync still completes"
@@ -231,34 +222,23 @@
                  (sync/persist-transactions!
                   conn [(assoc (canonical-txn "tx-x") :transaction/reviewed true)])))))
 
-(deftest sync-provider-marks-failed-and-rethrows-on-error
+(deftest sync-provider-rethrows-on-error
   (let [conn setup/*test-conn*]
     (seed-user! conn)
-    ;; No :boom methods registered -> dispatch throws IllegalArgumentException.
+    ;; No :boom methods registered -> dispatch throws IllegalArgumentException,
+    ;; which propagates to the caller (resync's per-connection isolation records it).
     (is (thrown? IllegalArgumentException
-                 (sync/sync-provider! {:db-conn conn} :boom)))
-    (is (= :failed (:status (ws/get-sync-status "boom"))))))
+                 (sync/sync-provider! {:db-conn conn} :boom)))))
 
-(deftest sync-provider-honors-status-key-terminal-status-and-on-complete
+(deftest sync-provider-honors-terminal-status-and-on-complete
   (let [conn setup/*test-conn*]
     (reset! on-complete-calls [])
     (seed-user! conn)
     (testing "returns the provider's terminal status, not a hardcoded :synced"
       (is (= :syncing-historical
-             (sync/sync-provider! {:db-conn conn :status-key "custom-key"} :test-rich))))
+             (sync/sync-provider! {:db-conn conn} :test-rich))))
 
     (testing ":on-complete runs after transactions are persisted"
       (is (= 1 (count @on-complete-calls)) "on-complete invoked exactly once")
       (is (seq (first @on-complete-calls))
-          "rt-1 already in db when on-complete ran (post-persist hook)"))
-
-    (testing "ws status pushed under the custom status-key with status-opts payload"
-      (let [st (ws/get-sync-status "custom-key")]
-        (is (= :syncing-historical (:status st)))
-        (is (= "Rich Inst" (:institution-name st)))
-        (is (= 1 (:transaction-count st)))
-        (is (= {:added 1 :modified 0 :removed 0} (:progress st)))))
-
-    (testing "default provider-key naming still applies when no status-key given"
-      (is (nil? (ws/get-sync-status "test-rich"))
-          "nothing was pushed under the bare provider name"))))
+          "rt-1 already in db when on-complete ran (post-persist hook)"))))

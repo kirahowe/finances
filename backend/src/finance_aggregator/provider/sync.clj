@@ -15,8 +15,7 @@
    [finance-aggregator.lib.log :as log]
    [finance-aggregator.provider :as provider]
    [finance-aggregator.provider.contract :as contract]
-   [finance-aggregator.provider.normalize :as normalize]
-   [finance-aggregator.ws.state :as ws])
+   [finance-aggregator.provider.normalize :as normalize])
   (:import
    [java.util Date]))
 
@@ -57,10 +56,9 @@
   "Sync a single provider end-to-end. Returns the terminal sync status.
 
    deps: {:db-conn .. :secrets ..} plus anything a provider needs; passed as the
-   opts to fetch-accounts and as the initial opts to fetch-transactions.
-   An optional :status-key in deps overrides the WebSocket status key (Plaid
-   keys status per item-id rather than per provider). An optional :connection-id
-   in deps enables resumable sync-state persistence (the cursor, on loop completion).
+   opts to fetch-accounts and as the initial opts to fetch-transactions. An
+   optional :connection-id in deps enables resumable sync-state persistence (the
+   cursor, on loop completion) and stamps each account with its owning connection.
 
    Each `fetch-transactions` page may carry:
    - :sync-state  the new opaque per-provider sync-state (Plaid's next cursor),
@@ -76,62 +74,52 @@
                   when deps carry a :connection-id.
 
    The final page may additionally carry provider-specific finalization:
-   - :status      terminal ws status to publish (default :synced). Lets Plaid
-                  report :syncing-historical / :pending instead of :synced.
-   - :status-opts extra kvs (:institution-name :transaction-count :progress)
-                  merged into the terminal ws push.
+   - :status      terminal status to return (default :synced). Lets Plaid report
+                  :syncing-historical / :pending instead of :synced.
    - :on-complete a thunk run AFTER the final persist + retract.
 
    Each page may also carry :errors (items the provider couldn't parse); the
    counts are summed across pages and warned once at the end, so a silently
    skipped transaction still leaves a trail.
 
-   Pushes :syncing -> <terminal> (or :failed) to the WebSocket status state.
-   Re-throws after marking :failed."
+   Exceptions propagate to the caller; resync's per-connection isolation records
+   them (status side-channels live there, not here)."
   [{:keys [db-conn connection-id] :as deps} provider-key]
-  (let [status-key (or (:status-key deps) (name provider-key))]
-    (ws/update-sync-status! status-key :syncing)
-    (try
-      (let [{:keys [institutions accounts]} (provider/fetch-accounts provider-key deps)
-            ;; Stamp the owning connection onto each account (when this is a
-            ;; connection-driven sync), so the setup view can group accounts by
-            ;; connection and show per-connection sync freshness. Generic: the
-            ;; orchestrator knows the connection-id; the provider stays unaware.
-            accounts (cond->> accounts
-                       connection-id
-                       (map #(assoc % :account/connection [:connection/id connection-id])))]
-        (db/insert! {:institutions (set institutions)
-                     :accounts (set accounts)
-                     :transactions []}
-                    db-conn)
-        ;; Capture institution-reported balances now that accounts exist.
-        (snapshots/record-reported-balances! db-conn accounts (Date.)))
-      ;; Accounts are persisted - compute the invert-amount set once, not per page.
-      (let [inverted-ids (db-accounts/inverted-account-ids db-conn)]
-        (loop [opts deps
-               skipped 0]
-          (let [{:keys [transactions removed more? next-opts sync-state status status-opts on-complete errors]}
-                (provider/fetch-transactions provider-key opts)]
-            (persist-transactions! db-conn transactions inverted-ids)
-            (retract-removed! db-conn removed)
-            ;; Advance the resumable cursor only when the pagination loop COMPLETES
-            ;; (terminal page). Storing a mid-pagination cursor is what Plaid then
-            ;; rejects with TRANSACTIONS_SYNC_MUTATION_DURING_PAGINATION on resume;
-            ;; a crash mid-loop instead leaves the durable cursor at the loop start
-            ;; and the next pass restarts cleanly (idempotent re-pull).
-            (when (and connection-id sync-state (not more?))
-              (connections/set-sync-state! db-conn connection-id sync-state))
-            (let [skipped (+ skipped (count errors))]
-              (if more?
-                (recur next-opts skipped)
-                (let [terminal (or status :synced)]
-                  (when (pos? skipped)
-                    (log/warn "Provider transactions skipped on parse"
-                              {:provider provider-key :status-key status-key :skipped skipped}))
-                  (when on-complete (on-complete))
-                  (apply ws/update-sync-status! status-key terminal
-                         (mapcat identity status-opts))
-                  terminal))))))
-      (catch Exception e
-        (ws/update-sync-status! status-key :failed :error (.getMessage e))
-        (throw e)))))
+  (let [{:keys [institutions accounts]} (provider/fetch-accounts provider-key deps)
+        ;; Stamp the owning connection onto each account (when this is a
+        ;; connection-driven sync), so the setup view can group accounts by
+        ;; connection and show per-connection sync freshness. Generic: the
+        ;; orchestrator knows the connection-id; the provider stays unaware.
+        accounts (cond->> accounts
+                   connection-id
+                   (map #(assoc % :account/connection [:connection/id connection-id])))]
+    (db/insert! {:institutions (set institutions)
+                 :accounts (set accounts)
+                 :transactions []}
+                db-conn)
+    ;; Capture institution-reported balances now that accounts exist.
+    (snapshots/record-reported-balances! db-conn accounts (Date.)))
+  ;; Accounts are persisted - compute the invert-amount set once, not per page.
+  (let [inverted-ids (db-accounts/inverted-account-ids db-conn)]
+    (loop [opts deps
+           skipped 0]
+      (let [{:keys [transactions removed more? next-opts sync-state status on-complete errors]}
+            (provider/fetch-transactions provider-key opts)]
+        (persist-transactions! db-conn transactions inverted-ids)
+        (retract-removed! db-conn removed)
+        ;; Advance the resumable cursor only when the pagination loop COMPLETES
+        ;; (terminal page). Storing a mid-pagination cursor is what Plaid then
+        ;; rejects with TRANSACTIONS_SYNC_MUTATION_DURING_PAGINATION on resume;
+        ;; a crash mid-loop instead leaves the durable cursor at the loop start
+        ;; and the next pass restarts cleanly (idempotent re-pull).
+        (when (and connection-id sync-state (not more?))
+          (connections/set-sync-state! db-conn connection-id sync-state))
+        (let [skipped (+ skipped (count errors))]
+          (if more?
+            (recur next-opts skipped)
+            (let [terminal (or status :synced)]
+              (when (pos? skipped)
+                (log/warn "Provider transactions skipped on parse"
+                          {:provider provider-key :skipped skipped}))
+              (when on-complete (on-complete))
+              terminal)))))))

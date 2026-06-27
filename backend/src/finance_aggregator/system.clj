@@ -8,7 +8,6 @@
    [finance-aggregator.http.router :as router]
    [finance-aggregator.lib.log :as log]
    [finance-aggregator.lib.secrets :as secrets]
-   [finance-aggregator.ws.handler :as ws]
    [integrant.core :as ig]))
 
 ;;
@@ -76,8 +75,6 @@
     (throw (ex-info "Plaid config component is required for router" {:config config})))
   (when-not cors-config
     (throw (ex-info "CORS config is required for router" {:config config})))
-  ;; Initialize WebSocket system before creating router
-  (ws/init!)
   (log/info "Creating HTTP router with dependencies")
   (let [deps {:db-conn (:conn db)
               :secrets secrets

@@ -2,8 +2,8 @@
   "HTTP router component using reitit.
 
    Creates and configures the main application router with:
-   - WebSocket endpoint (at /ws)
-   - Server-rendered hypermedia pages (the live app surface)
+   - Server-rendered hypermedia pages (the live app surface; live updates are
+     Datastar SSE on the page routes, not a separate socket)
    - Static file routes
    - Middleware (CORS, JSON, query params, exception handling)"
   (:require
@@ -12,14 +12,7 @@
    [finance-aggregator.http.routes.static :as static]
    [finance-aggregator.http.middleware :as middleware]
    [finance-aggregator.http.errors :as errors]
-   [finance-aggregator.web.routes :as web]
-   [finance-aggregator.ws.handler :as ws]))
-
-(defn- ws-routes
-  "WebSocket routes. No middleware - raw http-kit WebSocket handling."
-  []
-  ["/ws" {:get {:handler ws/ws-handler
-                :no-doc true}}])
+   [finance-aggregator.web.routes :as web]))
 
 (defn create-router
   "Create reitit router with all routes.
@@ -31,8 +24,7 @@
      Reitit router"
   [deps]
   (ring/router
-   [(ws-routes)
-    ;; Server-rendered hypermedia pages. Listed before static so a hypermedia
+   [;; Server-rendered hypermedia pages. Listed before static so a hypermedia
     ;; route (e.g. "/") wins over the static catch-all when both match.
     (web/html-routes deps)
     (static/static-routes)]
