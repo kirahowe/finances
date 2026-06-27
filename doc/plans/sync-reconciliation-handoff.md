@@ -18,10 +18,11 @@ plus a pre-review hardening pass.** Connections are now the source of sync truth
 `resync` core drives every connection, the 2-hour background poll is gone (backfill is the resumable
 `:backfilling` status), and errors classify into capped-exponential backoff / re-auth / fail. The dead
 per-item `plaid.service` and the creds sync-cursor/status fns are deleted. **The next chunk is Phase 3**
-(dedup/merge + drift) — see the plan doc; Phase 4 (reconciliation workbench) and Phase 5 (setup UI /
-Hosted Link) follow.
+(dedup/merge + drift) — see the plan doc; Phase 4 (reconciliation workbench) follows. **Most of Phase 5
+(setup UI) shipped early on 2026-06-26** — see the Phase-5 note below.
 
-Suite: **all green** (`clojure -M:test -m kaocha.runner`, 294 tests), `bb lint` clean. Nothing pushed.
+Suite: **all green** (`clojure -M:test -m kaocha.runner`, 314 tests), `bb lint` clean, `bb e2e` green.
+Nothing pushed.
 
 ### Pre-review hardening (applied to the commits below, not bolted on)
 - **Classify on the failing call's real `error_code`.** `plaid.client/execute!` now inspects the
@@ -155,10 +156,15 @@ overlay keys).
    Once the budget is spent it does NOT give up: it parks `:stale` and falls back to a slow steady
    `stale-retry-ms` (1h) cadence so a long outage self-heals. Only transient errors retry; terminal go
    to `:needs-reconnect`; any success clears the streak (first-failure-at + retry-count).
-8. **Link surface = Plaid Hosted Link** (Phase 5 UI): Plaid-hosted URL, zero frontend JS, handles OAuth
-   server-side; retrieve `public_token` by polling `/link/token/get` (no public webhook endpoint).
+8. **Link surface = embedded Plaid Link.js** (DECIDED 2026-06-26, supersedes the earlier Hosted Link
+   plan). A `plaid-link` JS island on /setup mints a `link_token` (GET /setup/plaid/link-token), opens
+   Plaid Link (multiple-account selection in the Dashboard), and on `onSuccess` POSTs the public_token +
+   `metadata.accounts` to /setup/plaid/exchange, which exchanges → stores the Item credential → ensures
+   the connection → fires the initial sync. Chosen over Hosted Link to match .claude/CLAUDE.md's Plaid
+   notes, the existing /js/islands pattern, and the in-app account-selection UX; Link.js loads lazily
+   from Plaid's CDN on first click so the page ships no third-party JS until opt-in.
    **Re-auth = Link update mode** (token from existing access-token, `products` omitted) — backend in
-   Phase 2.
+   Phase 2; the update-mode UI is still TODO.
 
 ## Phase 2 core — DONE; THE NEXT STEP is Phase 3
 
@@ -177,8 +183,18 @@ the connection vocab is generic (`:backfilling`); the orchestrator never names a
 **NEXT — Phase 3** (see the Deferred section below and the plan doc): dedup/merge across providers;
 surface drift when a Plaid `modified` changes a user-overridden field; manual↔synced match (exact amount
 + ±10 days, confirm); account merge. Then Phase 4 (reconciliation workbench — **pause to design the
-UI**) and Phase 5 (wire the stubbed setup UI: Hosted Link, CSV, manual accounts, connection management —
-the "Sync now" button is the first live action there; bring `setup.clj` to the 4-layer standard).
+UI**).
+
+### Phase 5 setup UI — mostly DONE (2026-06-26)
+`setup.clj` is brought to the 4-layer standard (handler → presenter `web.accounts/present` → dumb view
+`web.pages.setup-view`). The page now groups accounts under the connection that syncs them
+(`:account/connection`, stamped generically at sync time) with a status pill + humanized last-synced and
+a per-connection **Resync** action (POST /setup/resync), plus **Sync all** (POST /setup/sync).
+**Link Bank Account** = the embedded `plaid-link` JS island (GET /setup/plaid/link-token →
+POST /setup/plaid/exchange; see decision 8). **Connect Lunchflow** = a per-account selection page
+(GET/POST /setup/lunchflow) over the static-key provider, with Lunchflow now a first-class connection
+(connection-deps + classify-sync-error). **Still TODO in Phase 5:** CSV import, manual-account CRUD,
+connection Remove + Reconnect (Link update mode UI), revert-to-bank / edited indicator.
 
 ### To exercise the engine before Phase 3
 REPL: `clojure -M:repl -m nrepl.cmdline` → `(dev)`/`(go)`; build deps `{:db-conn .. :secrets ..
@@ -192,9 +208,11 @@ wraps it. (Drive it headless before trusting a cron — it makes real Plaid call
 **Plaid connections — current vs legacy** (verified against live docs 2026-06-23):
 - Max history on initial link: `transactions.days_requested: 730` (default 90; best-effort, institution-
   capped — e.g. Capital One only 90d). Set once; not extendable later.
-- **Hosted Link** (GA, self-serve) is the modern fit for a low-JS SSR app: create link_token with a
-  `hosted_link` object → redirect to `hosted_link_url` → poll `/link/token/get` (6h window) for the
-  `public_token` (or `SESSION_FINISHED` webhook if we ever expose one). Handles OAuth server-side.
+- **Hosted Link** (GA, self-serve) was the original low-JS plan but was NOT chosen — see decision 8: we
+  use the embedded Link.js island instead (better in-app UX, matches CLAUDE.md + the islands pattern).
+  Hosted Link remains the fallback if the embedded flow proves painful for OAuth institutions: create
+  link_token with a `hosted_link` object → redirect to `hosted_link_url` → poll `/link/token/get` (6h
+  window) for the `public_token` (or `SESSION_FINISHED` webhook). Handles OAuth server-side.
 - Update mode for re-auth: link_token from existing access_token, **omit `products`**; nested
   `update.account_selection_enabled` to add/remove accounts. `LOGIN_REPAIRED` = self-heal.
 - Health w/o webhooks: a broken Item makes `/transactions/sync` itself return `400 ITEM_LOGIN_REQUIRED`
@@ -259,6 +277,7 @@ bb e2e                                                  # Playwright (UI changes
   manual↔synced match (exact amount + ±10 days, confirm); account merge.
 - **Phase 4:** opening-balance entry; computed-vs-reported drift banner; cleared/reconciled states +
   reconciliation events; confirm → visible adjustment entry. **Pause to design the workbench UI.**
-- **Phase 5:** wire the stubbed setup UI (Hosted Link, CSV, manual accounts) + connection management
-  (Sync now / Reconnect / Remove); dense-table manual CRUD; revert-to-bank + edited indicator. Bring
-  `setup.clj` to the 4-layer standard.
+- **Phase 5 (mostly DONE 2026-06-26 — see the Phase-5 note above):** setup UI shipped — embedded Plaid
+  Link.js, Lunchflow account selection, per-connection + bulk resync, last-synced, `setup.clj` at the
+  4-layer standard. **Remaining:** CSV import, manual-account CRUD, connection Remove + Reconnect (Link
+  update-mode UI), revert-to-bank + edited indicator.

@@ -30,9 +30,10 @@ the new-namespace map, and the Phase 2 design.
 - **Added:** the researched retry/backoff policy (`provider.retry`) — base 1m ×2, cap 15m, ≤8 retries,
   2h ceiling, equal jitter, transient/terminal classification. Wired into the engine in Phase 2.
 - **New locked decisions:** trigger via a **`bb resync`** task → `clojure -M:resync` (JVM needed for
-  Datalevin + Plaid SDK); the eventual link UI uses **Plaid Hosted Link** (zero frontend JS, handles
-  OAuth server-side) — Phase 5; re-auth via **Link update mode** (token from existing access-token,
-  `products` omitted) — backend lands in Phase 2.
+  Datalevin + Plaid SDK); the link UI uses the **embedded Plaid Link.js island** (DECIDED 2026-06-26,
+  superseding the earlier Hosted Link plan — see the handoff doc decision 8) — shipped in Phase 5;
+  re-auth via **Link update mode** (token from existing access-token, `products` omitted) — backend
+  lands in Phase 2.
 
 ## Context
 

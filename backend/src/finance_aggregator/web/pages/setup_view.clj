@@ -24,7 +24,9 @@
    [:form {:method "post" :action "/setup/sync"}
     [:button.button {:type "submit"} "Sync all"]]
    [:button.button.button-secondary {:disabled true :title "Coming soon"} "Add Manual Account"]
-   [:button.button {:disabled true :title "Coming soon"} "Link Bank Account"]
+   ;; The plaid-link island (loaded on /setup) wires this button to the embedded
+   ;; Plaid Link flow; it stays inert (no handler) if the island fails to load.
+   [:button.button {:id "plaid-link-btn"} "Link Bank Account"]
    [:a.button.button-secondary {:href "/setup/lunchflow"} "Connect Lunchflow"]])
 
 (defn- accounts-table [accounts]

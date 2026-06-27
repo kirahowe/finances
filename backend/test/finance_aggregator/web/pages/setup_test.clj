@@ -7,7 +7,10 @@
    [clojure.test :refer [deftest is testing use-fixtures]]
    [datalevin.core :as d]
    [finance-aggregator.db.connections :as connections]
+   [finance-aggregator.db.credentials :as creds]
+   [finance-aggregator.plaid.client :as plaid-client]
    [finance-aggregator.provider :as provider]
+   [finance-aggregator.resync :as resync]
    [finance-aggregator.test-utils.setup :as setup]
    [finance-aggregator.web.pages.setup :as setup-page])
   (:import
@@ -69,3 +72,37 @@
                 {:params {}})]
       (is (= 303 (:status resp)))
       (is (nil? (connections/get-connection setup/*test-conn* "lunchflow"))))))
+
+(deftest plaid-link-token-returns-json-token
+  (with-redefs [plaid-client/create-link-token (fn [_ _] "link-tok-123")]
+    (let [resp ((setup-page/plaid-link-token {:plaid-config {}}) {})]
+      (is (= 200 (:status resp)))
+      (is (= {:link_token "link-tok-123"} (:body resp))))))
+
+(deftest plaid-exchange-stores-credential-and-creates-connection
+  (let [conn setup/*test-conn*
+        stored (atom nil)]
+    (with-redefs [plaid-client/exchange-public-token
+                  (fn [_ _] {:access_token "access-xyz" :item_id "item_z"})
+                  creds/store-plaid-item-credential!
+                  (fn [_ _ token item-id inst-name selected]
+                    (reset! stored {:token token :item-id item-id
+                                    :inst-name inst-name :selected selected})
+                    nil)
+                  ;; The initial sync runs in a background future; stub it out so the
+                  ;; test makes no network call.
+                  resync/resync-connection! (fn [_ _] :synced)]
+      (let [resp ((setup-page/plaid-exchange {:db-conn conn :secrets {} :plaid-config {}})
+                  {:body-params {:public_token "pub-tok"
+                                 :institution {:name "Chase" :institution_id "ins_x"}
+                                 :accounts [{:id "a1"} {:id "a2"}]}})]
+        (testing "responds ok with the new connection id"
+          (is (= 200 (:status resp)))
+          (is (= {:ok true :connection "plaid:item_z"} (:body resp))))
+        (testing "stored the exchanged token + selected accounts"
+          (is (= {:token "access-xyz" :item-id "item_z"
+                  :inst-name "Chase" :selected ["a1" "a2"]} @stored)))
+        (testing "created the Plaid connection"
+          (let [c (connections/get-connection conn "plaid:item_z")]
+            (is (= :plaid (:connection/provider c)))
+            (is (= "Chase" (:connection/institution-name c)))))))))

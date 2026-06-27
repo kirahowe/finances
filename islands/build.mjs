@@ -60,6 +60,7 @@ const ISLANDS = [
   'src/resize.ts',
   'src/split-editor.ts',
   'src/modal.ts',
+  'src/plaid-link.ts',
 ];
 
 const buildOpts = {

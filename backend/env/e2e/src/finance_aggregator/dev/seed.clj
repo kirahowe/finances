@@ -17,7 +17,8 @@
   (java.util.Date/from (.toInstant (.atStartOfDay (LocalDate/parse s) ZoneOffset/UTC))))
 
 (def ^:private root-attrs
-  [:transaction/external-id :account/external-id :institution/id :category/ident :user/id])
+  [:transaction/external-id :account/external-id :institution/id :category/ident :user/id
+   :connection/id])
 
 (defn clear!
   "Retract every seeded entity (and its components / incoming refs)."
@@ -33,19 +34,32 @@
   [conn]
   (clear! conn)
   (d/transact! conn [{:institution/id "inst-test" :institution/name "Test Bank"}])
+  ;; A synced Plaid connection owns the four accounts (the realistic shape: the
+  ;; /setup page groups accounts under the connection that syncs them).
+  (d/transact! conn [{:user/id "test-user" :user/created-at (inst "2025-01-01")}])
+  (d/transact! conn [{:connection/id "plaid:seed-item"
+                      :connection/user [:user/id "test-user"]
+                      :connection/provider :plaid
+                      :connection/external-id "seed-item"
+                      :connection/institution-name "Test Bank"
+                      :connection/status :synced
+                      :connection/last-success-at (inst "2025-01-20")
+                      :connection/created-at (inst "2025-01-01")}])
   (d/transact! conn
-               [{:account/external-id "acct-chequing" :account/external-name "Chequing"
-                 :account/currency "CAD" :account/type :chequing
-                 :account/institution [:institution/id "inst-test"]}
-                {:account/external-id "acct-savings" :account/external-name "Savings"
-                 :account/currency "CAD" :account/type :savings
-                 :account/institution [:institution/id "inst-test"]}
-                {:account/external-id "acct-visa" :account/external-name "Visa"
-                 :account/currency "CAD" :account/type :credit
-                 :account/institution [:institution/id "inst-test"]}
-                {:account/external-id "acct-mortgage" :account/external-name "Mortgage"
-                 :account/currency "CAD" :account/type :loan
-                 :account/institution [:institution/id "inst-test"]}])
+               (mapv (fn [a] (assoc a :account/provider :plaid
+                                    :account/connection [:connection/id "plaid:seed-item"]))
+                     [{:account/external-id "acct-chequing" :account/external-name "Chequing"
+                       :account/currency "CAD" :account/type :chequing :account/mask "1111"
+                       :account/institution [:institution/id "inst-test"]}
+                      {:account/external-id "acct-savings" :account/external-name "Savings"
+                       :account/currency "CAD" :account/type :savings :account/mask "2222"
+                       :account/institution [:institution/id "inst-test"]}
+                      {:account/external-id "acct-visa" :account/external-name "Visa"
+                       :account/currency "CAD" :account/type :credit :account/mask "3333"
+                       :account/institution [:institution/id "inst-test"]}
+                      {:account/external-id "acct-mortgage" :account/external-name "Mortgage"
+                       :account/currency "CAD" :account/type :loan :account/mask "4444"
+                       :account/institution [:institution/id "inst-test"]}]))
   (d/transact! conn
                [{:category/ident :category/housing :category/name "Housing" :category/type :expense}
                 {:category/ident :category/groceries :category/name "Groceries" :category/type :expense}

@@ -30,4 +30,6 @@
    ["/setup/sync"     {:post {:handler (setup/sync-now deps) :name ::setup-sync}}]
    ["/setup/resync"   {:post {:handler (setup/resync-connection deps) :name ::setup-resync}}]
    ["/setup/lunchflow" {:get  {:handler (setup/lunchflow-page deps) :name ::setup-lunchflow}
-                        :post {:handler (setup/lunchflow-connect deps) :name ::setup-lunchflow-connect}}]])
+                        :post {:handler (setup/lunchflow-connect deps) :name ::setup-lunchflow-connect}}]
+   ["/setup/plaid/link-token" {:get  {:handler (setup/plaid-link-token deps) :name ::setup-plaid-link-token}}]
+   ["/setup/plaid/exchange"   {:post {:handler (setup/plaid-exchange deps) :name ::setup-plaid-exchange}}]])

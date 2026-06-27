@@ -4,13 +4,16 @@
    hiccup lives in web.pages.setup-view. The sync actions fire a background resync
    (statuses persist; refreshing /setup shows progress) and redirect back."
   (:require
+   [finance-aggregator.auth :as auth]
    [finance-aggregator.db.accounts :as db-accounts]
    [finance-aggregator.db.connections :as db-connections]
+   [finance-aggregator.db.credentials :as creds]
    [finance-aggregator.db.stats :as db-stats]
    [finance-aggregator.lib.log :as log]
    ;; Load-only: registers the :lunchflow provider methods (available-accounts /
    ;; fetch-* / classify-sync-error) used by the connect page + the resync drive.
    [finance-aggregator.lunchflow.provider]
+   [finance-aggregator.plaid.client :as plaid-client]
    [finance-aggregator.provider :as provider]
    [finance-aggregator.resync :as resync]
    [finance-aggregator.web.accounts :as accounts]
@@ -62,8 +65,33 @@
                   :now         (Date.)})]
       {:status 200
        :headers {"Content-Type" "text/html"}
-       :body (layout/document {:title "Setup · Finance Aggregator"}
+       :body (layout/document {:title "Setup · Finance Aggregator" :islands ["plaid-link"]}
                               (view/body model))})))
+
+(defn plaid-link-token
+  "Factory: GET /setup/plaid/link-token — mint a Plaid Link token for the island
+   (JSON {:link_token ...}). Network errors propagate to the JSON error handler."
+  [{:keys [plaid-config]}]
+  (fn [_req]
+    {:status 200 :body {:link_token (plaid-client/create-link-token plaid-config auth/user-id)}}))
+
+(defn plaid-exchange
+  "Factory: POST /setup/plaid/exchange — exchange the public_token, store the Item
+   credential (with the user's selected account ids), ensure its connection, and
+   fire the initial sync in the background. JSON body
+   {:public_token .. :institution {:name ..} :accounts [{:id ..} ..]}."
+  [{:keys [db-conn secrets plaid-config] :as deps}]
+  (fn [req]
+    (let [{:keys [public_token institution accounts]} (:body-params req)
+          {:keys [access_token item_id]} (plaid-client/exchange-public-token plaid-config public_token)
+          inst-name (or (:name institution) "Bank")
+          conn-id (str "plaid:" item_id)]
+      (creds/store-plaid-item-credential! db-conn secrets access_token item_id inst-name (mapv :id accounts))
+      (db-connections/ensure-connection! db-conn {:id conn-id :provider :plaid
+                                                  :external-id item_id :institution-name inst-name})
+      (background "Background Plaid initial sync failed"
+                  #(resync/resync-connection! deps {:connection/id conn-id}))
+      {:status 200 :body {:ok true :connection conn-id}})))
 
 (defn lunchflow-page
   "Factory: GET /setup/lunchflow — list Lunchflow's available accounts grouped by
