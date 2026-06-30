@@ -307,6 +307,33 @@
           "the lunchflow account is stamped to its connection")
       (is (contains? (tx-ids conn) "lunchflow-5")))))
 
+(deftest resync-all-reconciles-a-lunchflow-connection-from-imported-accounts
+  (testing "Imported Lunchflow accounts (no connection row) get a :lunchflow
+            connection auto-created so Sync all drives + stamps them — no manual
+            connect needed"
+    (let [conn setup/*test-conn*
+          deps {:db-conn conn :secrets {:lunchflow "fake-key"} :plaid-config {}}]
+      (seed-user! conn)
+      (d/transact! conn [{:institution/id "lunchflow-tangerine" :institution/name "Tangerine"}])
+      (d/transact! conn [{:account/external-id "lunchflow-1" :account/external-name "Chequing"
+                          :account/provider :lunchflow
+                          :account/institution [:institution/id "lunchflow-tangerine"]
+                          :account/user [:user/id "test-user"]}])
+      (is (nil? (connections/get-connection conn "lunchflow")) "no connection yet")
+      (with-redefs-fn
+        {#'lf-client/list-accounts
+         (fn [_] [{:id 1 :name "Chequing" :institution_name "Tangerine" :provider "quiltt"}])
+         #'lf-client/fetch-account-transactions (fn [_ _ _] [])}
+        (fn [] (resync/resync-all! deps)))
+      (let [c (connections/get-connection conn "lunchflow")]
+        (is (some? c) "lunchflow connection auto-created from the imported accounts")
+        (is (= :synced (:connection/status c))))
+      (is (= "lunchflow"
+             (get-in (d/pull (d/db conn) '[{:account/connection [:connection/id]}]
+                             [:account/external-id "lunchflow-1"])
+                     [:account/connection :connection/id]))
+          "the account is now stamped to its connection (leaves the unlinked bucket)"))))
+
 (deftest resync-all-skips-in-flight-syncing
   (testing "A connection already :syncing with a recent attempt is not re-driven"
     (let [conn setup/*test-conn*]

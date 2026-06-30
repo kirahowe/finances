@@ -23,6 +23,7 @@
    is the only wired provider today (its multimethods are registered by the
    load-only require below)."
   (:require
+   [finance-aggregator.db.accounts :as accounts]
    [finance-aggregator.db.connections :as connections]
    [finance-aggregator.db.credentials :as creds]
    [finance-aggregator.lib.log :as log]
@@ -46,6 +47,15 @@
   [db-conn]
   (doseq [cred (creds/list-plaid-item-credential-entities db-conn)]
     (connections/ensure-from-credential! db-conn cred)))
+
+(defn- ensure-lunchflow-connection!
+  "Ensure the single :lunchflow connection exists once Lunchflow accounts have been
+   imported, so resync drives them (and stamps them to the connection on the next
+   sync) - otherwise pre-existing Lunchflow accounts sit unlinked and never refresh.
+   Lunchflow is a single static-key connection (one row, no per-item fan-out)."
+  [db-conn]
+  (when (seq (accounts/external-ids-for-provider db-conn :lunchflow))
+    (connections/ensure-connection! db-conn {:id "lunchflow" :provider :lunchflow})))
 
 ;;; Per-connection deps (the one provider-aware spot) -----------------------
 
@@ -214,6 +224,7 @@
    deps: {:db-conn .. :secrets .. :plaid-config ..}"
   [{:keys [db-conn] :as deps}]
   (ensure-plaid-connections! db-conn)
+  (ensure-lunchflow-connection! db-conn)
   (let [now (Date.)
         conns (connections/list-connections db-conn)
         grouped (group-by #(boolean (due? now %)) conns)

@@ -85,23 +85,13 @@ check('Connect Lunchflow links to /setup/lunchflow', lunchHref === '/setup/lunch
 const bodyFont = await page.evaluate(() => getComputedStyle(document.body).fontFamily);
 check('design system CSS applied (Hanken Grotesk on body)', /Hanken Grotesk/i.test(bodyFont), bodyFont);
 
-// 10. Clicking "Sync all" must NOT reload the page (the bug: a full-page flash).
-//     A window marker set before the click survives only if there's no navigation;
-//     the Datastar SSE action patches in place. (The sync itself needs real Plaid
-//     creds the e2e env lacks, so we assert the no-reload contract, not the
-//     outcome — the live-patch render is covered by the kaocha render test.)
-await page.evaluate(() => {
-  (window as unknown as { __noReload?: boolean }).__noReload = true;
-});
-await page.locator('button', { hasText: 'Sync all' }).click();
-await page.waitForTimeout(600);
-const noReload = await page.evaluate(
-  () => (window as unknown as { __noReload?: boolean }).__noReload === true,
-);
-check('Sync all does not reload the page (no flash)', noReload && page.url().endsWith('/setup'),
-  `noReload=${noReload} url=${page.url()}`);
+// (No-reload is proven structurally above: the actions are Datastar @post with no
+//  <form>, so there's no full-page submit. We deliberately don't *click* Sync all
+//  here — it would fire a real Plaid call against the seed connection, making the
+//  otherwise-hermetic suite depend on the network. The live-patch render is covered
+//  by the kaocha render test; verify the end-to-end sync manually against Plaid.)
 
-// 11. The Lunchflow selection page renders. The handler renders an inline error
+// 10. The Lunchflow selection page renders. The handler renders an inline error
 //     when Lunchflow is unreachable (no key in the e2e env), which still proves
 //     the page + masthead render.
 await page.goto(`${BASE}/setup/lunchflow`, { waitUntil: 'networkidle' });
