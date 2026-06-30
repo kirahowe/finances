@@ -34,32 +34,24 @@
   [conn]
   (clear! conn)
   (d/transact! conn [{:institution/id "inst-test" :institution/name "Test Bank"}])
-  ;; A synced Plaid connection owns the four accounts (the realistic shape: the
-  ;; /setup page groups accounts under the connection that syncs them).
-  (d/transact! conn [{:user/id "test-user" :user/created-at (inst "2025-01-01")}])
-  (d/transact! conn [{:connection/id "plaid:seed-item"
-                      :connection/user [:user/id "test-user"]
-                      :connection/provider :plaid
-                      :connection/external-id "seed-item"
-                      :connection/institution-name "Test Bank"
-                      :connection/status :synced
-                      :connection/last-success-at (inst "2025-01-20")
-                      :connection/created-at (inst "2025-01-01")}])
+  ;; Accounts before transactions so the refs resolve. Insert them in the SAME
+  ;; entity order as the rest of the dataset and create the user/connection LAST
+  ;; (below) so transaction eids stay deterministic — the grid/funnel specs assert
+  ;; against cell data-keys that embed the tx eid, and a new entity inserted before
+  ;; the transactions would shift every one.
   (d/transact! conn
-               (mapv (fn [a] (assoc a :account/provider :plaid
-                                    :account/connection [:connection/id "plaid:seed-item"]))
-                     [{:account/external-id "acct-chequing" :account/external-name "Chequing"
-                       :account/currency "CAD" :account/type :chequing :account/mask "1111"
-                       :account/institution [:institution/id "inst-test"]}
-                      {:account/external-id "acct-savings" :account/external-name "Savings"
-                       :account/currency "CAD" :account/type :savings :account/mask "2222"
-                       :account/institution [:institution/id "inst-test"]}
-                      {:account/external-id "acct-visa" :account/external-name "Visa"
-                       :account/currency "CAD" :account/type :credit :account/mask "3333"
-                       :account/institution [:institution/id "inst-test"]}
-                      {:account/external-id "acct-mortgage" :account/external-name "Mortgage"
-                       :account/currency "CAD" :account/type :loan :account/mask "4444"
-                       :account/institution [:institution/id "inst-test"]}]))
+               [{:account/external-id "acct-chequing" :account/external-name "Chequing"
+                 :account/currency "CAD" :account/type :chequing :account/mask "1111"
+                 :account/provider :plaid :account/institution [:institution/id "inst-test"]}
+                {:account/external-id "acct-savings" :account/external-name "Savings"
+                 :account/currency "CAD" :account/type :savings :account/mask "2222"
+                 :account/provider :plaid :account/institution [:institution/id "inst-test"]}
+                {:account/external-id "acct-visa" :account/external-name "Visa"
+                 :account/currency "CAD" :account/type :credit :account/mask "3333"
+                 :account/provider :plaid :account/institution [:institution/id "inst-test"]}
+                {:account/external-id "acct-mortgage" :account/external-name "Mortgage"
+                 :account/currency "CAD" :account/type :loan :account/mask "4444"
+                 :account/provider :plaid :account/institution [:institution/id "inst-test"]}])
   (d/transact! conn
                [{:category/ident :category/housing :category/name "Housing" :category/type :expense}
                 {:category/ident :category/groceries :category/name "Groceries" :category/type :expense}
@@ -113,4 +105,22 @@
                   {:db/id (eid "seed-in-2") :transaction/transfer-pair (eid "seed-out-2")}
                   {:db/id (eid "seed-mortgage-out") :transaction/transfer-pair (eid "seed-mortgage-in")}
                   {:db/id (eid "seed-mortgage-in") :transaction/transfer-pair (eid "seed-mortgage-out")}]))
+  ;; LAST: a synced Plaid connection that owns the four accounts (so /setup groups
+  ;; them under a connection card). Created here, after the transactions, so it
+  ;; doesn't shift their eids; the accounts are stamped via an update (not a new
+  ;; entity). User first, then the connection (its :connection/user lookup ref
+  ;; needs the user committed), then the account stamp.
+  (d/transact! conn [{:user/id "test-user" :user/created-at (inst "2025-01-01")}])
+  (d/transact! conn [{:connection/id "plaid:seed-item"
+                      :connection/user [:user/id "test-user"]
+                      :connection/provider :plaid
+                      :connection/external-id "seed-item"
+                      :connection/institution-name "Test Bank"
+                      :connection/status :synced
+                      :connection/last-success-at (inst "2025-01-20")
+                      :connection/created-at (inst "2025-01-01")}])
+  (d/transact! conn
+               (mapv (fn [ext] {:account/external-id ext
+                                :account/connection [:connection/id "plaid:seed-item"]})
+                     ["acct-chequing" "acct-savings" "acct-visa" "acct-mortgage"]))
   :seeded)
