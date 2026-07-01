@@ -800,6 +800,33 @@
     [:span.rollup-row-name (str (rollup-section-labels type) " total")]
     [:span.rollup-amount (fmt/amount total)]]])
 
+(defn reconciliation-panel
+  "Per-account period-delta reconciliation for the month (web.view/reconcile-month):
+   does each account's tracked activity match the bank's reported balance change?
+   A read-only confidence readout — locking/closing the month lands in a later phase.
+   Rendered as its own element (outside #category-rollup) so the edit re-patches that
+   replace the rollup never clobber it; the figures are edit-invariant. Renders
+   nothing when there's no reported data to compare against."
+  [{:keys [rows]}]
+  (when (seq rows)
+    [:section.reconcile-panel {:id "reconciliation" :aria-label "Bank reconciliation"}
+     [:h3.reconcile-title "Reconciliation"]
+     (into [:ul.reconcile-rows]
+           (for [{:keys [status difference] acct-name :name} rows]
+             [:li {:class (str "reconcile-row reconcile-row--" (name status))}
+              [:span.reconcile-account acct-name]
+              (case status
+                :reconciled
+                [:span.reconcile-status {:title "Tracked activity matches the bank's balance change"}
+                 [:span.reconcile-tick {:aria-hidden "true"} "✓ "] "matches"]
+                :drift
+                [:span.reconcile-status {:title "Computed change differs from the bank's reported change"}
+                 "off by " (fmt/amount difference)]
+                :no-snapshot
+                [:span.reconcile-status.reconcile-status--muted
+                 {:title "No bank statement balance recorded for this month yet"}
+                 "no statement"])]))]))
+
 (defn rollup-pane [{:keys [income expenses transfers grand-total]}]
   (let [sections (filter #(seq (:rows %)) [income expenses transfers])]
     [:aside.rollup-pane {:id "category-rollup" :aria-label "Category summary"}
@@ -824,7 +851,7 @@
   [{:keys [month stats categories view-st model undo empty?]}]
   ;; `cat-opts` is the model's category *funnel* option list — kept distinct from the
   ;; `category-options` view fn (the hidden combobox source list) it would otherwise shadow.
-  (let [{:keys [result counts account-options institution-options rollup]
+  (let [{:keys [result counts account-options institution-options rollup reconciliation]
          cat-opts :category-options} model]
     [:div.container.container--workspace {"data-on:keydown__window" undo-key-js}
      (shell/masthead {:active :transactions :stats stats})
@@ -837,7 +864,12 @@
        (if empty?
          (empty-state)
          (list (table (:rows result)) (pagination-bar result)))]
-      (rollup-pane rollup)]
+      ;; The summary column: the reconciliation readout stacked above the category
+      ;; rollup. Kept as siblings (not nested in #category-rollup) so edit re-patches
+      ;; of the rollup leave the reconciliation panel intact.
+      [:div.rollup-column
+       (reconciliation-panel reconciliation)
+       (rollup-pane rollup)]]
      (when-not empty?
        (list (funnel-popovers account-options institution-options cat-opts)
              (row-actions-menu)))

@@ -22,7 +22,8 @@
       :page 0-indexed
       :page-size pos-int}"
   (:require
-   [clojure.string :as str]))
+   [clojure.string :as str]
+   [finance-aggregator.data.ledger :as ledger]))
 
 ;; --- Filtering --------------------------------------------------------------
 
@@ -337,6 +338,20 @@
      :transfers   {:type :transfer :rows (section-rows :transfer 0)     :total (mag transfer-signed)}
      :grand-total (+ income-signed expense-signed)}))
 
+;; --- Monthly close: per-account reconciliation ------------------------------
+;; The period-delta confidence check (data.ledger): does each account's tracked
+;; activity for the month match the bank's balance change? `reported` is a map of
+;; account-eid -> reported-delta (bigdec) read from the snapshot history; an account
+;; with activity but no entry surfaces as :no-snapshot.
+
+(defn reconcile-month
+  "Per-account reconciliation for the month's `txs` given `reported` deltas. Returns
+   {:rows [reconcile-row…] :all-reconciled? bool} — the read-only confidence readout
+   the close panel renders. Pure."
+  [txs reported]
+  (let [rows (ledger/reconcile (ledger/account-computed-deltas txs) reported)]
+    {:rows rows :all-reconciled? (ledger/all-reconciled? rows)}))
+
 ;; --- Presenter: the response view-model -------------------------------------
 ;; The single transformation entry point a handler routes a month's transactions through to get
 ;; everything a transactions response renders. Bundling it here keeps the handler pure glue —
@@ -347,8 +362,9 @@
    `:result` is the paginated page — lingering (an edited-out row stays visible) when a
    `:linger` set is supplied, a plain view otherwise; `:counts` are the faceted toolbar counts;
    the three `:*-options` are the faceted funnel option lists; `:rollup` (only when
-   `:categories` is supplied) is the whole-month category breakdown."
-  [txs view-st {:keys [linger categories]}]
+   `:categories` is supplied) is the whole-month category breakdown; `:reconciliation`
+   (only when `:reported` is supplied) is the per-account period-delta close readout."
+  [txs view-st {:keys [linger categories reported]}]
   (cond-> {:result              (if (some? linger)
                                   (view-with-linger txs view-st linger)
                                   (view txs view-st))
@@ -356,4 +372,5 @@
            :account-options     (account-options txs view-st)
            :institution-options (institution-options txs view-st)
            :category-options    (category-funnel-options txs view-st)}
-    categories (assoc :rollup (category-rollup txs categories))))
+    categories       (assoc :rollup (category-rollup txs categories))
+    (some? reported) (assoc :reconciliation (reconcile-month txs reported))))

@@ -23,22 +23,31 @@
   min-width: 0;
 }
 
-.rollup-pane {
+/* The summary column: the reconciliation readout stacked above the category
+   rollup. It's the sticky flex child beside the table and owns the shared scroll,
+   so neither panel forces a page scroll and both stay in view together. */
+.rollup-column {
   flex: 0 0 300px;
   align-self: flex-start;
   position: sticky;
   top: var(--rollup-sticky-top);
+  max-height: calc(100vh - var(--rollup-sticky-top) - var(--spacing-lg));
+  overflow-y: auto;
+  display: flex;
+  flex-direction: column;
+  gap: var(--spacing-lg);
+  margin-bottom: var(--spacing-lg);
+}
+
+.rollup-pane {
   background: var(--color-surface);
   border: 1px solid var(--color-border);
   border-radius: var(--radius-lg);
   box-shadow: var(--shadow-sm);
-  overflow: hidden; /* clip the inner scroll to the rounded corners */
-  margin-bottom: var(--spacing-lg);
+  overflow: hidden; /* clip to the rounded corners */
 }
 
 .rollup-scroll {
-  max-height: calc(100vh - var(--rollup-sticky-top) - var(--spacing-lg));
-  overflow-y: auto;
   padding: var(--spacing-lg);
 }
 
@@ -184,14 +193,11 @@
     flex-direction: column;
   }
 
-  .rollup-pane {
+  .rollup-column {
     flex: none;
     width: 100%;
     position: static;
-    overflow: visible;
-  }
-
-  .rollup-scroll {
     max-height: none;
+    overflow: visible;
   }
 }

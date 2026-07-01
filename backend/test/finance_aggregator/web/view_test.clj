@@ -161,7 +161,15 @@
       (let [m (view/present txs {:scope :needs-review} {:linger #{2}})]
         (is (= #{2} (:stale-ids (:result m))) "edited-out t2 kept stale")))
     (testing ":categories add the whole-month rollup"
-      (is (= (view/category-rollup txs []) (:rollup (view/present txs vs {:categories []})))))))
+      (is (= (view/category-rollup txs []) (:rollup (view/present txs vs {:categories []})))))
+    (testing ":reported adds the per-account reconciliation readout, else it's absent"
+      (is (not (contains? (view/present txs vs {}) :reconciliation)) "no :reported → no reconciliation")
+      ;; Chequing (eid 100): +4000 -2000 = 2000; Visa (eid 101): -85 -50 -200 = -335.
+      (let [recon   (:reconciliation (view/present txs vs {:reported {100 2000M 101 -335M}}))
+            by-name (into {} (map (juxt :name :status) (:rows recon)))]
+        (is (true? (:all-reconciled? recon)))
+        (is (= :reconciled (by-name "Chequing")))
+        (is (= :reconciled (by-name "Visa")))))))
 
 ;; --- Lingering --------------------------------------------------------------
 ;; A row edited out of the active filter should stay visible *in its original position*

@@ -9,6 +9,7 @@
    [clojure.string :as str]
    [finance-aggregator.auth :as auth]
    [finance-aggregator.db.categories :as db-categories]
+   [finance-aggregator.db.snapshots :as db-snapshots]
    [finance-aggregator.db.stats :as db-stats]
    [finance-aggregator.db.transactions :as db-transactions]
    [finance-aggregator.db.transfers :as db-transfers]
@@ -82,8 +83,15 @@
           month-str (month/serialize m)
           txs (db-transactions/list-for-month db-conn month-str)
           categories (db-categories/list-all db-conn)
+          ;; Reported balance deltas for the accounts active this month — the bank
+          ;; side of the period-delta close readout. Computed once on full-page load
+          ;; (computed deltas are edit-invariant: imported amounts are immutable and
+          ;; splits/category/reviewed never move an account's total), so the panel
+          ;; needs no SSE re-patching.
+          account-eids (distinct (keep #(get-in % [:transaction/account :db/id]) txs))
+          reported (db-snapshots/reported-deltas db-conn account-eids month-str)
           view-st (vs/query->view-state (:query-params req))
-          model (view/present txs view-st {:categories categories})]
+          model (view/present txs view-st {:categories categories :reported reported})]
       {:status 200
        :headers {"Content-Type" "text/html"}
        :body
