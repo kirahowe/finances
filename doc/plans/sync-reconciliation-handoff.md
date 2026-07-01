@@ -278,8 +278,17 @@ bb e2e                                                  # Playwright (UI changes
 
 - **Phase 3:** dedup/merge + surface drift when a Plaid `modified` changes a field the user overrode;
   manual↔synced match (exact amount + ±10 days, confirm); account merge.
-- **Phase 4:** opening-balance entry; computed-vs-reported drift banner; cleared/reconciled states +
-  reconciliation events; confirm → visible adjustment entry. **Pause to design the workbench UI.**
+- **Phase 4 → reframed as the MONTHLY CLOSE workflow** (2026-06-30, the user's #1-value next
+  feature): per-month *verify it matches the bank → lock it in → roll totals to ongoing tracking*.
+  Confidence model = **period-delta** (reported snapshot month-end − month-start vs Σ signed month
+  txns; no opening-balance anchor needed). Granularity = **per-account → month** (each account
+  reconciles, month closes when all pass). **Phase 1 (read-only delta readout) DONE** — `data/ledger.clj`,
+  `db/snapshots.clj reported-delta(s)`, and a per-account reconciliation panel on `/` beside the rollup
+  (commits on `main`, unpushed). **NEXT = the close/lock:** `:reconciliation/*` event + `:transaction/reconciled`
+  (soft lock), completeness gate (0 unreviewed / 0 uncategorized), "Close month" button, frozen rollup
+  totals, visible adjustment-on-drift, reopen, manual statement-balance entry for no-snapshot accounts.
+  Then a cross-month tracking view over the close events. (Absolute net-worth / opening-balance anchor is
+  an optional later add.) Full design in this doc's history + memory `project_monthly_close_goal`.
 - **Phase 5 (mostly DONE 2026-06-26 — see the Phase-5 note above):** setup UI shipped — embedded Plaid
   Link.js, Lunchflow account selection, per-connection + bulk resync, last-synced, `setup.clj` at the
   4-layer standard. **Remaining:** CSV import, manual-account CRUD, connection Remove + Reconnect (Link
