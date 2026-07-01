@@ -22,8 +22,6 @@
 
 (defn- amount [tx] (or (:transaction/amount tx) 0M))
 
-(defn- abs-bd [n] (.abs (bigdec n)))
-
 (defn account-computed-deltas
   "Σ signed :transaction/amount grouped by account, over `txs` (one month's pulled
    transactions). Splits never change an account's total — they only re-attribute
@@ -56,7 +54,7 @@
      :difference     difference
      :status         (cond
                        (nil? reported-delta)              :no-snapshot
-                       (<= (abs-bd difference) tolerance) :reconciled
+                       (<= (abs difference) tolerance)    :reconciled
                        :else                              :drift)}))
 
 (defn reconcile

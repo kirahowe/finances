@@ -805,8 +805,10 @@
    does each account's tracked activity match the bank's reported balance change?
    A read-only confidence readout — locking/closing the month lands in a later phase.
    Rendered as its own element (outside #category-rollup) so the edit re-patches that
-   replace the rollup never clobber it; the figures are edit-invariant. Renders
-   nothing when there's no reported data to compare against."
+   replace the rollup never clobber it; the figures are edit-invariant. Renders one
+   row per account with activity this month — \"matches\" / \"off by $X\" / \"no statement\"
+   (the last for an account we can't yet reconcile) — and nothing only when no account
+   had activity."
   [{:keys [rows]}]
   (when (seq rows)
     [:section.reconcile-panel {:id "reconciliation" :aria-label "Bank reconciliation"}
