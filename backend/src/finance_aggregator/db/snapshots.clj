@@ -49,21 +49,51 @@
 ;; never be read back as "what the bank reported".
 (def ^:private reported-sources [:reported :manual])
 
+;; Tie-break for snapshots that share the exact same date: a user-entered :manual
+;; statement balance is more authoritative than the auto-recorded :reported figure,
+;; so it sorts last and wins under `last`.
+(def ^:private source-rank {:reported 0 :manual 1})
+
 (defn- latest-snapshot-before
   "The most recent reported [date balance] pair for `account-eid` strictly before
-   `before` (a Date), or nil when no reported snapshot precedes it."
+   `before` (a Date), or nil when no reported snapshot precedes it. When a
+   :reported and a :manual snapshot share the exact same date, :manual wins — a
+   user-entered statement balance outranks the auto-recorded reported figure."
   [db account-eid ^Date before]
-  (->> (d/q '[:find ?d ?bal
-              :in $ ?acct ?before [?src ...]
-              :where
-              [?s :snapshot/account ?acct]
-              [?s :snapshot/source ?src]
-              [?s :snapshot/date ?d]
-              [?s :snapshot/balance ?bal]
-              [(< ?d ?before)]]
-            db account-eid before reported-sources)
-       (sort-by first)
-       last))
+  (when-let [[d bal] (->> (d/q '[:find ?d ?bal ?src
+                                 :in $ ?acct ?before [?src ...]
+                                 :where
+                                 [?s :snapshot/account ?acct]
+                                 [?s :snapshot/source ?src]
+                                 [?s :snapshot/date ?d]
+                                 [?s :snapshot/balance ?bal]
+                                 [(< ?d ?before)]]
+                               db account-eid before reported-sources)
+                          (sort-by (fn [[d _ src]] [d (source-rank src 0)]))
+                          last)]
+    [d bal]))
+
+(defn- prior-month-start
+  "First instant of the calendar month before `month-str` (YYYY-MM) — the earliest a
+   snapshot can sit and still count as that month's ending balance."
+  ^java.util.Date [month-str]
+  (let [{:keys [year month]} (u/parse-month-string month-str)
+        prev (if (= month 1) {:year (dec year) :month 12}
+                 {:year year :month (dec month)})]
+    (:start-date (u/month-date-range (format "%04d-%02d" (:year prev) (:month prev))))))
+
+(defn- reported-delta*
+  "Reported-balance delta for `account-eid` across `month` against an already-
+   deref'd `db`. See `reported-delta` for the full contract."
+  [db account-eid month]
+  (let [{:keys [start-date end-date]} (u/month-date-range month)
+        prior-start (prior-month-start month)
+        end   (latest-snapshot-before db account-eid end-date)
+        start (latest-snapshot-before db account-eid start-date)]
+    (when (and end start
+               (not (.before ^Date (first end) start-date))
+               (not (.before ^Date (first start) prior-start)))
+      (- (second end) (second start)))))
 
 (defn reported-delta
   "The change in the bank-reported balance for `account-eid` across `month`
@@ -72,25 +102,24 @@
    period-delta close check (see data.ledger).
 
    Returns a bigdec, or nil when the month can't be auto-reconciled from the
-   snapshot history — either boundary lacks a reported snapshot, or the only
-   snapshots predate the month (so the 'end' reading is the same stale figure as
-   the 'start' and the delta would be meaningless). A nil result means the month
-   needs a manual statement balance instead. Reads the snapshot history."
+   snapshot history — either boundary lacks a reported snapshot, or a boundary
+   reading falls outside its month: the 'end' must sit within `month`, and the
+   'start' must sit within the immediately prior calendar month (otherwise a sync
+   gap would make the delta span multiple months and read as spurious drift). A
+   nil result means the month needs a manual statement balance instead. Reads the
+   snapshot history."
   [conn account-eid month]
-  (let [{:keys [start-date end-date]} (u/month-date-range month)
-        db    (d/db conn)
-        end   (latest-snapshot-before db account-eid end-date)
-        start (latest-snapshot-before db account-eid start-date)]
-    (when (and end start (not (.before ^Date (first end) start-date)))
-      (- (second end) (second start)))))
+  (reported-delta* (d/db conn) account-eid month))
 
 (defn reported-deltas
   "`reported-delta` for each account entity-id in `account-eids`, as a map
-   {account-eid bigdec}. Accounts without a usable boundary pair are omitted (the
-   caller treats a missing entry as :no-snapshot)."
+   {account-eid bigdec}. Derefs the db once and reuses it across all accounts.
+   Accounts without a usable boundary pair are omitted (the caller treats a
+   missing entry as :no-snapshot)."
   [conn account-eids month]
-  (into {}
-        (keep (fn [eid]
-                (when-let [d (reported-delta conn eid month)]
-                  [eid d])))
-        account-eids))
+  (let [db (d/db conn)]
+    (into {}
+          (keep (fn [eid]
+                  (when-let [d (reported-delta* db eid month)]
+                    [eid d])))
+          account-eids)))

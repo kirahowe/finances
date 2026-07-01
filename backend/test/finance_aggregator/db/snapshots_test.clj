@@ -102,6 +102,15 @@
     (record! "acc-1" "100.00" (date 2026 2 28))
     (is (nil? (snapshots/reported-delta setup/*test-conn* (account-eid "acc-1") "2026-03")))))
 
+(deftest reported-delta-nil-when-start-snapshot-predates-prior-month
+  (testing "a start snapshot older than the immediately prior month → no auto-reconcile (sync gap, not a real month boundary)"
+    (put-account! "acc-1")
+    (record! "acc-1" "100.00" (date 2026 1 31))   ; January — two months before March
+    (record! "acc-1" "170.00" (date 2026 3 31))   ; this month-end
+    ;; January is not within February (the prior month of March), so the span
+    ;; would cover multiple months → must be nil rather than a spurious delta.
+    (is (nil? (snapshots/reported-delta setup/*test-conn* (account-eid "acc-1") "2026-03")))))
+
 (deftest reported-delta-ignores-calculated-snapshots
   (testing "only :reported/:manual snapshots anchor a boundary; :calculated is ours, not the bank's"
     (put-account! "acc-1")
