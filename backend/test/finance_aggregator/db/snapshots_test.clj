@@ -66,3 +66,58 @@
 
 (deftest empty-accounts-is-noop
   (is (some? (snapshots/record-reported-balances! setup/*test-conn* [] (Date.)))))
+
+;; --- reported-delta (monthly-close reading) --------------------------------
+
+(defn- date [y m d]
+  (-> (java.time.LocalDate/of y m d)
+      (.atStartOfDay java.time.ZoneOffset/UTC)
+      (.toInstant)
+      (Date/from)))
+
+(defn- account-eid [ext-id]
+  (d/q '[:find ?a . :in $ ?ext :where [?a :account/external-id ?ext]]
+       (d/db setup/*test-conn*) ext-id))
+
+(defn- record! [ext-id balance ^Date as-of]
+  (snapshots/record-reported-balances!
+   setup/*test-conn* [{:account/external-id ext-id :account/reported-balance (bigdec balance)}] as-of))
+
+(deftest reported-delta-is-end-minus-start
+  (testing "balance at month end minus prior month-end balance"
+    (put-account! "acc-1")
+    (record! "acc-1" "100.00" (date 2026 2 28))   ; prior month-end
+    (record! "acc-1" "170.00" (date 2026 3 31))   ; this month-end
+    (is (= (bigdec "70.00") (snapshots/reported-delta setup/*test-conn* (account-eid "acc-1") "2026-03")))))
+
+(deftest reported-delta-nil-without-start-boundary
+  (testing "no snapshot before the month → can't auto-reconcile"
+    (put-account! "acc-1")
+    (record! "acc-1" "170.00" (date 2026 3 31))
+    (is (nil? (snapshots/reported-delta setup/*test-conn* (account-eid "acc-1") "2026-03")))))
+
+(deftest reported-delta-nil-when-only-stale-pre-month-snapshot
+  (testing "a lone pre-month snapshot is not a real month-end reading"
+    (put-account! "acc-1")
+    (record! "acc-1" "100.00" (date 2026 2 28))
+    (is (nil? (snapshots/reported-delta setup/*test-conn* (account-eid "acc-1") "2026-03")))))
+
+(deftest reported-delta-ignores-calculated-snapshots
+  (testing "only :reported/:manual snapshots anchor a boundary; :calculated is ours, not the bank's"
+    (put-account! "acc-1")
+    (record! "acc-1" "100.00" (date 2026 2 28))
+    (d/transact! setup/*test-conn*
+                 [{:snapshot/id "acc-1:calc" :snapshot/account [:account/external-id "acc-1"]
+                   :snapshot/date (date 2026 3 31) :snapshot/balance (bigdec "170.00")
+                   :snapshot/source :calculated}])
+    (is (nil? (snapshots/reported-delta setup/*test-conn* (account-eid "acc-1") "2026-03")))))
+
+(deftest reported-deltas-omits-accounts-without-a-pair
+  (put-account! "acc-1")
+  (put-account! "acc-2")
+  (record! "acc-1" "100.00" (date 2026 2 28))
+  (record! "acc-1" "170.00" (date 2026 3 31))
+  (record! "acc-2" "50.00"  (date 2026 3 15))   ; only one snapshot → no pair
+  (let [a1 (account-eid "acc-1") a2 (account-eid "acc-2")]
+    (is (= {a1 (bigdec "70.00")}
+           (snapshots/reported-deltas setup/*test-conn* [a1 a2] "2026-03")))))
