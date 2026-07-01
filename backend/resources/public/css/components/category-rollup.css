@@ -24,8 +24,10 @@
 }
 
 /* The summary column: the reconciliation readout stacked above the category
-   rollup. It's the sticky flex child beside the table and owns the shared scroll,
-   so neither panel forces a page scroll and both stay in view together. */
+   rollup. In the wide fixed-viewport shell it fills the workspace row, the
+   reconciliation band pins to the top, and the rollup pane scrolls internally;
+   below the breakpoint it flows normally with the page (sticky, with its own
+   max-height) so neither panel forces a long page scroll. */
 .rollup-column {
   flex: 0 0 300px;
   align-self: flex-start;

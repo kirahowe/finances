@@ -60,12 +60,32 @@
     justify-content: center;
   }
 
+  /* The summary column fills the workspace row as a flex column: the reconciliation
+     readout pins to the top and the rollup pane below it owns the internal scroll.
+     (The base rule's sticky + 100vh max-height is only for the normal-flow layout
+     below the breakpoint; here the column must match the real row height, not an
+     approximate viewport calc, or its bottom would fall outside the clipped shell.) */
+  .container--workspace .rollup-column {
+    align-self: stretch;
+    position: static;
+    top: auto;
+    max-height: none;
+    min-height: 0;
+    overflow: visible;   /* don't clip the cards' shadows; the scroll lives in .rollup-scroll */
+    margin-bottom: 0;
+  }
+
+  /* The reconciliation readout is a fixed band at the top of the column. */
+  .container--workspace .reconcile-panel {
+    flex: none;
+  }
+
   /* The rollup fills the row height and scrolls internally — it no longer needs to be
      sticky now that nothing around it scrolls. */
   .container--workspace .rollup-pane {
     position: static;
     top: auto;
-    align-self: stretch;
+    flex: 1 1 auto;
     min-height: 0;
     margin-bottom: 0;
     display: flex;
