@@ -63,3 +63,93 @@
 .reconcile-tick {
   font-weight: 700;
 }
+
+/* Inline statement-balance entry (open month, unreconciled account). */
+.reconcile-entry {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--spacing-xs);
+}
+
+.reconcile-stmt {
+  width: 6.5rem;
+  padding: 0.15rem 0.35rem;
+  font: inherit;
+  font-size: var(--text-sm);
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+  color: var(--color-ink);
+  background: var(--color-surface);
+  border: 1px solid var(--color-border-strong);
+  border-radius: var(--radius-sm);
+}
+
+.reconcile-stmt:focus-visible {
+  outline: none;
+  box-shadow: var(--focus-ring);
+  border-color: var(--color-pine-soft-border);
+}
+
+.reconcile-stmt-save {
+  padding: 0.15rem 0.5rem;
+  font: inherit;
+  font-size: var(--text-sm);
+  color: var(--color-pine-hover);
+  background: none;
+  border: 1px solid var(--color-pine-soft-border);
+  border-radius: var(--radius-sm);
+  cursor: pointer;
+}
+
+.reconcile-stmt-save:hover {
+  background: var(--color-accent-soft);
+}
+
+/* Close controls: the completeness gate + the Close/Reopen action. */
+.reconcile-close {
+  margin-top: var(--spacing-md);
+  padding-top: var(--spacing-sm);
+  border-top: 1px solid var(--color-border);
+}
+
+.reconcile-gate {
+  list-style: none;
+  margin: 0 0 var(--spacing-sm);
+  padding: 0;
+}
+
+.gate-line {
+  display: flex;
+  align-items: baseline;
+  gap: var(--spacing-xs);
+  font-size: var(--text-sm);
+  padding: 0.1rem 0;
+}
+
+.gate-mark {
+  font-weight: 700;
+}
+
+.gate-line--ok {
+  color: var(--color-success);
+}
+
+.gate-line--todo {
+  color: var(--color-text-muted);
+}
+
+.reconcile-close-btn {
+  width: 100%;
+}
+
+.reconcile-closed {
+  margin: 0 0 var(--spacing-sm);
+  font-weight: 600;
+  color: var(--color-success);
+}
+
+.reconcile-drift {
+  margin: 0 0 var(--spacing-sm);
+  font-size: var(--text-sm);
+  color: var(--color-negative);
+}

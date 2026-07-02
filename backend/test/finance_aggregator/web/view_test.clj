@@ -162,14 +162,56 @@
         (is (= #{2} (:stale-ids (:result m))) "edited-out t2 kept stale")))
     (testing ":categories add the whole-month rollup"
       (is (= (view/category-rollup txs []) (:rollup (view/present txs vs {:categories []})))))
-    (testing ":reported adds the per-account reconciliation readout, else it's absent"
-      (is (not (contains? (view/present txs vs {}) :reconciliation)) "no :reported → no reconciliation")
+    (testing ":reported adds the monthly-close model, else it's absent"
+      (is (not (contains? (view/present txs vs {}) :close)) "no :reported → no close model")
       ;; Chequing (eid 100): +4000 -2000 = 2000; Visa (eid 101): -85 -50 -200 = -335.
-      (let [recon   (:reconciliation (view/present txs vs {:reported {100 2000M 101 -335M}}))
-            by-name (into {} (map (juxt :name :status) (:rows recon)))]
-        (is (true? (:all-reconciled? recon)))
+      (let [close   (:close (view/present txs vs {:reported {100 2000M 101 -335M}}))
+            by-name (into {} (map (juxt :name :status) (:rows close)))]
         (is (= :reconciled (by-name "Chequing")))
-        (is (= :reconciled (by-name "Visa")))))))
+        (is (= :reconciled (by-name "Visa")))
+        (is (true? (get-in close [:gate :balanced?])) "both accounts reconcile → balanced")))))
+
+;; --- Monthly close ----------------------------------------------------------
+
+(deftest month-close-gate
+  (testing "everything reviewed + categorized + balanced → ready to close"
+    (let [done  [(tx {:db/id 1 :transaction/amount 100 :transaction/reviewed true
+                      :transaction/category {:db/id 10 :category/name "X"}
+                      :transaction/account (bank 100 "A")})]
+          recon {:rows [{:status :reconciled}] :all-reconciled? true}
+          m     (view/month-close done {:reconciliation recon :net-now 100M})]
+      (is (true? (get-in m [:gate :ready?])))
+      (is (zero? (get-in m [:gate :unreviewed])))
+      (is (false? (:closed? m)))))
+  (testing "unreviewed / uncategorized rows block ready"
+    (let [txs2  [(tx {:db/id 2 :transaction/amount -5 :transaction/reviewed false
+                      :transaction/category nil :transaction/account (bank 100 "A")})]
+          recon {:rows [{:status :reconciled}] :all-reconciled? true}
+          m     (view/month-close txs2 {:reconciliation recon :net-now -5M})]
+      (is (= 1 (get-in m [:gate :unreviewed])))
+      (is (= 1 (get-in m [:gate :uncategorized])))
+      (is (false? (get-in m [:gate :ready?])))))
+  (testing "an unreconciled (no-snapshot) account blocks ready even when reviewed+categorized"
+    (let [done  [(tx {:db/id 1 :transaction/amount 100 :transaction/reviewed true
+                      :transaction/category {:db/id 10 :category/name "X"}
+                      :transaction/account (bank 100 "A")})]
+          recon {:rows [{:status :no-snapshot}] :all-reconciled? false}
+          m     (view/month-close done {:reconciliation recon :net-now 100M})]
+      (is (false? (get-in m [:gate :balanced?])))
+      (is (false? (get-in m [:gate :ready?]))))))
+
+(deftest month-close-drift
+  (let [close-evt {:reconciliation/net 1000M :reconciliation/closed-at #inst "2026-03-01"}
+        recon     {:rows [] :all-reconciled? true}]
+    (testing "closed with the net unchanged → no drift"
+      (is (nil? (:drift (view/month-close [] {:reconciliation recon :close close-evt :net-now 1000M})))))
+    (testing "closed but the net changed since → drift carries frozen vs now"
+      (is (= {:frozen 1000M :now 1200M}
+             (:drift (view/month-close [] {:reconciliation recon :close close-evt :net-now 1200M})))))
+    (testing "closed? and closed-at reflect the persisted event"
+      (let [m (view/month-close [] {:reconciliation recon :close close-evt :net-now 1000M})]
+        (is (true? (:closed? m)))
+        (is (= #inst "2026-03-01" (:closed-at m)))))))
 
 ;; --- Lingering --------------------------------------------------------------
 ;; A row edited out of the active filter should stay visible *in its original position*

@@ -9,6 +9,7 @@
    [clojure.string :as str]
    [finance-aggregator.auth :as auth]
    [finance-aggregator.db.categories :as db-categories]
+   [finance-aggregator.db.reconciliations :as db-reconciliations]
    [finance-aggregator.db.snapshots :as db-snapshots]
    [finance-aggregator.db.stats :as db-stats]
    [finance-aggregator.db.transactions :as db-transactions]
@@ -90,8 +91,9 @@
           ;; needs no SSE re-patching.
           account-eids (distinct (keep #(get-in % [:transaction/account :db/id]) txs))
           reported (db-snapshots/reported-deltas db-conn account-eids month-str)
+          close (db-reconciliations/get-close db-conn month-str)
           view-st (vs/query->view-state (:query-params req))
-          model (view/present txs view-st {:categories categories :reported reported})]
+          model (view/present txs view-st {:categories categories :reported reported :close close})]
       {:status 200
        :headers {"Content-Type" "text/html"}
        :body
@@ -346,3 +348,78 @@
      (fn []
        (commands/redo! db-conn auth/user-id)
        (edit-response db-conn req (r/read-signals req))))))
+
+;; --- Monthly close ---------------------------------------------------------
+;; The reconciliation panel (#reconciliation) is re-patched by its own actions —
+;; recording a statement balance, closing, reopening — from a model rebuilt off
+;; current db state. It lives outside #category-rollup, so edit re-patches don't
+;; touch it and these don't touch the table.
+
+(defn- parse-money
+  "Parse a courier money string to bigdec, or nil when blank/unparseable."
+  [s]
+  (when-let [t (some-> s str str/trim not-empty)]
+    (try (bigdec t) (catch NumberFormatException _ nil))))
+
+(defn- close-model-for
+  "Rebuild the monthly-close panel model for `month` from current db state (the
+   month's txs, reported deltas, rollup net, and the persisted close event)."
+  [db-conn month]
+  (let [txs (db-transactions/list-for-month db-conn month)
+        categories (db-categories/list-all db-conn)
+        account-eids (distinct (keep #(get-in % [:transaction/account :db/id]) txs))
+        reported (db-snapshots/reported-deltas db-conn account-eids month)]
+    (view/month-close txs {:reconciliation (view/reconcile-month txs reported)
+                           :close (db-reconciliations/get-close db-conn month)
+                           :net-now (:grand-total (view/category-rollup txs categories))})))
+
+(defn- patch-close-panel!
+  "Re-render the reconciliation panel for `month` and morph it into #reconciliation."
+  [db-conn req month]
+  (sse-response req (fn [sse] (patch! sse (tv/close-panel (close-model-for db-conn month))))))
+
+(defn set-statement-balance
+  "POST /transactions/reconcile/:account/statement — record a user-entered statement
+   ending balance for the account (the amount rides in the $stmt courier) for the
+   current month, then re-patch the reconciliation panel. A blank amount is a no-op."
+  [{:keys [db-conn]}]
+  (fn [req]
+    (handle-edit req
+     (fn []
+       (let [account-eid (path-id req :account)
+             signals (r/read-signals req)
+             month (signals-month signals)]
+         (when-let [balance (parse-money (:stmt signals))]
+           (db-snapshots/record-manual-balance! db-conn account-eid month balance))
+         (patch-close-panel! db-conn req month))))))
+
+(defn close-month
+  "POST /transactions/close — freeze the current month's category totals and lock it.
+   Refuses (surfaces an error, no write) unless the month is ready: everything
+   reviewed and categorized and every account's balance reconciled. Re-patches the panel."
+  [{:keys [db-conn]}]
+  (fn [req]
+    (handle-edit req
+     (fn []
+       (let [month (signals-month (r/read-signals req))]
+         (if-not (get-in (close-model-for db-conn month) [:gate :ready?])
+           (error-response req "This month isn't ready to close yet.")
+           (let [txs (db-transactions/list-for-month db-conn month)
+                 categories (db-categories/list-all db-conn)
+                 {:keys [income expenses transfers grand-total]} (view/category-rollup txs categories)]
+             (db-reconciliations/close-month!
+              db-conn month
+              {:income (:total income) :expenses (:total expenses)
+               :transfers (:total transfers) :net grand-total}
+              (java.util.Date.))
+             (patch-close-panel! db-conn req month))))))))
+
+(defn reopen-month
+  "POST /transactions/reopen — unlock the current month, then re-patch the panel."
+  [{:keys [db-conn]}]
+  (fn [req]
+    (handle-edit req
+     (fn []
+       (let [month (signals-month (r/read-signals req))]
+         (db-reconciliations/reopen-month! db-conn month)
+         (patch-close-panel! db-conn req month))))))

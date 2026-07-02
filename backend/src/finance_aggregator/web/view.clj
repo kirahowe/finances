@@ -346,11 +346,45 @@
 
 (defn reconcile-month
   "Per-account reconciliation for the month's `txs` given `reported` deltas. Returns
-   {:rows [reconcile-row…] :all-reconciled? bool} — the read-only confidence readout
-   the close panel renders. Pure."
+   {:rows [reconcile-row…] :all-reconciled? bool} — the per-account confidence
+   readout the close panel renders. Pure."
   [txs reported]
   (let [rows (ledger/reconcile (ledger/account-computed-deltas txs) reported)]
     {:rows rows :all-reconciled? (ledger/all-reconciled? rows)}))
+
+(defn month-close
+  "The monthly-close panel model. Pure. Combines the per-account reconciliation, the
+   completeness gate over the whole month, and the persisted close state.
+     :reconciliation — reconcile-month output {:rows :all-reconciled?}
+     :close          — the persisted :reconciliation/* event map, or nil
+     :net-now        — the month's current signed net (rollup :grand-total), for drift
+   Returns
+     {:rows [reconcile-row…]
+      :gate {:unreviewed n :uncategorized n :all-reviewed? b :all-categorized? b
+             :balanced? b :ready? b}
+      :closed? b :closed-at inst
+      :drift {:frozen bd :now bd} | nil}
+   `:ready?` — the month may be closed cleanly — needs everything reviewed AND
+   categorized AND every account's balance reconciled. `:drift` is present only for a
+   CLOSED month whose current net no longer matches the frozen net (it changed since
+   the lock)."
+  [txs {:keys [reconciliation close net-now]}]
+  (let [unreviewed       (count (remove #(true? (:transaction/reviewed %)) txs))
+        uncategorized    (count (filter needs-category? txs))
+        balanced?        (boolean (:all-reconciled? reconciliation))
+        all-reviewed?    (zero? unreviewed)
+        all-categorized? (zero? uncategorized)
+        closed?          (some? close)
+        frozen-net       (:reconciliation/net close)]
+    {:rows      (:rows reconciliation)
+     :gate      {:unreviewed unreviewed :uncategorized uncategorized
+                 :all-reviewed? all-reviewed? :all-categorized? all-categorized?
+                 :balanced? balanced?
+                 :ready? (and all-reviewed? all-categorized? balanced?)}
+     :closed?   closed?
+     :closed-at (:reconciliation/closed-at close)
+     :drift     (when (and closed? net-now (not= frozen-net net-now))
+                  {:frozen frozen-net :now net-now})}))
 
 ;; --- Presenter: the response view-model -------------------------------------
 ;; The single transformation entry point a handler routes a month's transactions through to get
@@ -362,15 +396,21 @@
    `:result` is the paginated page — lingering (an edited-out row stays visible) when a
    `:linger` set is supplied, a plain view otherwise; `:counts` are the faceted toolbar counts;
    the three `:*-options` are the faceted funnel option lists; `:rollup` (only when
-   `:categories` is supplied) is the whole-month category breakdown; `:reconciliation`
-   (only when `:reported` is supplied) is the per-account period-delta close readout."
-  [txs view-st {:keys [linger categories reported]}]
-  (cond-> {:result              (if (some? linger)
-                                  (view-with-linger txs view-st linger)
-                                  (view txs view-st))
-           :counts              (facet-counts txs view-st)
-           :account-options     (account-options txs view-st)
-           :institution-options (institution-options txs view-st)
-           :category-options    (category-funnel-options txs view-st)}
-    categories       (assoc :rollup (category-rollup txs categories))
-    (some? reported) (assoc :reconciliation (reconcile-month txs reported))))
+   `:categories` is supplied) is the whole-month category breakdown; `:close` (only
+   when `:reported` is supplied) is the monthly-close panel model (per-account
+   reconciliation + completeness gate + close state). `:close` (the persisted event,
+   or nil) and `:categories` feed the close model's drift + uncategorized gate."
+  [txs view-st {:keys [linger categories reported close]}]
+  (let [rollup (when categories (category-rollup txs categories))
+        recon  (when (some? reported) (reconcile-month txs reported))]
+    (cond-> {:result              (if (some? linger)
+                                    (view-with-linger txs view-st linger)
+                                    (view txs view-st))
+             :counts              (facet-counts txs view-st)
+             :account-options     (account-options txs view-st)
+             :institution-options (institution-options txs view-st)
+             :category-options    (category-funnel-options txs view-st)}
+      rollup (assoc :rollup rollup)
+      recon  (assoc :close (month-close txs {:reconciliation recon
+                                             :close close
+                                             :net-now (:grand-total rollup)})))))

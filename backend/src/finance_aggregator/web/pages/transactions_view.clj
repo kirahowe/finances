@@ -800,34 +800,87 @@
     [:span.rollup-row-name (str (rollup-section-labels type) " total")]
     [:span.rollup-amount (fmt/amount total)]]])
 
-(defn reconciliation-panel
-  "Per-account period-delta reconciliation for the month (web.view/reconcile-month):
-   does each account's tracked activity match the bank's reported balance change?
-   A read-only confidence readout — locking/closing the month lands in a later phase.
-   Rendered as its own element (outside #category-rollup) so the edit re-patches that
-   replace the rollup never clobber it; the figures are edit-invariant. Renders one
-   row per account with activity this month — \"matches\" / \"off by $X\" / \"no statement\"
-   (the last for an account we can't yet reconcile) — and nothing only when no account
-   had activity."
-  [{:keys [rows]}]
+(defn- statement-entry
+  "Inline statement-balance entry for an account we can't yet reconcile (open month
+   only). No data-bind — Save copies THIS row's input into the shared $stmt courier
+   at click time (so sibling inputs don't share a value) and posts it for the current
+   month; the server records a :manual statement balance and re-patches the panel."
+  [account-id]
+  [:span.reconcile-entry
+   [:input.reconcile-stmt
+    {:type "number" :step "0.01" :inputmode "decimal"
+     :placeholder "Statement $" :aria-label "Statement ending balance"}]
+   [:button.reconcile-stmt-save
+    {:type "button"
+     "data-on:click" (str "$stmt = el.previousElementSibling.value;"
+                          " @post('/transactions/reconcile/" account-id "/statement')")}
+    "Save"]])
+
+(defn- reconcile-row [closed? {:keys [account-id status difference] acct-name :name}]
+  [:li {:class (str "reconcile-row reconcile-row--" (name status))}
+   [:span.reconcile-account acct-name]
+   (cond
+     (= :reconciled status)
+     [:span.reconcile-status {:title "Tracked activity matches the bank's balance change"}
+      [:span.reconcile-tick {:aria-hidden "true"} "✓ "] "matches"]
+     ;; A closed month is locked — show the frozen status, no entry affordance.
+     closed?
+     (if (= :drift status)
+       [:span.reconcile-status {:title "Computed change differs from the bank's reported change"}
+        "off by " (fmt/amount difference)]
+       [:span.reconcile-status.reconcile-status--muted "no statement"])
+     ;; Open month — let the user enter (or correct) the bank's statement balance.
+     :else
+     (list
+      (when (= :drift status)
+        [:span.reconcile-status {:title "Computed change differs from the bank's reported change"}
+         "off by " (fmt/amount difference)])
+      (statement-entry account-id)))])
+
+(defn- gate-line [ok? label]
+  [:li {:class (str "gate-line " (if ok? "gate-line--ok" "gate-line--todo"))}
+   [:span.gate-mark {:aria-hidden "true"} (if ok? "✓" "○")]
+   [:span label]])
+
+(defn- close-controls
+  "Below the per-account rows: the completeness gate + Close button (open month), or
+   the closed banner + drift note + Reopen (closed month)."
+  [{:keys [gate closed? closed-at drift]}]
+  (if closed?
+    [:div.reconcile-close
+     [:p.reconcile-closed [:span.reconcile-tick {:aria-hidden "true"} "✓ "] "Closed " (fmt/date closed-at)]
+     (when drift
+       [:p.reconcile-drift
+        "Changed since close — net was " (fmt/amount (:frozen drift))
+        ", now " (fmt/amount (:now drift)) "."])
+     [:button.button.button-secondary.button-small
+      {"data-on:click" "@post('/transactions/reopen')"} "Reopen"]]
+    [:div.reconcile-close
+     [:ul.reconcile-gate
+      (gate-line (:all-reviewed? gate)
+                 (if (:all-reviewed? gate) "All reviewed" (str (:unreviewed gate) " to review")))
+      (gate-line (:all-categorized? gate)
+                 (if (:all-categorized? gate) "All categorized" (str (:uncategorized gate) " uncategorized")))
+      (gate-line (:balanced? gate)
+                 (if (:balanced? gate) "Balances match" "Balances unreconciled"))]
+     [:button.button.reconcile-close-btn
+      (cond-> {"data-on:click" "@post('/transactions/close')"}
+        (not (:ready? gate)) (assoc :disabled true))
+      "Close month"]]))
+
+(defn close-panel
+  "The monthly-close panel (web.view/month-close): per-account reconciliation rows
+   (with inline statement entry on an open month) plus the completeness gate and the
+   Close / Reopen action. Its own #reconciliation element, kept OUTSIDE #category-rollup
+   so the rollup's edit re-patches never clobber it; this panel is re-patched only by
+   its own statement/close/reopen actions. Renders nothing when no account had activity
+   this month."
+  [{:keys [rows closed?] :as model}]
   (when (seq rows)
-    [:section.reconcile-panel {:id "reconciliation" :aria-label "Bank reconciliation"}
+    [:section.reconcile-panel {:id "reconciliation" :aria-label "Monthly close"}
      [:h3.reconcile-title "Reconciliation"]
-     (into [:ul.reconcile-rows]
-           (for [{:keys [status difference] acct-name :name} rows]
-             [:li {:class (str "reconcile-row reconcile-row--" (name status))}
-              [:span.reconcile-account acct-name]
-              (case status
-                :reconciled
-                [:span.reconcile-status {:title "Tracked activity matches the bank's balance change"}
-                 [:span.reconcile-tick {:aria-hidden "true"} "✓ "] "matches"]
-                :drift
-                [:span.reconcile-status {:title "Computed change differs from the bank's reported change"}
-                 "off by " (fmt/amount difference)]
-                :no-snapshot
-                [:span.reconcile-status.reconcile-status--muted
-                 {:title "No bank statement balance recorded for this month yet"}
-                 "no statement"])]))]))
+     (into [:ul.reconcile-rows] (map #(reconcile-row closed? %) rows))
+     (close-controls model)]))
 
 (defn rollup-pane [{:keys [income expenses transfers grand-total]}]
   (let [sections (filter #(seq (:rows %)) [income expenses transfers])]
@@ -853,8 +906,8 @@
   [{:keys [month stats categories view-st model undo empty?]}]
   ;; `cat-opts` is the model's category *funnel* option list — kept distinct from the
   ;; `category-options` view fn (the hidden combobox source list) it would otherwise shadow.
-  (let [{:keys [result counts account-options institution-options rollup reconciliation]
-         cat-opts :category-options} model]
+  (let [{:keys [result counts account-options institution-options rollup]
+         close-model :close cat-opts :category-options} model]
     [:div.container.container--workspace {"data-on:keydown__window" undo-key-js}
      (shell/masthead {:active :transactions :stats stats})
      (error-banner)
@@ -870,7 +923,7 @@
       ;; rollup. Kept as siblings (not nested in #category-rollup) so edit re-patches
       ;; of the rollup leave the reconciliation panel intact.
       [:div.rollup-column
-       (reconciliation-panel reconciliation)
+       (close-panel close-model)
        (rollup-pane rollup)]]
      (when-not empty?
        (list (funnel-popovers account-options institution-options cat-opts)

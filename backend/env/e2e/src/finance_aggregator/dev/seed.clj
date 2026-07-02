@@ -123,4 +123,25 @@
                (mapv (fn [ext] {:account/external-id ext
                                 :account/connection [:connection/id "plaid:seed-item"]})
                      ["acct-chequing" "acct-savings" "acct-visa" "acct-mortgage"]))
+  ;; Reported balance snapshots at the 2025-01 month boundaries so the monthly-close
+  ;; panel reconciles: each account's Jan delta = Σ its Jan transactions, so the
+  ;; period-delta (Jan-end − Dec-end) equals the computed change → "matches".
+  ;; Mortgage gets only a Dec boundary, so it stays "no statement" — the target for
+  ;; the statement-entry flow (entering -98000 completes its pair → matches).
+  ;; Added last (snapshots aren't counted in the stat cards) so tx eids stay fixed.
+  (d/transact! conn
+               [{:snapshot/id "acct-chequing:2024-12-31" :snapshot/account [:account/external-id "acct-chequing"]
+                 :snapshot/date (inst "2024-12-31") :snapshot/balance 1000.00M :snapshot/source :reported}
+                {:snapshot/id "acct-chequing:2025-01-31" :snapshot/account [:account/external-id "acct-chequing"]
+                 :snapshot/date (inst "2025-01-31") :snapshot/balance 1450.00M :snapshot/source :reported}
+                {:snapshot/id "acct-savings:2024-12-31" :snapshot/account [:account/external-id "acct-savings"]
+                 :snapshot/date (inst "2024-12-31") :snapshot/balance 200.00M :snapshot/source :reported}
+                {:snapshot/id "acct-savings:2025-01-31" :snapshot/account [:account/external-id "acct-savings"]
+                 :snapshot/date (inst "2025-01-31") :snapshot/balance 1450.00M :snapshot/source :reported}
+                {:snapshot/id "acct-visa:2024-12-31" :snapshot/account [:account/external-id "acct-visa"]
+                 :snapshot/date (inst "2024-12-31") :snapshot/balance -500.00M :snapshot/source :reported}
+                {:snapshot/id "acct-visa:2025-01-31" :snapshot/account [:account/external-id "acct-visa"]
+                 :snapshot/date (inst "2025-01-31") :snapshot/balance -285.00M :snapshot/source :reported}
+                {:snapshot/id "acct-mortgage:2024-12-31" :snapshot/account [:account/external-id "acct-mortgage"]
+                 :snapshot/date (inst "2024-12-31") :snapshot/balance -100000.00M :snapshot/source :reported}])
   :seeded)

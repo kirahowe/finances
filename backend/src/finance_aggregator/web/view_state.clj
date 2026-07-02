@@ -154,7 +154,8 @@
    :month         month-str
    :editValue     ""
    :catValue      ""
-   :splitValue    ""})
+   :splitValue    ""
+   :stmt          ""})
 
 (defn client-signals
   "Full initial signal set: persistent view-state + column visibility + header-funnel
