@@ -18,21 +18,30 @@ page.on('pageerror', (e) => logs.push('PAGEERROR: ' + e.message));
 
 const rows = () => page.locator('#tx-tbody tr').count();
 const accountPopover = () => page.locator('.header-filter-popover', { hasText: 'Chequing' });
+// Select funnel options by account NAME and read the account's eid at runtime — the
+// seed's absolute eids shift with any schema/seed change, so nothing here hardcodes them.
+const accountOption = (name: string) =>
+  accountPopover().locator('.filter-dropdown-item',
+    { has: page.locator('.filter-dropdown-label-text', { hasText: name }) });
 
 await page.goto(`${BASE}/?month=2025-01`, { waitUntil: 'networkidle' });
 await page.waitForTimeout(300);
 check('no page errors', !logs.length, logs.join('; '));
 check('starts at 10 rows', (await rows()) === 10, `rows=${await rows()}`);
 
-// Open the Account funnel and select Chequing (account id 2).
+// Open the Account funnel and read the Chequing/Visa account ids the server assigned.
 await page.getByRole('button', { name: 'Filter Account' }).click();
 await accountPopover().waitFor({ state: 'visible', timeout: 3000 });
 check('account funnel opens', await accountPopover().isVisible());
+const chequingBox = accountOption('Chequing').locator('input');
+const chequingId = await chequingBox.getAttribute('value');
+const visaId = await accountOption('Visa').locator('input').getAttribute('value');
 
-await page.locator('input[data-bind="filter.account"][value="2"]').check();
+// Select Chequing → the server filters to its 5 rows and the URL records its id.
+await chequingBox.check();
 await page.waitForFunction(() => document.querySelectorAll('#tx-tbody tr').length === 5, null, { timeout: 5000 }).catch(() => {});
 check('server filters to Chequing (5 rows)', (await rows()) === 5, `rows=${await rows()}`);
-check('URL reflects fa=2', new URL(page.url()).searchParams.get('fa') === '2', page.url());
+check('URL reflects fa=<chequing id>', new URL(page.url()).searchParams.get('fa') === chequingId, page.url());
 check('funnel button shows active count 1',
   (await page.getByRole('button', { name: 'Filter Account' }).locator('.th-filter-count').innerText()).trim() === '1');
 
@@ -42,9 +51,9 @@ await page.waitForFunction(() => document.querySelectorAll('#tx-tbody tr').lengt
 check('Clear restores 10 rows', (await rows()) === 10, `rows=${await rows()}`);
 check('URL fa cleared', !new URL(page.url()).searchParams.get('fa'), page.url());
 
-// A funnel URL is server-seeded (= what a reload/shared link restores): Visa (id 4) → 2 rows,
+// A funnel URL is server-seeded (= what a reload/shared link restores): Visa → 2 rows,
 // with its checkbox pre-checked.
-await page.goto(`${BASE}/?month=2025-01&fa=4`, { waitUntil: 'networkidle' });
+await page.goto(`${BASE}/?month=2025-01&fa=${visaId}`, { waitUntil: 'networkidle' });
 await page.waitForTimeout(300);
 check('URL-seeded funnel filters server-side (Visa → 2 rows)', (await rows()) === 2, `rows=${await rows()}`);
 check('seeded funnel button shows active count 1',

@@ -24,29 +24,35 @@ await page.goto(`${BASE}/?month=2025-01&scope=all`, { waitUntil: 'networkidle' }
 await page.waitForTimeout(400);
 check('no page errors', !logs.length, logs.join('; '));
 
-// Focus the grid → lands on the first navigable cell.
+// Focus the grid → lands on the first navigable cell (a description cell). The seed's
+// absolute eids shift with any schema/seed change, so capture the row eids at runtime
+// and assert navigation relative to them.
 await page.locator('.transactions-table-scroll').focus();
-check('focus lands on first cell', (await active()) === '10:tx:description', await active());
+const c1 = await active();
+check('focus lands on first cell', !!c1 && /^\d+:tx:description$/.test(c1), c1);
+const r1 = c1?.split(':')[0];
 
 // Arrow navigation across columns and down rows.
 await page.keyboard.press('ArrowRight');
 await page.keyboard.press('ArrowRight');
-check('ArrowRight → reviewed cell', (await active()) === '10:tx:reviewed', await active());
+check('ArrowRight → reviewed cell', (await active()) === `${r1}:tx:reviewed`, await active());
 await page.keyboard.press('ArrowDown');
-check('ArrowDown → next row', (await active()) === '13:tx:reviewed', await active());
+const c2 = await active();
+check('ArrowDown → next row', !!c2 && /:tx:reviewed$/.test(c2) && c2 !== `${r1}:tx:reviewed`, c2);
+const r2 = c2?.split(':')[0];
 
 // Space toggles reviewed (server edit + morph); the active cell survives the morph.
 await page.keyboard.press('Space');
 await page.waitForTimeout(500);
-const checkedAfter = await page.evaluate(() =>
-  document.querySelector<HTMLInputElement>('[data-cell="13:tx:reviewed"] input')?.checked);
+const checkedAfter = await page.evaluate((cell) =>
+  document.querySelector<HTMLInputElement>(`[data-cell="${cell}"] input`)?.checked, `${r2}:tx:reviewed`);
 check('Space toggled reviewed (server-confirmed)', checkedAfter === true);
-check('active cell survives the edit morph', (await active()) === '13:tx:reviewed', await active());
+check('active cell survives the edit morph', (await active()) === `${r2}:tx:reviewed`, await active());
 
 // Enter opens the inline description editor on a description cell.
 await page.keyboard.press('ArrowLeft');
 await page.keyboard.press('ArrowLeft');
-check('ArrowLeft → description cell', (await active()) === '13:tx:description', await active());
+check('ArrowLeft → description cell', (await active()) === `${r2}:tx:description`, await active());
 await page.keyboard.press('Enter');
 await page.waitForTimeout(150);
 check('Enter opens the description editor',
@@ -55,12 +61,12 @@ check('Enter opens the description editor',
 // Type + Enter commits (server-confirmed); the row reflects it.
 await page.keyboard.type('Keyboard note');
 await page.keyboard.press('Enter');
-await page.waitForFunction(() => {
-  const r = [...document.querySelectorAll('#tx-tbody tr')].find((x) => x.querySelector('[data-cell="13:tx:description"]'));
-  return r && r.querySelector('.description-button')?.textContent.trim() === 'Keyboard note';
-}, null, { timeout: 5000 }).catch(() => {});
+await page.waitForFunction((cell) => {
+  const r = [...document.querySelectorAll('#tx-tbody tr')].find((x) => x.querySelector(`[data-cell="${cell}"]`));
+  return !!r && r.querySelector('.description-button')?.textContent.trim() === 'Keyboard note';
+}, `${r2}:tx:description`, { timeout: 5000 }).catch(() => {});
 check('typed + Enter persists the description',
-  await page.evaluate(() => document.querySelector('[data-cell="13:tx:description"] .description-button')?.textContent.trim() === 'Keyboard note'));
+  await page.evaluate((cell) => document.querySelector(`[data-cell="${cell}"] .description-button`)?.textContent.trim() === 'Keyboard note', `${r2}:tx:description`));
 
 // Regression: an Enter commit removes the focused input from the morphed tbody, dropping focus to
 // <body> — grid-nav must restore it to the active cell so arrow nav keeps working. (The restore is
