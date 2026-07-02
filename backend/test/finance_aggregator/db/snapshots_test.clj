@@ -121,6 +121,28 @@
                    :snapshot/source :calculated}])
     (is (nil? (snapshots/reported-delta setup/*test-conn* (account-eid "acc-1") "2026-03")))))
 
+(deftest manual-balance-feeds-the-delta-and-wins-ties
+  (testing "a manual statement balance anchors a boundary and reconciles the month"
+    (put-account! "acc-1")
+    (record! "acc-1" "100.00" (date 2026 2 28))   ; prior month-end (reported sync)
+    ;; No reported snapshot inside March → user enters the statement ending balance.
+    (snapshots/record-manual-balance! setup/*test-conn* (account-eid "acc-1") "2026-03" "175.00")
+    (is (= (bigdec "75.00")
+           (snapshots/reported-delta setup/*test-conn* (account-eid "acc-1") "2026-03"))))
+  (testing "re-entering the same month overwrites (idempotent)"
+    (snapshots/record-manual-balance! setup/*test-conn* (account-eid "acc-1") "2026-03" "180.00")
+    (is (= (bigdec "80.00")
+           (snapshots/reported-delta setup/*test-conn* (account-eid "acc-1") "2026-03")))))
+
+(deftest manual-balance-outranks-same-month-reported
+  (testing "when both exist for the month, the user's :manual figure wins the boundary"
+    (put-account! "acc-1")
+    (record! "acc-1" "100.00" (date 2026 2 28))
+    (record! "acc-1" "170.00" (date 2026 3 31))   ; reported month-end
+    (snapshots/record-manual-balance! setup/*test-conn* (account-eid "acc-1") "2026-03" "172.00")
+    (is (= (bigdec "72.00")
+           (snapshots/reported-delta setup/*test-conn* (account-eid "acc-1") "2026-03")))))
+
 (deftest reported-deltas-omits-accounts-without-a-pair
   (put-account! "acc-1")
   (put-account! "acc-2")

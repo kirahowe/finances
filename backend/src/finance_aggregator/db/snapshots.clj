@@ -41,6 +41,29 @@
       (d/transact! db-conn (vec tx)))
     db-conn))
 
+(defn month-end-instant
+  "Last instant of `month` (YYYY-MM) — 1 ms before the next month begins. A manual
+   statement-ending balance is recorded here, so it sits inside the month as that
+   month's ending reading."
+  ^Date [month]
+  (Date. (dec (.getTime ^Date (:end-date (u/month-date-range month))))))
+
+(defn record-manual-balance!
+  "Record a user-entered statement ending balance for the account (entity id
+   `account-eid`) for `month` (YYYY-MM) as a :manual snapshot at the month's last
+   instant — the reported side of the close check when the bank sync has no
+   month-boundary snapshot. Idempotent per account-month (re-entering overwrites).
+   Kept in its own id namespace so it coexists with any :reported snapshot and wins
+   the boundary tie-break (see reported-sources / source-rank). Returns db-conn."
+  [conn account-eid month balance]
+  (let [ext (:account/external-id (d/pull (d/db conn) [:account/external-id] account-eid))]
+    (d/transact! conn [{:snapshot/id      (str ext ":manual:" month)
+                        :snapshot/account account-eid
+                        :snapshot/date    (month-end-instant month)
+                        :snapshot/balance (bigdec balance)
+                        :snapshot/source  :manual}])
+    conn))
+
 ;; --- Reading: reported balance deltas for the monthly close ----------------
 
 ;; Sources that represent the institution's own reported truth (so they can anchor

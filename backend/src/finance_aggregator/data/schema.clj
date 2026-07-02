@@ -84,6 +84,22 @@
    :snapshot/balance {:db/valueType :db.type/bigdec}
    :snapshot/source  {:db/valueType :db.type/keyword}    ; :reported, :manual, :calculated
 
+   ;; Monthly close (reconciliation lock). One event per user per calendar month:
+   ;; the "lock it in" record created when a month is closed. Being CLOSED is a
+   ;; month-level fact - whether a transaction is reconciled is DERIVED from its
+   ;; month having a close event, so a transaction later imported/edited into a
+   ;; closed month surfaces as drift (frozen totals no longer match) and reopening
+   ;; is just retracting this one entity. The totals are frozen at close so the
+   ;; higher-level ongoing tracking reads immutable figures.
+   :reconciliation/id        {:db/unique :db.unique/identity}  ; "<user-id>:<yyyy-MM>"
+   :reconciliation/user      {:db/valueType :db.type/ref}
+   :reconciliation/month     {:db/valueType :db.type/string}   ; "yyyy-MM"
+   :reconciliation/closed-at {:db/valueType :db.type/instant}
+   :reconciliation/income    {:db/valueType :db.type/bigdec}   ; frozen month totals (category-rollup)
+   :reconciliation/expenses  {:db/valueType :db.type/bigdec}
+   :reconciliation/transfers {:db/valueType :db.type/bigdec}
+   :reconciliation/net       {:db/valueType :db.type/bigdec}   ; signed grand-total
+
    ;; Credentials (encrypted storage for API access tokens)
    :credential/id                  {:db/unique :db.unique/identity}
    :credential/user                {:db/valueType :db.type/ref}
