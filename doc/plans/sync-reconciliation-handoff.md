@@ -11,18 +11,27 @@ logical chunks with `gitp` (the `git commit` wrapper) + brief messages; test-dri
 (`clojure -M:test -m kaocha.runner`, `bb lint`; `bb e2e` for UI). Java is jabba-managed — each shell:
 `jabba use zulu@25.0.3` (or export `JAVA_HOME`).
 
-## Where we are (2026-06-24)
+## Where we are (2026-07-02)
 
-**Phase 1 (provider-seam foundation) and the Phase 2 core (cutover + resync engine) are COMPLETE,
-plus a pre-review hardening pass.** Connections are now the source of sync truth: a trigger-decoupled
-`resync` core drives every connection, the 2-hour background poll is gone (backfill is the resumable
-`:backfilling` status), and errors classify into capped-exponential backoff / re-auth / fail. The dead
-per-item `plaid.service` and the creds sync-cursor/status fns are deleted. **The next chunk is Phase 3**
-(dedup/merge + drift) — see the plan doc; Phase 4 (reconciliation workbench) follows. **Most of Phase 5
-(setup UI) shipped early on 2026-06-26** — see the Phase-5 note below.
+**Phases 1, 2, 4, and most of 5 are COMPLETE. Phase 3 (dedup/merge) is the one not started.**
+- **Phase 1 (provider-seam foundation) + Phase 2 core (cutover + resync engine):** done. Connections
+  are the source of sync truth: a trigger-decoupled `resync` core drives every connection, the 2-hour
+  background poll is gone (backfill is the resumable `:backfilling` status), errors classify into
+  capped-exponential backoff / re-auth / fail. The dead per-item `plaid.service` + creds
+  sync-cursor/status fns are deleted.
+- **Phase 5 (setup UI):** mostly shipped 2026-06-26 (embedded Plaid Link island, Lunchflow account
+  selection, per-connection + bulk resync, live Datastar SSE) — see the Phase-5 note below.
+- **Phase 4 (reconciliation) → delivered AS the MONTHLY-CLOSE workflow** (2026-06-30 → 07-02): a
+  per-month *verify-it-matches-the-bank → lock it in → roll totals up* ritual, not a generic workbench.
+  Its **Phase 1 (read-only delta readout) and Phase 2 (the close/lock) are DONE.** **This has its own
+  resume doc: [`monthly-close-handoff.md`](monthly-close-handoff.md)** — read that to continue the close
+  work. Its next step is a cross-month tracking view.
 
-Suite: **all green** (`clojure -M:test -m kaocha.runner`, 314 tests), `bb lint` clean, `bb e2e` green.
-Nothing pushed.
+**The remaining sync-plan chunk is Phase 3** (dedup/merge + drift when a Plaid `modified` changes a
+user-overridden field; manual↔synced match; account merge) — see the plan doc.
+
+Suite: **all green** (`clojure -M:test -m kaocha.runner`, 339 tests), `bb lint` clean, `bb e2e` green
+(17 specs). Nothing pushed.
 
 ### Pre-review hardening (applied to the commits below, not bolted on)
 - **Classify on the failing call's real `error_code`.** `plaid.client/execute!` now inspects the
@@ -278,17 +287,17 @@ bb e2e                                                  # Playwright (UI changes
 
 - **Phase 3:** dedup/merge + surface drift when a Plaid `modified` changes a field the user overrode;
   manual↔synced match (exact amount + ±10 days, confirm); account merge.
-- **Phase 4 → reframed as the MONTHLY CLOSE workflow** (2026-06-30, the user's #1-value next
-  feature): per-month *verify it matches the bank → lock it in → roll totals to ongoing tracking*.
-  Confidence model = **period-delta** (reported snapshot month-end − month-start vs Σ signed month
-  txns; no opening-balance anchor needed). Granularity = **per-account → month** (each account
-  reconciles, month closes when all pass). **Phase 1 (read-only delta readout) DONE** — `data/ledger.clj`,
-  `db/snapshots.clj reported-delta(s)`, and a per-account reconciliation panel on `/` beside the rollup
-  (commits on `main`, unpushed). **NEXT = the close/lock:** `:reconciliation/*` event + `:transaction/reconciled`
-  (soft lock), completeness gate (0 unreviewed / 0 uncategorized), "Close month" button, frozen rollup
-  totals, visible adjustment-on-drift, reopen, manual statement-balance entry for no-snapshot accounts.
-  Then a cross-month tracking view over the close events. (Absolute net-worth / opening-balance anchor is
-  an optional later add.) Full design in this doc's history + memory `project_monthly_close_goal`.
+- **Phase 4 → delivered AS the MONTHLY-CLOSE workflow — SEE [`monthly-close-handoff.md`](monthly-close-handoff.md).**
+  Per-month *verify it matches the bank → lock it in → roll totals to ongoing tracking*. Confidence
+  model = **period-delta** (reported snapshot month-end − month-start vs Σ signed month txns; no
+  opening-balance anchor). Granularity = **per-account → month**. **Phase 1 (read-only readout) and
+  Phase 2 (the close/lock) DONE:** `data/ledger.clj`, `db/reconciliations.clj`, `db/snapshots.clj`
+  reported-delta + record-manual-balance!, `view/month-close`, the `close-panel` (statement entry +
+  gate + Close/Reopen), gate-guarded close handlers. Notable design change from the original sketch:
+  **"closed" is a MONTH-level event, reconciled status is DERIVED — no `:transaction/reconciled` flag.**
+  Deferred: adjustment-on-drift (the gate hard-requires balanced), absolute net-worth. **NEXT there =
+  the cross-month tracking view** over `list-closes`. Full state in `monthly-close-handoff.md` + memory
+  `project_monthly_close_goal`.
 - **Phase 5 (mostly DONE 2026-06-26 — see the Phase-5 note above):** setup UI shipped — embedded Plaid
   Link.js, Lunchflow account selection, per-connection + bulk resync, last-synced, `setup.clj` at the
   4-layer standard. **Remaining:** CSV import, manual-account CRUD, connection Remove + Reconnect (Link

@@ -153,6 +153,9 @@ Other habits that paid off this session:
 
 ## Status / scope
 
-`setup.clj` is the next feature to bring up to this standard (it still fetches in its `page`
-fn and mixes handler + view — the exact thing the transactions split fixed). Apply the same
-four-layer template there.
+The transactions workspace and `setup.clj` are both at this four-layer standard (handler →
+presenter → dumb `-view` namespace), and the recent provider-sync engine and monthly-close work
+followed it (e.g. `data/ledger.clj` pure math → `web/view.clj` `month-close` presenter → the
+`close-panel` dumb view → thin handlers). Apply the same template to any new surface; the next
+one on deck is the cross-month tracking view (see
+[`monthly-close-handoff.md`](plans/monthly-close-handoff.md)).

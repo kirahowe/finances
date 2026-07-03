@@ -84,7 +84,8 @@ backend/
 │   │   ├── transfers.clj           # Transfer link operations
 │   │   ├── stats.clj               # Aggregate stats queries
 │   │   ├── connections.clj         # Provider-agnostic sync-state (:connection/*)
-│   │   ├── snapshots.clj           # Reported-balance history (:snapshot/*)
+│   │   ├── snapshots.clj           # Reported-balance history + reconciliation reads (:snapshot/*)
+│   │   ├── reconciliations.clj     # Monthly close events (:reconciliation/*)
 │   │   └── credentials.clj         # Encrypted token storage (:credential/*)
 │   ├── http/
 │   │   ├── server.clj              # HTTP server component (lifecycle)
@@ -95,11 +96,11 @@ backend/
 │   │       └── static.clj          # Static asset routes
 │   ├── web/                        # Server-rendered hypermedia (hiccup2 + Datastar)
 │   │   ├── routes.clj              # HTML/SSR route table
-│   │   ├── pages/                  # Full-page views (transactions, setup)
+│   │   ├── pages/                  # Handler + dumb-view pairs (transactions/-view, setup/-view)
 │   │   ├── shell.clj               # HTML document shell
 │   │   ├── layout.clj              # Page layout / chrome
 │   │   ├── render.clj              # Datastar SSE / fragment rendering
-│   │   ├── view.clj                # View helpers
+│   │   ├── view.clj                # Pure view engine: filter/sort/paginate, rollup, month-close
 │   │   ├── view_state.clj          # URL-encoded view state
 │   │   ├── commands.clj            # Command (undo/redo) handling
 │   │   ├── accounts.clj            # Account view fragments
@@ -111,10 +112,10 @@ backend/
 │   │   ├── contract.clj            # Overlay-safety guard (sync never writes user edits)
 │   │   └── retry.clj               # Capped-exponential backoff + transient/terminal classification
 │   ├── plaid/
-│   │   ├── client.clj              # Plaid API client (pure functions)
+│   │   ├── client.clj              # Plaid API client (execute! chokepoint carries error_code)
 │   │   ├── data.clj                # Plaid -> canonical data transforms
 │   │   ├── provider.clj            # :plaid provider seam implementation
-│   │   ├── service.clj             # Sync orchestration & persistence
+│   │   ├── errors.clj              # Plaid error vocabulary + classify -> retry/reconnect/fail
 │   │   └── types.clj               # Plaid type/enum helpers
 │   ├── lunchflow/
 │   │   ├── client.clj              # Lunchflow API client
@@ -130,8 +131,11 @@ backend/
 │   │   ├── secrets.clj             # Secrets management library
 │   │   ├── encryption.clj          # AES-256-GCM encryption
 │   │   └── log.clj                 # Logging helpers
+│   ├── resync.clj                  # Trigger-decoupled resync engine (drives due connections)
+│   ├── resync/main.clj             # Headless resync entry (`clojure -M:resync` / `bb resync` / cron)
 │   └── data/
 │       ├── schema.clj              # Datalevin schema with user scoping
+│       ├── ledger.clj              # Pure period-delta math for the monthly close (reconciliation)
 │       └── cleaning.clj            # Data normalization
 ├── env/dev/src/
 │   ├── user.clj                    # REPL entry point
@@ -218,7 +222,9 @@ Connect to 12,000+ financial institutions via Plaid API:
 - ✅ **API client** — pure API functions (`plaid/client.clj`)
 - ✅ **Encryption & credentials** — AES-256-GCM token storage (`lib/encryption.clj`, `db/credentials.clj`)
 - ✅ **Data transformation** — Plaid responses normalized to the canonical schema (`plaid/data.clj`, `plaid/provider.clj`)
-- ✅ **Cursor-based sync** — `/transactions/sync` (added/modified/removed) through the generic provider seam (`provider/sync.clj`, `plaid/service.clj`), with account balances + reported-balance snapshots persisted
+- ✅ **Cursor-based sync** — `/transactions/sync` (added/modified/removed) through the generic provider seam (`provider/sync.clj`, `plaid/provider.clj`), with account balances + reported-balance snapshots persisted
+- ✅ **Resumable resync engine** — trigger-decoupled `resync.clj` drives every due connection; per-page cursor persistence, capped-exponential backoff + error classification (`provider/retry.clj`, `plaid/errors.clj`); `bb resync` / `clojure -M:resync` / `Sync now`
+- ✅ **Embedded Plaid Link** — the `/setup` page links banks via a Plaid Link.js island; re-auth via Link update mode (backend)
 - ✅ **Multi-item support** — multiple linked Plaid Items per user
 
 The provider seam (`provider.clj` + `provider/*`) is provider-agnostic: Plaid,
@@ -227,15 +233,31 @@ and persisted through one ingest point (`provider.sync/persist-transactions!`).
 Sync-state (cursor, status, freshness, error/backoff) lives on a generic
 `:connection/*` entity (`db/connections.clj`).
 
-> **In flight (see `doc/plans/sync-reconciliation-handoff.md`):** the resumable resync
-> engine, error backoff (`provider/retry.clj`), re-auth (Link update mode), and the
-> `/setup` connection-management UI (Hosted Link) are being built. The Plaid link/sync
-> flow is not yet wired into the SSR `/setup` page (its buttons are disabled).
+> **In flight (see [`sync-reconciliation-handoff.md`](../doc/plans/sync-reconciliation-handoff.md)):**
+> the remaining sync chunk is Phase 3 — dedup/merge across providers + surfacing drift when a bank
+> `modified` overwrites a user edit. The reconciliation surface shipped separately as the monthly close
+> (below).
 
 See:
 - [ADR-004: Plaid Integration](../doc/adr/adr-004-plaid-integration.md) - Full integration plan
 - [PLAID_TESTING.md](./PLAID_TESTING.md) - REPL/curl backend smoke-testing guide
 - [PLAID_SYNC_TESTING.md](./PLAID_SYNC_TESTING.md) - Manual sync-testing guide
+
+### Monthly close (reconciliation)
+
+Verify a month's transactions match the bank, lock it in, and roll the totals up:
+- ✅ **Period-delta check** — per account, the bank-reported balance change over the month
+  (`db/snapshots.clj`) vs the sum of tracked transactions (`data/ledger.clj`); no opening-balance
+  anchor needed. Shows "matches / off by $X / no statement".
+- ✅ **Manual statement entry** — enter a bank statement balance when the sync has no month-boundary
+  snapshot (`snapshots/record-manual-balance!`, a `:manual` snapshot).
+- ✅ **Close / reopen** — a month-level `:reconciliation/*` event (`db/reconciliations.clj`) that freezes
+  the month's totals; gated on everything reviewed + categorized + every account reconciled. Reopening
+  retracts the event. A transaction later imported into a closed month surfaces as drift.
+
+The panel lives on `/` beside the category rollup (`web/pages/transactions_view.clj` `close-panel`);
+the model is pure (`web/view.clj` `month-close`). See
+[`monthly-close-handoff.md`](../doc/plans/monthly-close-handoff.md).
 
 ### Secure Secrets Management
 
@@ -262,9 +284,10 @@ progress) are Datastar SSE on the page routes, not a separate socket.
 
 - **Server-rendered hypermedia pages** (`web/routes.clj`) — the Datastar UI: `/`
   (transactions workspace) and `/setup`, plus the fragment/SSE routes the workspace
-  morphs (transaction edits, splits, transfer match/review, undo/redo) and the
-  setup sync actions (`/setup/sync`, `/setup/resync`) that live-patch the
-  connections list. See the workspace handoff
+  morphs (transaction edits, splits, transfer match/review, undo/redo; monthly close —
+  `/transactions/reconcile/:account/statement`, `/transactions/close`,
+  `/transactions/reopen`) and the setup sync actions (`/setup/sync`, `/setup/resync`)
+  that live-patch the connections list. See the workspace handoff
   [`datastar-handoff.md`](../doc/plans/datastar-handoff.md) for the full route list.
 - **Static assets** (`http/routes/static.clj`) — built islands + Datastar runtime.
 
@@ -302,7 +325,7 @@ Development:
 - [Architecture & Conventions](../doc/architecture-and-conventions.md) - the layered architecture (Data→Transformation→View→Handler) + code-style bars; **read before any refactor or new feature**
 - [Clojure Backend Architecture](../doc/adr/adr-003-clojure-backend-architecture.md) - Full architecture ADR
 - [REPL Quick Reference](../doc/implementation/adr-003-backend/repl-quick-reference.md) - Common REPL commands
-- [Resilient sync, balances & reconciliation](../doc/plans/sync-reconciliation.md) - in-flight provider-sync work (design); [handoff](../doc/plans/sync-reconciliation-handoff.md) is the resume-here doc
+- [Resilient sync, balances & reconciliation](../doc/plans/sync-reconciliation.md) - provider-sync design; [sync handoff](../doc/plans/sync-reconciliation-handoff.md) and [monthly-close handoff](../doc/plans/monthly-close-handoff.md) are the resume-here docs
 - [Secrets Management](./SECRETS.md) - Complete secrets guide
 - [Plaid Integration](../doc/adr/adr-004-plaid-integration.md) - Plaid implementation details
 

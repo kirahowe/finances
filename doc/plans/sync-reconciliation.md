@@ -11,16 +11,25 @@ what falls out of it — balance tracking → reconciliation → manual fixing o
 > **This doc is the design/why (stable reference). For current state + the exact next step, read
 > [`sync-reconciliation-handoff.md`](sync-reconciliation-handoff.md).**
 
-## Status (updated 2026-06-23)
+## Status (updated 2026-07-02)
 
-**Phase 1 (provider-seam foundation) is COMPLETE**, plus the per-month backfill cleanup and the
-backoff policy. 11 commits on `main`, all green, nothing pushed. See the handoff for the commit log,
-the new-namespace map, and the Phase 2 design.
+**Phases 1, 2, 4, and most of 5 are COMPLETE; Phase 3 (dedup/merge) is the one not started.** All
+green, nothing pushed. See the handoffs for current state, commit logs, and file maps:
+[`sync-reconciliation-handoff.md`](sync-reconciliation-handoff.md) (sync engine + setup UI) and
+[`monthly-close-handoff.md`](monthly-close-handoff.md) (Phase 4, delivered as the monthly-close
+workflow). **Phase 4 shipped as a per-month close ritual** (verify-it-matches-the-bank → lock it in →
+roll totals up), not the generic workbench sketched below — its Phase 1 (readout) + Phase 2 (close/lock)
+are done; the close is a month-level event and reconciled status is derived (no `:transaction/reconciled`
+flag). This doc keeps the stable design/why; the sections below predate that reframing where noted.
 
 - **Phase 1 done:** `:connection/*` entity + `db/connections.clj`; one canonical amount-normalization
   point (`provider.normalize`, applied via `provider.sync/persist-transactions!`); account balances +
   reported-balance snapshots (`db/snapshots`); overlay-safety guard (`provider.contract`); CSV routed
   through the shared ingest point.
+- **Phase 2 done:** trigger-decoupled `resync` core, per-page cursor persistence, backoff/error
+  classification, Plaid connection cutover, `bb resync` / `Sync now`.
+- **Phase 5 mostly done:** `/setup` at the 4-layer standard — embedded Plaid Link island, Lunchflow
+  account selection, per-connection + bulk resync, live Datastar SSE.
 - **Rescope:** Phase 1d's *Plaid cursor/status cutover* onto `:connection/*` MOVED into Phase 2 — it
   is consumed by the resync engine and the historical-poll it touches is deleted there, so doing it in
   Phase 1 would rewrite the same code twice. Phase 1 delivered the rest of the seam hygiene.
@@ -175,6 +184,14 @@ error-classification units; headless `resync-all!` integration.
 - Reuse `data/cleaning.clj/find-likely-dupes` behind a review-and-confirm surface.
 
 ## Phase 4 — Balances & reconciliation
+
+> **DELIVERED (2026-07-02) as the MONTHLY-CLOSE workflow — see [`monthly-close-handoff.md`](monthly-close-handoff.md).**
+> The confidence check is the **period-delta** (bank Δ over the month vs Σ tracked txns) — no
+> opening-balance anchor needed. "Closed" is a **month-level** `:reconciliation/*` event; a
+> transaction's reconciled status is DERIVED (no `:transaction/cleared`/`:transaction/reconciled`
+> overlay). Phase 1 (readout) + Phase 2 (close/lock) done; a visible adjustment-on-drift entry and a
+> cross-month tracking view are the remaining pieces. The sketch below is the original design; the
+> handoff is authoritative for what shipped.
 
 Depends on Phase 1 balances/snapshots. **Pause for intentional workbench-UI design before building the
 reconciliation surface** (Decision 7).
