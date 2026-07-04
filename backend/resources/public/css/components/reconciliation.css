@@ -1,9 +1,10 @@
-/* Monthly-close reconciliation readout — the period-delta confidence panel that
-   sits above the category rollup in the summary column. Per account: does the
-   tracked activity match the bank's reported balance change for the month?
-   Read-only for now (the close/lock action lands in a later phase). All colors come
-   from the shared design tokens, so dark mode (prefers-color-scheme) and WCAG-AA
-   contrast follow the design system automatically. */
+/* Monthly-close reconciliation panel — the period-delta confidence readout that sits
+   above the category rollup in the summary column. Per account: does the tracked
+   activity match the bank's reported balance change for the month? Also hosts the
+   recorded statement balances (each with the date it's applied on), the "Set balance"
+   / "Add statement balance" entry points, and the completeness gate + Close/Reopen
+   action. All colors come from the shared design tokens, so dark mode
+   (prefers-color-scheme) and WCAG-AA contrast follow the design system automatically. */
 
 .reconcile-panel {
   background: var(--color-surface);

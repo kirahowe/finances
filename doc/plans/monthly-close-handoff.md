@@ -27,14 +27,30 @@ reconciled?    = |reported-delta − computed-delta| ≤ tolerance
 When they agree, the month's transactions fully explain the bank's balance change — nothing missing,
 nothing extra. **No opening-balance anchor is needed** (only the change over the period is compared).
 
-## Where we are (2026-07-02)
+## Where we are (2026-07-03)
 
-**Phase 1 (read-only delta readout) and Phase 2 (the close/lock) are COMPLETE.** The `/` transactions
-workspace now has a working monthly-close panel beside the category rollup: per-account "matches /
-off by $X / no statement", inline statement-balance entry, a completeness gate, and Close / Reopen.
+**Phase 1 (read-only delta readout) and Phase 2 (the close/lock) are COMPLETE, plus a manual-entry
+pass (2026-07-03) that tightened the panel for the real close workflow.** The `/` transactions
+workspace has a working monthly-close panel beside the category rollup: per-account "matches / off by
+$X / no statement", a completeness gate, and Close / Reopen.
 
-Suite: **all green** — `clojure -M:test -m kaocha.runner` (339 tests), `bb lint` clean, `bb e2e` all
-17 specs green (incl. `v2-reconcile.ts`). Nothing pushed.
+**Manual-entry pass (2026-07-03):**
+- **Statement balances on an explicit date.** `record-manual-balance!` now takes a `java.util.Date`
+  (keyed per account-day), so a statement that closes mid-month lands on its real closing date. Entry
+  moved from the inline per-row input to a **modal** ("Set balance" per unreconciled row, or a
+  panel-level "+ Add statement balance") that lists **all** accounts — so an account with no activity
+  this month still reconciles — and the panel now **lists every recorded balance with its applied
+  date** (+ a × to remove). `list-manual-balances` / `delete-manual-balance!` back it.
+- **Manual transactions.** An "Add transaction" toolbar button opens a modal (account picker + a
+  money-out/-in toggle that derives the canonical sign + amount/date/payee/optional category). The
+  created row is a first-class `:transaction/provider :manual` row (`db.transactions/create-manual!`),
+  inserted directly (bypassing the provider invert-amount flip — the user supplies the sign) with an
+  optional category applied as a post-create overlay. Deletable via the row-actions menu → confirm
+  dialog (`delete-manual!`, guarded to `:manual`). Both create + delete re-patch `#reconciliation`
+  (a new/removed row moves the computed deltas + gate).
+
+Suite: **all green** — `clojure -M:test -m kaocha.runner` (347 tests), `bb lint` clean, `bb e2e` all
+18 specs green (`v2-reconcile.ts` + `v2-add-transaction.ts`). Nothing pushed.
 
 **NEXT — Phase 3: the cross-month tracking view** (the tracking payoff). Read `db.reconciliations/
 list-closes` (already built, newest-first) into a month-over-month view: net + income/expense per
@@ -54,6 +70,11 @@ ddbcf15  (hardening) fix summary-column scroll + card padding regression
 9d4f270  Phase 2a close-event data layer + manual statement balances
 96b21e2           e2e: make the funnel/grid specs eid-agnostic (see gotcha below)
 23e73c5  Phase 2b the close panel — statement entry, gate, close/reopen
+5eda884  manual   statement balances on an explicit date + list/delete (data layer)
+34b3940  manual   create-manual! / delete-manual! transaction data layer
+8b282c2  manual   statement-balance modal + dated balances list (replaces inline entry)
+827d4ad  manual   the Add-transaction modal
+a6c43ba  manual   delete a manual transaction via the row-actions menu
 ```
 
 ## What's built — file map
@@ -73,30 +94,51 @@ backend/src/finance_aggregator/
                                 :manual sources anchor; :manual wins the tie-break; nil when a boundary
                                 is missing or the start snapshot predates the prior month).
                                 record-manual-balance! (user-entered statement balance → :manual
-                                snapshot at the month's last instant, own id namespace so it coexists
-                                with :reported). month-end-instant helper.
+                                snapshot at an EXPLICIT Date, keyed per account-day, own id namespace so
+                                it coexists with :reported). list-manual-balances (newest-first, with
+                                account name) + delete-manual-balance! (guarded to :manual).
+                                month-end-date helper (the modal's default date seed).
+  db/transactions.clj      +    create-manual! (a first-class :manual row inserted DIRECTLY — no invert
+                                flip; optional category applied as a post-create overlay; local
+                                ensure-user! since a :transaction/user ref value must resolve) and
+                                delete-manual! (guarded to :manual; unlinks any transfer pair first).
   web/view.clj             +    reconcile-month (per-account rows + all-reconciled?), month-close
                                 (rows + completeness gate {unreviewed, uncategorized, all-reviewed?,
-                                all-categorized?, balanced?, ready?} + closed?/closed-at + drift).
-                                present now takes :reported + :close and adds :close to the model.
-  web/view_state.clj       +    :stmt "" courier signal (statement-entry input).
-  web/pages/transactions.clj +  set-statement-balance (POST .../statement → record-manual-balance! →
-                                patch #reconciliation), close-month (POST /close, GATE-GUARDED — refuses
-                                unless :ready?), reopen-month (POST /reopen). close-model-for +
-                                patch-close-panel! helpers.
-  web/pages/transactions_view.clj + close-panel (per-account rows, inline statement-entry on an open
-                                month, gate checklist, Close/Reopen). Rendered in the .rollup-column
-                                wrapper as its OWN #reconciliation element (outside #category-rollup).
-  web/routes.clj           +    POST /transactions/reconcile/:account/statement, /transactions/close,
-                                /transactions/reopen.
-  resources/public/css/components/reconciliation.css  NEW  panel + statement entry + gate + closed/drift.
+                                all-categorized?, balanced?, ready?} + closed?/closed-at + drift +
+                                :manual-balances passthrough). present takes :reported/:close/
+                                :manual-balances and adds :close to the model.
+  web/view_state.clj       +    stmt{Account,Date,Balance,Del} couriers (statement modal) and
+                                tx{Account,Dir,Amount,Date,Payee,Desc,Category} couriers (add-txn modal)
+                                + ephemeral :_rowMenuManual (drives the row-menu Delete item).
+  web/pages/transactions.clj +  statement-editor (GET modal, seeds signals), set-statement-balance
+                                (POST /statement → record-manual-balance! → patch panel + close modal),
+                                delete-statement-balance (POST /statement/delete). add-transaction-editor
+                                (GET modal, default-txn-date), create-manual (POST /manual),
+                                delete-transaction-editor (GET confirm) + delete-manual (POST
+                                /:id/manual/delete). close-month (GATE-GUARDED), reopen-month.
+                                close-model-for (now includes :manual-balances) + patch-close-panel!.
+  web/pages/transactions_view.clj + close-panel (per-account rows w/ "Set balance", the recorded-balance
+                                list w/ dates + "Add statement balance", gate, Close/Reopen); statement-
+                                modal, add-transaction-modal (money-out/-in toggle), delete-transaction-
+                                modal; account-select helper (shared). row-actions-menu gained a manual-
+                                only Delete item ($_rowMenuManual). Panel is its OWN #reconciliation
+                                element in .rollup-column (outside #category-rollup).
+  web/routes.clj           +    manual/new (GET modal), manual (POST create), :id/manual/delete
+                                (GET confirm + POST delete); statement-modal (GET), statement (POST),
+                                statement/delete (POST) — replaced /reconcile/:account/statement.
+                                /transactions/close, /transactions/reopen.
+  resources/public/css/components/reconciliation.css  NEW  panel + Set balance + statement list + gate +
+                                closed/drift.
+  resources/public/css/components/form-modal.css        NEW  shared form-modal frame (statement + add-txn).
+  resources/public/css/components/add-transaction-modal.css NEW  money-out/-in segmented toggle.
   resources/public/css/components/category-rollup.css ~   .rollup-column wrapper owns the sticky scroll.
 
 backend/env/e2e/src/finance_aggregator/dev/seed.clj + 2025-01 boundary snapshots so three accounts
                                 reconcile; Mortgage left Dec-only ("no statement") as the entry target.
-Tests: data/ledger_test, db/reconciliations_test, db/snapshots_test (reported-delta + manual),
-       web/view_test (month-close gate/drift), web/pages/transactions_view_test (panel render branches).
-e2e:   v2-reconcile.ts (statement-entry morph, live).
+Tests: data/ledger_test, db/reconciliations_test, db/snapshots_test (reported-delta + manual dated +
+       list/delete), db/transactions_test (create-manual/delete-manual), web/view_test (month-close
+       gate/drift), web/pages/transactions_view_test (panel + statement-list render branches).
+e2e:   v2-reconcile.ts (statement-modal morph, live), v2-add-transaction.ts (add + sign + delete).
 ```
 
 ## Locked decisions
@@ -111,10 +153,12 @@ e2e:   v2-reconcile.ts (statement-entry morph, live).
    frozen net), and reopening is just retracting the one event. **Do not add `:transaction/reconciled`.**
 4. **Totals are frozen at close** (income/expenses/transfers/net) so the tracking view reads immutable
    figures even if a closed month is later touched.
-5. **The panel is edit-invariant → renders on full-page load only** (imported amounts are immutable;
-   splits/category/reviewed never move an account total). It lives OUTSIDE `#category-rollup` so the
-   rollup's edit re-patches never clobber it; it's re-patched ONLY by its own statement/close/reopen
-   actions (all Datastar `@post` → morph `#reconciliation`).
+5. **The panel is edit-invariant for the ordinary edits → renders on full-page load only** (imported
+   amounts are immutable; splits/category/reviewed never move an account total). It lives OUTSIDE
+   `#category-rollup` so the rollup's edit re-patches never clobber it. It IS re-patched by its own
+   statement/close/reopen actions **and by manual create/delete** — those add or remove a row, which
+   moves the computed deltas + gate, so `create-manual` / `delete-manual` re-patch `#reconciliation`
+   via `edit-response`'s `:after-patch` alongside the table. (An ordinary field edit still does not.)
 
 ## Deferred / open items
 
@@ -138,9 +182,17 @@ e2e:   v2-reconcile.ts (statement-entry morph, live).
   `/e2e/reset`s at its start (which bumps the eid counter), and those two must run before the first reset.
 - **`/e2e/reset` bumps eids** (clear! + reseed; Datalevin doesn't reuse retracted eids): seed#1 first
   tx = eid 10, post-reset stabilizes higher. Never hardcode absolute seed eids in a spec.
-- **Statement-entry courier is per-click, not data-bound.** Multiple no-statement rows would share one
-  `$stmt` if data-bound; instead the Save button copies THIS row's input into `$stmt` at click time
-  (`$stmt = el.previousElementSibling.value`). Keep that pattern if you add more per-row inputs.
+- **Statement + add-txn modals seed their signals on open, then read them on save.** The GET modal
+  handler `patch-signals!`s the initial values (account/date defaults, blank amount) AND the fragment
+  carries matching HTML defaults, so the fields are consistent regardless of data-bind's init direction
+  and a reopened modal never shows stale values. Save is gated client-side via a `data-attr` disabled
+  expression AND validated server-side (missing field → error bar). (This replaced the old per-click
+  `$stmt` inline courier when statement entry moved to a modal.)
+- **A manual transaction stores its sign as given — do NOT route create-manual! through the provider
+  seam.** The invert-amount flip (`provider.normalize`) is import-only; the modal already resolves the
+  sign from the money-out/-in toggle, so a direct insert is correct and the seam would double-flip an
+  inverted account. Category can't ride the insert (overlay contract) → it's a separate post-create
+  `update-category!`.
 - **The close is gate-guarded on the server** (`close-month` refuses unless `:ready?`), not just via the
   disabled button — a stray POST can't close an unready month. Keep that guard.
 - **Reported-delta needs BOTH boundaries.** A month with only one snapshot (or a start snapshot older
@@ -150,12 +202,14 @@ e2e:   v2-reconcile.ts (statement-entry morph, live).
 
 ```bash
 jabba use zulu@25.0.3                                    # once per shell
-cd backend && clojure -M:test -m kaocha.runner           # kaocha (339, all green)
+cd backend && clojure -M:test -m kaocha.runner           # kaocha (347, all green)
 bb lint                                                  # clj-kondo + tsc (from repo root)
-bb e2e                                                   # Playwright (17 specs; v2-reconcile drives the close panel)
-bb e2e v2-reconcile                                      # just the close-panel spec
+bb e2e                                                   # Playwright (18 specs; v2-reconcile + v2-add-transaction)
+bb e2e v2-reconcile v2-add-transaction                   # just the monthly-close + manual-entry specs
 ```
-- Manual drive: `bb dev` → open `/?month=2025-01`. Three accounts show "matches", Mortgage shows a
-  statement input; enter `-98000` → it reconciles and the gate flips to "Balances match". (Closing
-  still needs everything reviewed + categorized.)
+- Manual drive: `bb dev` → open `/?month=2025-01`. Three accounts show "matches"; Mortgage shows "no
+  statement" → click **Set balance**, enter `-98000`, Save → it reconciles and the gate flips to
+  "Balances match" (the recorded balance now lists with its date, removable via ×). **Add transaction**
+  in the toolbar opens the add modal; a manual row is deletable from its row-actions caret → Delete.
+  (Closing still needs everything reviewed + categorized.)
 ```

@@ -291,10 +291,13 @@ bb e2e                                                  # Playwright (UI changes
   Per-month *verify it matches the bank → lock it in → roll totals to ongoing tracking*. Confidence
   model = **period-delta** (reported snapshot month-end − month-start vs Σ signed month txns; no
   opening-balance anchor). Granularity = **per-account → month**. **Phase 1 (read-only readout) and
-  Phase 2 (the close/lock) DONE:** `data/ledger.clj`, `db/reconciliations.clj`, `db/snapshots.clj`
-  reported-delta + record-manual-balance!, `view/month-close`, the `close-panel` (statement entry +
-  gate + Close/Reopen), gate-guarded close handlers. Notable design change from the original sketch:
-  **"closed" is a MONTH-level event, reconciled status is DERIVED — no `:transaction/reconciled` flag.**
+  Phase 2 (the close/lock) DONE, + a manual-entry pass (2026-07-03):** `data/ledger.clj`,
+  `db/reconciliations.clj`, `db/snapshots.clj` reported-delta + dated record-manual-balance! (+ list/
+  delete), `db/transactions.clj` create-manual!/delete-manual!, `view/month-close`, the `close-panel`
+  (statement-balance MODAL on any account + a dated balances list, gate, Close/Reopen), an
+  Add-transaction modal + row-menu Delete, gate-guarded close handlers. Notable design change from the
+  original sketch: **"closed" is a MONTH-level event, reconciled status is DERIVED — no
+  `:transaction/reconciled` flag.**
   Deferred: adjustment-on-drift (the gate hard-requires balanced), absolute net-worth. **NEXT there =
   the cross-month tracking view** over `list-closes`. Full state in `monthly-close-handoff.md` + memory
   `project_monthly_close_goal`.
