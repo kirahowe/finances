@@ -159,7 +159,15 @@
    :stmtAccount   ""
    :stmtDate      ""
    :stmtBalance   ""
-   :stmtDel       ""})
+   :stmtDel       ""
+   ;; Add-transaction modal (feature: manual transactions) couriers.
+   :txAccount     ""
+   :txDir         "out"
+   :txAmount      ""
+   :txDate        ""
+   :txPayee       ""
+   :txDesc        ""
+   :txCategory    ""})
 
 (defn client-signals
   "Full initial signal set: persistent view-state + column visibility + header-funnel

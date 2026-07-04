@@ -11,6 +11,7 @@
 
 /* Shared components */
 @import "components/common.css";
+@import "components/add-transaction-modal.css";
 @import "components/category-button.css";
 @import "components/category-dropdown.css";
 @import "components/category-rollup.css";

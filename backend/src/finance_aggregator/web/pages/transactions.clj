@@ -467,3 +467,66 @@
        (let [month (signals-month (r/read-signals req))]
          (db-reconciliations/reopen-month! db-conn month)
          (patch-close-panel! db-conn req month))))))
+
+;; --- Manual transactions ---------------------------------------------------
+;; Add a transaction the bank feed didn't import (cash, a missed charge). A modal
+;; collects the fields; the created row is a first-class :manual transaction that then
+;; behaves like any imported one. Non-undoable (delete is the reversal); like the
+;; statement actions it re-patches #reconciliation, since a new/removed row changes the
+;; month's computed deltas and completeness gate.
+
+(defn- default-txn-date
+  "yyyy-MM-dd the add-transaction modal seeds: today when viewing the current month
+   (the common case), else the viewed month's last day — so a manual entry lands in the
+   month being reconciled rather than on today's date."
+  [month]
+  (let [today (str (u/date->local-date (java.util.Date.)))]
+    (if (= month (subs today 0 7))
+      today
+      (str (u/date->local-date (db-snapshots/month-end-date month))))))
+
+(defn add-transaction-editor
+  "GET /transactions/manual/new — render the add-transaction modal + seed its signals.
+   A pure read: lists all accounts + categories; the date defaults per default-txn-date."
+  [{:keys [db-conn]}]
+  (fn [req]
+    (let [signals (r/read-signals req)
+          month (signals-month signals)
+          accounts (->> (db-accounts/list-with-institution db-conn)
+                        (map (fn [a] {:eid (:db/id a) :name (:account/external-name a)}))
+                        (sort-by :name))
+          categories (db-categories/list-all db-conn)
+          default-date (default-txn-date month)
+          selected (:eid (first accounts))]
+      (sse-response req
+       (fn [sse]
+         (d*/patch-signals! sse (r/signals {:txAccount (str selected) :txDir "out" :txAmount ""
+                                            :txDate default-date :txPayee "" :txDesc "" :txCategory ""}))
+         (patch! sse (tv/add-transaction-modal accounts categories default-date selected)))))))
+
+(defn create-manual
+  "POST /transactions/manual — create a manual transaction from the modal signals. The
+   amount is entered as a positive magnitude + a money-out/-in direction; the canonical
+   sign is derived here (out → negative). Re-renders the table, re-patches the close
+   panel, and closes the modal. Surfaces an error when a required field is missing."
+  [{:keys [db-conn]}]
+  (fn [req]
+    (handle-edit req
+     (fn []
+       (let [signals     (r/read-signals req)
+             month       (signals-month signals)
+             account-eid (some-> (:txAccount signals) str not-empty parse-long)
+             date        (some-> (:txDate signals) str not-empty u/string->date)
+             magnitude   (some-> (parse-money (:txAmount signals)) .abs)
+             amount      (when magnitude (if (= "in" (:txDir signals)) magnitude (.negate magnitude)))
+             category-id (vs/parse-category-value (:txCategory signals))]
+         (if (and account-eid date amount)
+           (do (db-transactions/create-manual! db-conn auth/user-id
+                                               {:account-eid account-eid :amount amount :date date
+                                                :payee (some-> (:txPayee signals) str)
+                                                :description (some-> (:txDesc signals) str)
+                                                :category-id category-id})
+               (edit-response db-conn req signals :close-modal? true
+                              :after-patch (fn [sse]
+                                             (patch! sse (tv/close-panel (close-model-for db-conn month))))))
+           (error-response req "Enter an account, amount, and date.")))))))

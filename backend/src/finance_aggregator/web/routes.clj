@@ -26,6 +26,8 @@
    ["/transactions/review/:a/reject/:b"     {:put {:handler (transactions/review-reject deps) :name ::review-reject}}]
    ["/transactions/undo"            {:post {:handler (transactions/undo deps) :name ::undo}}]
    ["/transactions/redo"            {:post {:handler (transactions/redo deps) :name ::redo}}]
+   ["/transactions/manual/new"       {:get  {:handler (transactions/add-transaction-editor deps) :name ::manual-new}}]
+   ["/transactions/manual"           {:post {:handler (transactions/create-manual deps) :name ::manual-create}}]
    ["/transactions/statement-modal"  {:get  {:handler (transactions/statement-editor deps) :name ::statement-modal}}]
    ["/transactions/statement"        {:post {:handler (transactions/set-statement-balance deps) :name ::statement}}]
    ["/transactions/statement/delete" {:post {:handler (transactions/delete-statement-balance deps) :name ::statement-delete}}]

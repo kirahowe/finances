@@ -369,6 +369,9 @@
     (count-chip "Uncategorized" "uncat" "count-uncategorized" (:uncategorized counts))
     (count-chip "Hide transfers" "hideTransfers" "count-transfers" (:transfers-hidden counts))]
    [:div.toolbar-actions
+    [:button.button.button-secondary.add-transaction-button
+     {:type "button" :aria-haspopup "dialog" "data-on:click" "@get('/transactions/manual/new')"}
+     "Add transaction"]
     [:button.button.button-secondary.filter-button
      {:type "button" :aria-haspopup "dialog" "data-on:click" "@get('/transactions/review-transfers')"}
      "Review transfers"]
@@ -859,6 +862,14 @@
      "data-on:click" "@get('/transactions/statement-modal')"}
     "+ Add statement balance"]])
 
+(defn- account-select
+  "A .form-select over all accounts, bound to `signal`, preselecting `selected` eid.
+   Shared by the statement-balance and add-transaction modals."
+  [id signal accounts selected]
+  (into [:select.form-select {:id id "data-bind" signal}]
+        (for [{:keys [eid name]} accounts]
+          [:option (cond-> {:value (str eid)} (= eid selected) (assoc :selected true)) name])))
+
 (defn statement-modal
   "GET /transactions/statement-modal → patched into #modal-root: record a bank
    statement ending balance for ANY account on a chosen date. `accounts` is
@@ -878,9 +889,7 @@
       "Record the balance your bank statement shows on a given date. The monthly close checks your tracked activity against it."]
      [:div.form-group
       [:label.form-label {:for "stmt-account"} "Account"]
-      (into [:select.form-select {:id "stmt-account" "data-bind" "stmtAccount"}]
-            (for [{:keys [eid name]} accounts]
-              [:option (cond-> {:value (str eid)} (= eid selected) (assoc :selected true)) name]))]
+      (account-select "stmt-account" "stmtAccount" accounts selected)]
      [:div.form-modal-row
       [:div.form-group
        [:label.form-label {:for "stmt-date"} "Date"]
@@ -896,6 +905,81 @@
         "data-attr" "{disabled: !($stmtAccount && $stmtDate && $stmtBalance)}"
         "data-on:click" "@post('/transactions/statement')"}
        "Save balance"]]]]])
+
+(defn- direction-btn
+  "One segment of the money-out / money-in toggle, bound to $txDir."
+  [dir label]
+  [:button.txn-dir-btn
+   {:type "button" :role "radio"
+    "data-attr"    (str "{'aria-checked': $txDir === '" dir "'}")
+    "data-class"   (str "{'is-active': $txDir === '" dir "'}")
+    "data-on:click" (str "$txDir = '" dir "'")}
+   label])
+
+(defn- category-select
+  "Optional category picker for the add-transaction modal, grouped by type, bound to
+   $txCategory (\"\" = uncategorized). A plain select keeps the modal island-free; the
+   table's richer combobox is a separate surface."
+  [categories]
+  (let [by-type (group-by :category/type categories)]
+    (into [:select.form-select {:id "tx-category" "data-bind" "txCategory"}
+           [:option {:value ""} "Uncategorized"]]
+          (for [[type label] [[:income "Income"] [:expense "Expenses"] [:transfer "Transfers"]]
+                :let [cats (sort-by :category/name (by-type type))]
+                :when (seq cats)]
+            (into [:optgroup {:label label}]
+                  (for [c cats] [:option {:value (str (:db/id c))} (:category/name c)]))))))
+
+(defn add-transaction-modal
+  "GET /transactions/manual/new → patched into #modal-root: record a transaction the
+   bank feed didn't import. `accounts` is [{:eid :name}] (shown prominently, so it's
+   always clear which account the entry lands on), `categories` the optional picker
+   options, `default-date` a yyyy-MM-dd seed. Amount is entered as a positive magnitude
+   with a money-out/-in toggle; the handler derives the canonical sign. No island —
+   plain data-bind fields the handler seeds via patch-signals; Save is disabled until
+   account + amount + date are set. Cancel/Esc/backdrop close client-side; a successful
+   save re-renders the table and closes the modal."
+  [accounts categories default-date selected]
+  [:div {:id "modal-root"}
+   [:div.modal-backdrop (backdrop-attrs)
+    [:div.modal-content.form-modal-content
+     {:role "dialog" :aria-modal "true" :aria-labelledby "add-tx-title"}
+     [:h2#add-tx-title "Add transaction"]
+     [:p.form-modal-hint
+      "Record a transaction the bank feed didn't import — cash, a missed charge, anything you need in the ledger."]
+     [:div.form-group
+      [:label.form-label {:for "tx-account"} "Account"]
+      (account-select "tx-account" "txAccount" accounts selected)]
+     [:div.form-modal-row
+      [:div.form-group
+       [:span.form-label "Direction"]
+       [:div.txn-direction {:role "radiogroup" :aria-label "Direction"}
+        (direction-btn "out" "Money out")
+        (direction-btn "in" "Money in")]]
+      [:div.form-group
+       [:label.form-label {:for "tx-amount"} "Amount"]
+       [:input.form-input {:id "tx-amount" :type "number" :step "0.01" :min "0" :inputmode "decimal"
+                           :placeholder "0.00" "data-bind" "txAmount"}]]]
+     [:div.form-modal-row
+      [:div.form-group
+       [:label.form-label {:for "tx-date"} "Date"]
+       [:input.form-input {:id "tx-date" :type "date" :value default-date "data-bind" "txDate"}]]
+      [:div.form-group
+       [:label.form-label {:for "tx-category"} "Category"]
+       (category-select categories)]]
+     [:div.form-group
+      [:label.form-label {:for "tx-payee"} "Payee"]
+      [:input.form-input {:id "tx-payee" :type "text" :placeholder "e.g. Corner Store" "data-bind" "txPayee"}]]
+     [:div.form-group
+      [:label.form-label {:for "tx-desc"} "Description"]
+      [:input.form-input {:id "tx-desc" :type "text" :placeholder "Optional" "data-bind" "txDesc"}]]
+     [:div.form-actions
+      [:button.button.button-secondary {:type "button" "data-on:click" close-modal-js} "Cancel"]
+      [:button.button.button-primary
+       {:type "button"
+        "data-attr" "{disabled: !($txAccount && $txAmount && $txDate)}"
+        "data-on:click" "@post('/transactions/manual')"}
+       "Add transaction"]]]]])
 
 (defn- gate-line [ok? label]
   [:li {:class (str "gate-line " (if ok? "gate-line--ok" "gate-line--todo"))}
