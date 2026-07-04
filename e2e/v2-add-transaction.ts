@@ -1,7 +1,8 @@
-// Real-Chromium proof of the Add-transaction modal: a transaction the bank feed didn't
-// import becomes a first-class ledger row. The account picker makes the target account
-// explicit; the money-out / money-in toggle derives the canonical sign (out → negative,
-// in → positive); the created row shows up in the table for the viewed month.
+// Real-Chromium proof of manual transactions: a transaction the bank feed didn't import
+// becomes a first-class ledger row via the Add-transaction modal (the account picker makes
+// the target explicit; the money-out/-in toggle derives the canonical sign, out → negative,
+// in → positive), and a manual row can be deleted (with a confirm step) from its row-actions
+// menu — while imported rows expose no Delete.
 //
 //   BASE_URL=http://localhost:8099 node e2e/v2-add-transaction.ts
 import { chromium, type Locator } from '@playwright/test';
@@ -79,6 +80,31 @@ await addTxn('ZZ Manual Refund', '50.00', 'in');
 const inRow = await rowByPayee('ZZ Manual Refund');
 check('money-in is stored as a positive amount',
   (await inRow.locator('.amount-cell .numeric').getAttribute('class'))?.includes('positive'));
+
+// 4. Imported (non-manual) rows do NOT expose a Delete action.
+await search.fill('');
+await page.waitForTimeout(400);
+const deleteItem = page.locator('#row-actions-menu .row-actions-item.is-danger');
+await page.locator('#tx-tbody tr').first().locator('.row-actions-trigger').click();
+check('imported row menu hides Delete', !(await deleteItem.isVisible()));
+await page.keyboard.press('Escape');
+
+// 5. A manual row can be deleted (with a confirm step) from its row-actions menu.
+const delRow = await rowByPayee('ZZ Manual Latte');
+await delRow.locator('.row-actions-trigger').click();
+check('manual row menu exposes Delete', await deleteItem.isVisible());
+await deleteItem.click();
+await modal.waitFor({ state: 'visible', timeout: 5000 });
+check('delete confirm dialog opens', /Delete transaction\?/.test(await modal.innerText()));
+await modal.locator('.button-danger').click();
+await modalClosed();
+await search.fill('ZZ Manual Latte');
+await page.waitForFunction(() => {
+  const trs = [...document.querySelectorAll('#tx-tbody tr')];
+  return !trs.some((r) => (r.textContent || '').includes('ZZ Manual Latte'));
+}, null, { timeout: 5000 }).catch(() => {});
+check('deleted manual transaction is gone from the ledger',
+  (await page.locator('#tx-tbody tr', { hasText: 'ZZ Manual Latte' }).count()) === 0);
 
 check('still no page errors', !logs.length, logs.join('; '));
 

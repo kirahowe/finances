@@ -530,3 +530,26 @@
                               :after-patch (fn [sse]
                                              (patch! sse (tv/close-panel (close-model-for db-conn month))))))
            (error-response req "Enter an account, amount, and date.")))))))
+
+(defn delete-transaction-editor
+  "GET /transactions/:id/manual/delete — render the delete-confirm dialog (a pure read)."
+  [{:keys [db-conn]}]
+  (fn [req]
+    (let [tx (db-transactions/by-id db-conn (path-id req :id))]
+      (sse-response req (fn [sse] (patch! sse (tv/delete-transaction-modal tx)))))))
+
+(defn delete-manual
+  "POST /transactions/:id/manual/delete — delete a manual transaction (the data layer
+   guards on provider :manual), re-render the table, re-patch the close panel, and close
+   the modal."
+  [{:keys [db-conn]}]
+  (fn [req]
+    (handle-edit req
+     (fn []
+       (let [tx-id   (path-id req :id)
+             signals (r/read-signals req)
+             month   (signals-month signals)]
+         (db-transactions/delete-manual! db-conn tx-id)
+         (edit-response db-conn req signals :close-modal? true
+                        :after-patch (fn [sse]
+                                       (patch! sse (tv/close-panel (close-model-for db-conn month))))))))))

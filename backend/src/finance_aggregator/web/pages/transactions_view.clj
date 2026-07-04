@@ -189,7 +189,7 @@
 ;; rendered outside the table so it escapes overflow), carrying the row's id + split state +
 ;; position into the ephemeral _rowMenu signals.
 
-(defn row-actions-cell [tx-id split? matched?]
+(defn row-actions-cell [tx-id split? matched? manual?]
   [:td.actions-cell
    [:div.row-actions
     [:button.row-actions-trigger
@@ -198,6 +198,7 @@
       "data-on:click__stop"
       (str "$_rowMenu = ($_rowMenu === " tx-id " ? 0 : " tx-id ");"
            " $_rowMenuSplit = " (boolean split?) "; $_rowMenuMatched = " (boolean matched?) ";"
+           " $_rowMenuManual = " (boolean manual?) ";"
            " $_rowMenuX = Math.max(8, window.innerWidth - el.getBoundingClientRect().right);"
            " $_rowMenuY = el.getBoundingClientRect().bottom + 4")}
      (chevron-right)]]])
@@ -213,7 +214,8 @@
    [:td.amount-cell (amount-span amount false)]
    [:td.category-cell (grid-cell (:db/id tx) "category") (category-cell-inner tx)]
    [:td.reviewed-cell (grid-cell (:db/id tx) "reviewed") (reviewed-checkbox (:db/id tx) reviewed true)]
-   (row-actions-cell (:db/id tx) false (some? (:transaction/transfer-pair tx)))])
+   (row-actions-cell (:db/id tx) false (some? (:transaction/transfer-pair tx))
+                     (= :manual (:transaction/provider tx)))])
 
 (defn split-parent-row [stale? {:transaction/keys [posted-date payee effective-description] :as tx}]
   [:tr {:role "row" :class (row-class "is-split-parent" stale?)}
@@ -223,7 +225,8 @@
    [:td payee]
    [:td.description-cell (if (str/blank? effective-description) "—" effective-description)]
    [:td.amount-cell] [:td.category-cell] [:td.reviewed-cell]
-   (row-actions-cell (:db/id tx) true (some? (:transaction/transfer-pair tx)))])
+   (row-actions-cell (:db/id tx) true (some? (:transaction/transfer-pair tx))
+                     (= :manual (:transaction/provider tx)))])
 
 (defn split-child-row [stale? {:split/keys [amount memo category reviewed]}]
   [:tr {:role "row" :class (row-class "split-child-row" stale?)}
@@ -622,7 +625,14 @@
      {:type "button" :role "menuitem"
       "data-text" "$_rowMenuMatched ? 'Matched transfer' : 'Match transfer'"
       "data-on:click" "@get('/transactions/' + $_rowMenu + '/match'); $_rowMenu = 0"}
-     "Match transfer"]]])
+     "Match transfer"]]
+   ;; Manual transactions only (the user's own entries) can be deleted — the menu item
+   ;; is hidden for imported rows via $_rowMenuManual.
+   [:li {:role "none" "data-show" "$_rowMenuManual"}
+    [:button.row-actions-item.is-danger
+     {:type "button" :role "menuitem"
+      "data-on:click" "@get('/transactions/' + $_rowMenu + '/manual/delete'); $_rowMenu = 0"}
+     "Delete transaction"]]])
 
 (defn split-editor-modal
   "The split-editor modal, patched into #modal-root by GET /transactions/:id/split-editor.
@@ -980,6 +990,28 @@
         "data-attr" "{disabled: !($txAccount && $txAmount && $txDate)}"
         "data-on:click" "@post('/transactions/manual')"}
        "Add transaction"]]]]])
+
+(defn delete-transaction-modal
+  "GET /transactions/:id/manual/delete → a small confirm dialog into #modal-root.
+   Deleting a manual transaction is permanent (there's no undo), so confirm first,
+   echoing the payee/amount/date so the user knows exactly what they're removing."
+  [tx]
+  [:div {:id "modal-root"}
+   [:div.modal-backdrop (backdrop-attrs)
+    [:div.modal-content.form-modal-content
+     {:role "dialog" :aria-modal "true" :aria-labelledby "del-tx-title"}
+     [:h2#del-tx-title "Delete transaction?"]
+     [:p.form-modal-hint
+      "This permanently removes the manual transaction "
+      [:strong (or (not-empty (:transaction/payee tx)) "(no payee)")]
+      " for " (fmt/amount (:transaction/amount tx))
+      " on " (fmt/date (:transaction/posted-date tx))
+      ". This can't be undone."]
+     [:div.form-actions
+      [:button.button.button-secondary {:type "button" "data-on:click" close-modal-js} "Cancel"]
+      [:button.button.button-danger
+       {:type "button" "data-on:click" (str "@post('/transactions/" (:db/id tx) "/manual/delete')")}
+       "Delete"]]]]])
 
 (defn- gate-line [ok? label]
   [:li {:class (str "gate-line " (if ok? "gate-line--ok" "gate-line--todo"))}

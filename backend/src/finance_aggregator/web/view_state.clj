@@ -189,5 +189,6 @@
          :_rowMenu 0
          :_rowMenuSplit false
          :_rowMenuMatched false
+         :_rowMenuManual false
          :_rowMenuX 0
          :_rowMenuY 0))
