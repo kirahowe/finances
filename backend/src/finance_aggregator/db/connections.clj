@@ -18,16 +18,10 @@
    migration one place to change."
   (:require
    [datalevin.core :as d]
-   [finance-aggregator.auth :as auth])
+   [finance-aggregator.auth :as auth]
+   [finance-aggregator.db.users :as db-users])
   (:import
    [java.util Date]))
-
-(defn- ensure-user!
-  "Create the hardcoded test user if absent (the :connection/user lookup ref
-   must resolve to an existing entity)."
-  [conn]
-  (when-not (d/entity (d/db conn) [:user/id auth/user-id])
-    (d/transact! conn [{:user/id auth/user-id :user/created-at (Date.)}])))
 
 (defn- eid
   "Entity id of the connection with `id`, or nil if it doesn't exist."
@@ -41,7 +35,7 @@
    :provider (required) and optional :external-id / :institution-name. New rows
    start :pending. Returns the connection entity."
   [conn {:keys [id provider external-id institution-name]}]
-  (ensure-user! conn)
+  (db-users/ensure-user! conn auth/user-id)
   (when-not (eid conn id)
     (d/transact! conn [(cond-> {:connection/id id
                                 :connection/user [:user/id auth/user-id]
@@ -76,7 +70,7 @@
    connection entity."
   [conn {:credential/keys [item-id institution-name sync-cursor sync-status
                            last-sync-at transaction-count]}]
-  (ensure-user! conn)
+  (db-users/ensure-user! conn auth/user-id)
   (let [id (str "plaid:" item-id)]
     (when-not (eid conn id)
       (d/transact! conn [(cond-> {:connection/id id

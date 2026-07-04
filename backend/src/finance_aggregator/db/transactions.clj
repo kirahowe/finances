@@ -2,9 +2,10 @@
   (:require [clojure.string :as str]
             [datalevin.core :as d]
             [finance-aggregator.db.transfers :as db-transfers]
+            [finance-aggregator.db.users :as db-users]
             [finance-aggregator.splits :as splits]
             [finance-aggregator.utils :as utils])
-  (:import [java.util Date UUID]))
+  (:import [java.util UUID]))
 
 (def split-pull
   "Pull sub-pattern for a transaction's split parts. Shared with the list endpoint
@@ -263,15 +264,6 @@
 ;; exactly like an imported one. Only its provenance and its direct create/delete
 ;; lifecycle differ.
 
-(defn- ensure-user!
-  "Create the user entity if absent — a :transaction/user lookup ref (a ref *value*)
-   must resolve to an existing entity (unlike a top-level unique-id map, datalevin does
-   not upsert it). Imported rows get this from db/insert!'s ensure-users!; a direct
-   manual insert needs the same guarantee."
-  [conn user-id]
-  (when-not (d/entity (d/db conn) [:user/id user-id])
-    (d/transact! conn [{:user/id user-id :user/created-at (Date.)}])))
-
 (defn create-manual!
   "Insert a user-entered manual transaction and return its entity id.
 
@@ -291,7 +283,7 @@
   (when-not (and account-eid amount date)
     (throw (ex-info "A manual transaction needs an account, amount, and date"
                     {:type :bad-request})))
-  (ensure-user! conn user-id)
+  (db-users/ensure-user! conn user-id)
   (let [ext (str "manual-" (UUID/randomUUID))]
     (d/transact! conn
                  [(cond-> {:transaction/external-id ext

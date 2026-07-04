@@ -364,6 +364,23 @@
   (when-let [t (some-> s str str/trim not-empty)]
     (try (bigdec t) (catch NumberFormatException _ nil))))
 
+(defn- account-picker-options
+  "All accounts as {:eid :name}, name-sorted — the option list both modal editors show."
+  [db-conn]
+  (->> (db-accounts/list-with-institution db-conn)
+       (map (fn [a] {:eid (:db/id a) :name (:account/external-name a)}))
+       (sort-by :name)))
+
+(defn- courier-eid
+  "Parse a courier signal carrying an entity id (blank/nil → nil)."
+  [v]
+  (some-> v str not-empty parse-long))
+
+(defn- courier-date
+  "Parse a courier signal carrying a yyyy-MM-dd date (blank/nil → nil) to a Date."
+  [v]
+  (some-> v str not-empty u/string->date))
+
 (defn- close-model-for
   "Rebuild the monthly-close panel model for `month` from current db state (the
    month's txs, reported deltas, rollup net, and the persisted close event)."
@@ -392,9 +409,7 @@
   (fn [req]
     (let [signals (r/read-signals req)
           month (signals-month signals)
-          accounts (->> (db-accounts/list-with-institution db-conn)
-                        (map (fn [a] {:eid (:db/id a) :name (:account/external-name a)}))
-                        (sort-by :name))
+          accounts (account-picker-options db-conn)
           default-date (str (u/date->local-date (db-snapshots/month-end-date month)))
           selected (or (some-> (get-in req [:query-params "account"]) parse-long)
                        (:eid (first accounts)))]
@@ -413,8 +428,8 @@
      (fn []
        (let [signals (r/read-signals req)
              month (signals-month signals)
-             account-eid (some-> (:stmtAccount signals) str not-empty parse-long)
-             date (some-> (:stmtDate signals) str not-empty u/string->date)
+             account-eid (courier-eid (:stmtAccount signals))
+             date (courier-date (:stmtDate signals))
              balance (parse-money (:stmtBalance signals))]
          (if (and account-eid date balance)
            (do (db-snapshots/record-manual-balance! db-conn account-eid date balance)
@@ -433,7 +448,7 @@
      (fn []
        (let [signals (r/read-signals req)
              month (signals-month signals)]
-         (when-let [eid (some-> (:stmtDel signals) str not-empty parse-long)]
+         (when-let [eid (courier-eid (:stmtDel signals))]
            (db-snapshots/delete-manual-balance! db-conn eid))
          (patch-close-panel! db-conn req month))))))
 
@@ -492,9 +507,7 @@
   (fn [req]
     (let [signals (r/read-signals req)
           month (signals-month signals)
-          accounts (->> (db-accounts/list-with-institution db-conn)
-                        (map (fn [a] {:eid (:db/id a) :name (:account/external-name a)}))
-                        (sort-by :name))
+          accounts (account-picker-options db-conn)
           categories (db-categories/list-all db-conn)
           default-date (default-txn-date month)
           selected (:eid (first accounts))]
@@ -515,8 +528,8 @@
      (fn []
        (let [signals     (r/read-signals req)
              month       (signals-month signals)
-             account-eid (some-> (:txAccount signals) str not-empty parse-long)
-             date        (some-> (:txDate signals) str not-empty u/string->date)
+             account-eid (courier-eid (:txAccount signals))
+             date        (courier-date (:txDate signals))
              magnitude   (some-> (parse-money (:txAmount signals)) .abs)
              amount      (when magnitude (if (= "in" (:txDir signals)) magnitude (.negate magnitude)))
              category-id (vs/parse-category-value (:txCategory signals))]

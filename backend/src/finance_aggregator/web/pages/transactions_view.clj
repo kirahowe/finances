@@ -606,8 +606,9 @@
   "The single floating menu shared by every row's caret (rendered outside the table so it
    escapes overflow). $_rowMenu holds the open row's id (0 = closed); $_rowMenuSplit and
    $_rowMenuMatched carry that row's split/matched state so the items read \"Edit split\" vs
-   \"Split transaction\" and \"Matched transfer\" vs \"Match transfer\". Each item @get's the
-   relevant modal for $_rowMenu (the url is built before $_rowMenu is cleared)."
+   \"Split transaction\" and \"Matched transfer\" vs \"Match transfer\"; $_rowMenuManual gates
+   a \"Delete transaction\" item shown only for manual rows. Each item @get's the relevant
+   modal for $_rowMenu (the url is built before $_rowMenu is cleared)."
   []
   [:ul.row-actions-menu {:id "row-actions-menu" :role "menu" :aria-label "Row actions"
                          "data-show" "$_rowMenu"
@@ -880,6 +881,18 @@
         (for [{:keys [eid name]} accounts]
           [:option (cond-> {:value (str eid)} (= eid selected) (assoc :selected true)) name])))
 
+(defn- form-modal
+  "The shared island-less form-modal frame → #modal-root: a backdrop (Esc + backdrop
+   close) wrapping a .form-modal-content dialog labelled by `labelledby-id`. `body` is
+   the dialog's contents; role/aria-modal let the modal-focus island trap focus. Shared
+   by the statement-balance, add-transaction, and delete-confirm modals."
+  [labelledby-id & body]
+  [:div {:id "modal-root"}
+   [:div.modal-backdrop (backdrop-attrs)
+    (into [:div.modal-content.form-modal-content
+           {:role "dialog" :aria-modal "true" :aria-labelledby labelledby-id}]
+          body)]])
+
 (defn statement-modal
   "GET /transactions/statement-modal → patched into #modal-root: record a bank
    statement ending balance for ANY account on a chosen date. `accounts` is
@@ -890,31 +903,28 @@
    Cancel/Esc/backdrop close client-side; a successful save re-patches the panel and
    clears #modal-root."
   [accounts default-date selected]
-  [:div {:id "modal-root"}
-   [:div.modal-backdrop (backdrop-attrs)
-    [:div.modal-content.form-modal-content
-     {:role "dialog" :aria-modal "true" :aria-labelledby "statement-modal-title"}
-     [:h2#statement-modal-title "Statement balance"]
-     [:p.form-modal-hint
-      "Record the balance your bank statement shows on a given date. The monthly close checks your tracked activity against it."]
-     [:div.form-group
-      [:label.form-label {:for "stmt-account"} "Account"]
-      (account-select "stmt-account" "stmtAccount" accounts selected)]
-     [:div.form-modal-row
-      [:div.form-group
-       [:label.form-label {:for "stmt-date"} "Date"]
-       [:input.form-input {:id "stmt-date" :type "date" :value default-date "data-bind" "stmtDate"}]]
-      [:div.form-group
-       [:label.form-label {:for "stmt-balance"} "Balance"]
-       [:input.form-input {:id "stmt-balance" :type "number" :step "0.01" :inputmode "decimal"
-                           :placeholder "0.00" "data-bind" "stmtBalance"}]]]
-     [:div.form-actions
-      [:button.button.button-secondary {:type "button" "data-on:click" close-modal-js} "Cancel"]
-      [:button.button.button-primary
-       {:type "button"
-        "data-attr" "{disabled: !($stmtAccount && $stmtDate && $stmtBalance)}"
-        "data-on:click" "@post('/transactions/statement')"}
-       "Save balance"]]]]])
+  (form-modal "statement-modal-title"
+   [:h2#statement-modal-title "Statement balance"]
+   [:p.form-modal-hint
+    "Record the balance your bank statement shows on a given date. The monthly close checks your tracked activity against it."]
+   [:div.form-group
+    [:label.form-label {:for "stmt-account"} "Account"]
+    (account-select "stmt-account" "stmtAccount" accounts selected)]
+   [:div.form-modal-row
+    [:div.form-group
+     [:label.form-label {:for "stmt-date"} "Date"]
+     [:input.form-input {:id "stmt-date" :type "date" :value default-date "data-bind" "stmtDate"}]]
+    [:div.form-group
+     [:label.form-label {:for "stmt-balance"} "Balance"]
+     [:input.form-input {:id "stmt-balance" :type "number" :step "0.01" :inputmode "decimal"
+                         :placeholder "0.00" "data-bind" "stmtBalance"}]]]
+   [:div.form-actions
+    [:button.button.button-secondary {:type "button" "data-on:click" close-modal-js} "Cancel"]
+    [:button.button.button-primary
+     {:type "button"
+      "data-attr" "{disabled: !($stmtAccount && $stmtDate && $stmtBalance)}"
+      "data-on:click" "@post('/transactions/statement')"}
+     "Save balance"]]))
 
 (defn- direction-btn
   "One segment of the money-out / money-in toggle, bound to $txDir."
@@ -950,68 +960,62 @@
    account + amount + date are set. Cancel/Esc/backdrop close client-side; a successful
    save re-renders the table and closes the modal."
   [accounts categories default-date selected]
-  [:div {:id "modal-root"}
-   [:div.modal-backdrop (backdrop-attrs)
-    [:div.modal-content.form-modal-content
-     {:role "dialog" :aria-modal "true" :aria-labelledby "add-tx-title"}
-     [:h2#add-tx-title "Add transaction"]
-     [:p.form-modal-hint
-      "Record a transaction the bank feed didn't import — cash, a missed charge, anything you need in the ledger."]
-     [:div.form-group
-      [:label.form-label {:for "tx-account"} "Account"]
-      (account-select "tx-account" "txAccount" accounts selected)]
-     [:div.form-modal-row
-      [:div.form-group
-       [:span.form-label "Direction"]
-       [:div.txn-direction {:role "radiogroup" :aria-label "Direction"}
-        (direction-btn "out" "Money out")
-        (direction-btn "in" "Money in")]]
-      [:div.form-group
-       [:label.form-label {:for "tx-amount"} "Amount"]
-       [:input.form-input {:id "tx-amount" :type "number" :step "0.01" :min "0" :inputmode "decimal"
-                           :placeholder "0.00" "data-bind" "txAmount"}]]]
-     [:div.form-modal-row
-      [:div.form-group
-       [:label.form-label {:for "tx-date"} "Date"]
-       [:input.form-input {:id "tx-date" :type "date" :value default-date "data-bind" "txDate"}]]
-      [:div.form-group
-       [:label.form-label {:for "tx-category"} "Category"]
-       (category-select categories)]]
-     [:div.form-group
-      [:label.form-label {:for "tx-payee"} "Payee"]
-      [:input.form-input {:id "tx-payee" :type "text" :placeholder "e.g. Corner Store" "data-bind" "txPayee"}]]
-     [:div.form-group
-      [:label.form-label {:for "tx-desc"} "Description"]
-      [:input.form-input {:id "tx-desc" :type "text" :placeholder "Optional" "data-bind" "txDesc"}]]
-     [:div.form-actions
-      [:button.button.button-secondary {:type "button" "data-on:click" close-modal-js} "Cancel"]
-      [:button.button.button-primary
-       {:type "button"
-        "data-attr" "{disabled: !($txAccount && $txAmount && $txDate)}"
-        "data-on:click" "@post('/transactions/manual')"}
-       "Add transaction"]]]]])
+  (form-modal "add-tx-title"
+   [:h2#add-tx-title "Add transaction"]
+   [:p.form-modal-hint
+    "Record a transaction the bank feed didn't import — cash, a missed charge, anything you need in the ledger."]
+   [:div.form-group
+    [:label.form-label {:for "tx-account"} "Account"]
+    (account-select "tx-account" "txAccount" accounts selected)]
+   [:div.form-modal-row
+    [:div.form-group
+     [:span.form-label "Direction"]
+     [:div.txn-direction {:role "radiogroup" :aria-label "Direction"}
+      (direction-btn "out" "Money out")
+      (direction-btn "in" "Money in")]]
+    [:div.form-group
+     [:label.form-label {:for "tx-amount"} "Amount"]
+     [:input.form-input {:id "tx-amount" :type "number" :step "0.01" :min "0" :inputmode "decimal"
+                         :placeholder "0.00" "data-bind" "txAmount"}]]]
+   [:div.form-modal-row
+    [:div.form-group
+     [:label.form-label {:for "tx-date"} "Date"]
+     [:input.form-input {:id "tx-date" :type "date" :value default-date "data-bind" "txDate"}]]
+    [:div.form-group
+     [:label.form-label {:for "tx-category"} "Category"]
+     (category-select categories)]]
+   [:div.form-group
+    [:label.form-label {:for "tx-payee"} "Payee"]
+    [:input.form-input {:id "tx-payee" :type "text" :placeholder "e.g. Corner Store" "data-bind" "txPayee"}]]
+   [:div.form-group
+    [:label.form-label {:for "tx-desc"} "Description"]
+    [:input.form-input {:id "tx-desc" :type "text" :placeholder "Optional" "data-bind" "txDesc"}]]
+   [:div.form-actions
+    [:button.button.button-secondary {:type "button" "data-on:click" close-modal-js} "Cancel"]
+    [:button.button.button-primary
+     {:type "button"
+      "data-attr" "{disabled: !($txAccount && $txAmount && $txDate)}"
+      "data-on:click" "@post('/transactions/manual')"}
+     "Add transaction"]]))
 
 (defn delete-transaction-modal
   "GET /transactions/:id/manual/delete → a small confirm dialog into #modal-root.
    Deleting a manual transaction is permanent (there's no undo), so confirm first,
    echoing the payee/amount/date so the user knows exactly what they're removing."
   [tx]
-  [:div {:id "modal-root"}
-   [:div.modal-backdrop (backdrop-attrs)
-    [:div.modal-content.form-modal-content
-     {:role "dialog" :aria-modal "true" :aria-labelledby "del-tx-title"}
-     [:h2#del-tx-title "Delete transaction?"]
-     [:p.form-modal-hint
-      "This permanently removes the manual transaction "
-      [:strong (or (not-empty (:transaction/payee tx)) "(no payee)")]
-      " for " (fmt/amount (:transaction/amount tx))
-      " on " (fmt/date (:transaction/posted-date tx))
-      ". This can't be undone."]
-     [:div.form-actions
-      [:button.button.button-secondary {:type "button" "data-on:click" close-modal-js} "Cancel"]
-      [:button.button.button-danger
-       {:type "button" "data-on:click" (str "@post('/transactions/" (:db/id tx) "/manual/delete')")}
-       "Delete"]]]]])
+  (form-modal "del-tx-title"
+   [:h2#del-tx-title "Delete transaction?"]
+   [:p.form-modal-hint
+    "This permanently removes the manual transaction "
+    [:strong (or (not-empty (:transaction/payee tx)) "(no payee)")]
+    " for " (fmt/amount (:transaction/amount tx))
+    " on " (fmt/date (:transaction/posted-date tx))
+    ". This can't be undone."]
+   [:div.form-actions
+    [:button.button.button-secondary {:type "button" "data-on:click" close-modal-js} "Cancel"]
+    [:button.button.button-danger
+     {:type "button" "data-on:click" (str "@post('/transactions/" (:db/id tx) "/manual/delete')")}
+     "Delete"]]))
 
 (defn- gate-line [ok? label]
   [:li {:class (str "gate-line " (if ok? "gate-line--ok" "gate-line--todo"))}

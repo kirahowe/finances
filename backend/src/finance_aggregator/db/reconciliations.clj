@@ -14,16 +14,10 @@
    eventual multi-user migration one place to change."
   (:require
    [datalevin.core :as d]
-   [finance-aggregator.auth :as auth])
+   [finance-aggregator.auth :as auth]
+   [finance-aggregator.db.users :as db-users])
   (:import
    [java.util Date]))
-
-(defn- ensure-user!
-  "Create the hardcoded test user if absent (the :reconciliation/user lookup ref
-   must resolve to an existing entity)."
-  [conn]
-  (when-not (d/entity (d/db conn) [:user/id auth/user-id])
-    (d/transact! conn [{:user/id auth/user-id :user/created-at (Date.)}])))
 
 (defn- close-id
   "Identity of the close event for `month` (user-scoped so months never collide
@@ -49,7 +43,7 @@
    again after resolving drift). `closed-at` is passed in so this stays
    deterministic under test. Returns the close entity."
   [conn month {:keys [income expenses transfers net]} ^Date closed-at]
-  (ensure-user! conn)
+  (db-users/ensure-user! conn auth/user-id)
   (d/transact! conn [{:reconciliation/id        (close-id month)
                       :reconciliation/user      [:user/id auth/user-id]
                       :reconciliation/month     month
