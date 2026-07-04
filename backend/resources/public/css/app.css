@@ -18,6 +18,7 @@
 @import "components/csv-import.css";
 @import "components/edit-controls.css";
 @import "components/filter.css";
+@import "components/form-modal.css";
 @import "components/grid-navigation.css";
 @import "components/month-navigator.css";
 @import "components/pagination.css";

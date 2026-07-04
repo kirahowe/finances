@@ -155,7 +155,11 @@
    :editValue     ""
    :catValue      ""
    :splitValue    ""
-   :stmt          ""})
+   ;; Statement-balance modal (feature: dated manual balances) couriers.
+   :stmtAccount   ""
+   :stmtDate      ""
+   :stmtBalance   ""
+   :stmtDel       ""})
 
 (defn client-signals
   "Full initial signal set: persistent view-state + column visibility + header-funnel

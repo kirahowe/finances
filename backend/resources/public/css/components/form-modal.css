@@ -1,0 +1,30 @@
+/* Shared layout for the workspace's island-less form modals (statement balance,
+   add manual transaction). Builds on the base .modal-content + .form-* classes in
+   common.css; only the modal width, the intro hint, and the side-by-side field row
+   are feature-specific. All colors/spacing come from the design tokens, so dark mode
+   and WCAG-AA contrast follow automatically. */
+
+.form-modal-content {
+  max-width: 460px;
+  width: 90vw;
+}
+
+.form-modal-hint {
+  margin: calc(-1 * var(--spacing-md)) 0 var(--spacing-lg);
+  font-size: var(--text-sm);
+  color: var(--color-text-muted);
+}
+
+/* Two fields sharing a row (e.g. Date + Balance) — collapses to one column when the
+   modal is too narrow. The nested .form-group keeps its own bottom margin. */
+.form-modal-row {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: var(--spacing-md);
+}
+
+@media (max-width: 380px) {
+  .form-modal-row {
+    grid-template-columns: 1fr;
+  }
+}

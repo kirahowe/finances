@@ -800,21 +800,14 @@
     [:span.rollup-row-name (str (rollup-section-labels type) " total")]
     [:span.rollup-amount (fmt/amount total)]]])
 
-(defn- statement-entry
-  "Inline statement-balance entry for an account we can't yet reconcile (open month
-   only). No data-bind — Save copies THIS row's input into the shared $stmt courier
-   at click time (so sibling inputs don't share a value) and posts it for the current
-   month; the server records a :manual statement balance and re-patches the panel."
+(defn- set-balance-button
+  "Open the statement-balance modal preselected to `account-id` (open month, an
+   account we can't yet reconcile). The modal records a dated :manual balance."
   [account-id]
-  [:span.reconcile-entry
-   [:input.reconcile-stmt
-    {:type "number" :step "0.01" :inputmode "decimal"
-     :placeholder "Statement $" :aria-label "Statement ending balance"}]
-   [:button.reconcile-stmt-save
-    {:type "button"
-     "data-on:click" (str "$stmt = el.previousElementSibling.value;"
-                          " @post('/transactions/reconcile/" account-id "/statement')")}
-    "Save"]])
+  [:button.reconcile-set-balance
+   {:type "button" :aria-haspopup "dialog"
+    "data-on:click" (str "@get('/transactions/statement-modal?account=" account-id "')")}
+   "Set balance"])
 
 (defn- reconcile-row [closed? {:keys [account-id status difference] acct-name :name}]
   [:li {:class (str "reconcile-row reconcile-row--" (name status))}
@@ -829,13 +822,80 @@
        [:span.reconcile-status {:title "Computed change differs from the bank's reported change"}
         "off by " (fmt/amount difference)]
        [:span.reconcile-status.reconcile-status--muted "no statement"])
-     ;; Open month — let the user enter (or correct) the bank's statement balance.
+     ;; Open month — let the user record the bank's statement balance for this account.
      :else
      (list
-      (when (= :drift status)
+      (if (= :drift status)
         [:span.reconcile-status {:title "Computed change differs from the bank's reported change"}
-         "off by " (fmt/amount difference)])
-      (statement-entry account-id)))])
+         "off by " (fmt/amount difference)]
+        [:span.reconcile-status.reconcile-status--muted "no statement"])
+      (set-balance-button account-id)))])
+
+(defn- statement-balance-row
+  "One recorded manual statement balance — account, the date it's applied on (shown
+   plainly, the whole point of the feature), the amount, and a × to remove it. The ×
+   couriers the snapshot id into $stmtDel and posts the delete."
+  [{:keys [id date balance account-name]}]
+  [:li.reconcile-statement
+   [:span.reconcile-statement-acct account-name]
+   [:span.reconcile-statement-date (fmt/date date)]
+   [:span.reconcile-statement-amt.numeric (fmt/amount balance)]
+   [:button.reconcile-statement-del
+    {:type "button" :aria-label (str "Remove statement balance for " account-name " on " (fmt/date date))
+     "data-on:click" (str "$stmtDel = '" id "'; @post('/transactions/statement/delete')")}
+    "×"]])
+
+(defn- statement-balances-section
+  "The recorded statement-balance history (each with its applied date) plus the
+   'Add statement balance' button that opens the modal for any account."
+  [manual-balances]
+  [:div.reconcile-statements
+   (when (seq manual-balances)
+     (list
+      [:p.reconcile-statements-title "Statement balances"]
+      (into [:ul.reconcile-statement-list] (map statement-balance-row manual-balances))))
+   [:button.reconcile-add-statement
+    {:type "button" :aria-haspopup "dialog"
+     "data-on:click" "@get('/transactions/statement-modal')"}
+    "+ Add statement balance"]])
+
+(defn statement-modal
+  "GET /transactions/statement-modal → patched into #modal-root: record a bank
+   statement ending balance for ANY account on a chosen date. `accounts` is
+   [{:eid :name}] (all accounts, so an account with no activity this month still
+   reconciles), `default-date` a yyyy-MM-dd string (month-end of the viewed month),
+   `selected` the preselected account eid. No island — plain data-bind fields the
+   handler also seeds via patch-signals; Save is disabled until all three are set.
+   Cancel/Esc/backdrop close client-side; a successful save re-patches the panel and
+   clears #modal-root."
+  [accounts default-date selected]
+  [:div {:id "modal-root"}
+   [:div.modal-backdrop (backdrop-attrs)
+    [:div.modal-content.form-modal-content
+     {:role "dialog" :aria-modal "true" :aria-labelledby "statement-modal-title"}
+     [:h2#statement-modal-title "Statement balance"]
+     [:p.form-modal-hint
+      "Record the balance your bank statement shows on a given date. The monthly close checks your tracked activity against it."]
+     [:div.form-group
+      [:label.form-label {:for "stmt-account"} "Account"]
+      (into [:select.form-select {:id "stmt-account" "data-bind" "stmtAccount"}]
+            (for [{:keys [eid name]} accounts]
+              [:option (cond-> {:value (str eid)} (= eid selected) (assoc :selected true)) name]))]
+     [:div.form-modal-row
+      [:div.form-group
+       [:label.form-label {:for "stmt-date"} "Date"]
+       [:input.form-input {:id "stmt-date" :type "date" :value default-date "data-bind" "stmtDate"}]]
+      [:div.form-group
+       [:label.form-label {:for "stmt-balance"} "Balance"]
+       [:input.form-input {:id "stmt-balance" :type "number" :step "0.01" :inputmode "decimal"
+                           :placeholder "0.00" "data-bind" "stmtBalance"}]]]
+     [:div.form-actions
+      [:button.button.button-secondary {:type "button" "data-on:click" close-modal-js} "Cancel"]
+      [:button.button.button-primary
+       {:type "button"
+        "data-attr" "{disabled: !($stmtAccount && $stmtDate && $stmtBalance)}"
+        "data-on:click" "@post('/transactions/statement')"}
+       "Save balance"]]]]])
 
 (defn- gate-line [ok? label]
   [:li {:class (str "gate-line " (if ok? "gate-line--ok" "gate-line--todo"))}
@@ -870,16 +930,18 @@
 
 (defn close-panel
   "The monthly-close panel (web.view/month-close): per-account reconciliation rows
-   (with inline statement entry on an open month) plus the completeness gate and the
-   Close / Reopen action. Its own #reconciliation element, kept OUTSIDE #category-rollup
-   so the rollup's edit re-patches never clobber it; this panel is re-patched only by
-   its own statement/close/reopen actions. Renders nothing when no account had activity
-   this month."
-  [{:keys [rows closed?] :as model}]
-  (when (seq rows)
+   (each with a 'Set balance' affordance on an open month), the recorded statement
+   balances with their applied dates + the 'Add statement balance' action, and the
+   completeness gate + Close / Reopen action. Its own #reconciliation element, kept
+   OUTSIDE #category-rollup so the rollup's edit re-patches never clobber it; this
+   panel is re-patched only by its own statement/close/reopen actions. Renders nothing
+   when the month has neither activity nor a recorded statement balance."
+  [{:keys [rows closed? manual-balances] :as model}]
+  (when (or (seq rows) (seq manual-balances))
     [:section.reconcile-panel {:id "reconciliation" :aria-label "Monthly close"}
      [:h3.reconcile-title "Reconciliation"]
      (into [:ul.reconcile-rows] (map #(reconcile-row closed? %) rows))
+     (statement-balances-section manual-balances)
      (close-controls model)]))
 
 (defn rollup-pane [{:keys [income expenses transfers grand-total]}]

@@ -355,20 +355,23 @@
 (defn month-close
   "The monthly-close panel model. Pure. Combines the per-account reconciliation, the
    completeness gate over the whole month, and the persisted close state.
-     :reconciliation — reconcile-month output {:rows :all-reconciled?}
-     :close          — the persisted :reconciliation/* event map, or nil
-     :net-now        — the month's current signed net (rollup :grand-total), for drift
+     :reconciliation   — reconcile-month output {:rows :all-reconciled?}
+     :close            — the persisted :reconciliation/* event map, or nil
+     :net-now          — the month's current signed net (rollup :grand-total), for drift
+     :manual-balances  — the user-entered statement balances to list (db/snapshots
+                         list-manual-balances shape), passed straight through
    Returns
      {:rows [reconcile-row…]
       :gate {:unreviewed n :uncategorized n :all-reviewed? b :all-categorized? b
              :balanced? b :ready? b}
       :closed? b :closed-at inst
-      :drift {:frozen bd :now bd} | nil}
+      :drift {:frozen bd :now bd} | nil
+      :manual-balances [statement-balance…]}
    `:ready?` — the month may be closed cleanly — needs everything reviewed AND
    categorized AND every account's balance reconciled. `:drift` is present only for a
    CLOSED month whose current net no longer matches the frozen net (it changed since
    the lock)."
-  [txs {:keys [reconciliation close net-now]}]
+  [txs {:keys [reconciliation close net-now manual-balances]}]
   (let [unreviewed       (count (remove #(true? (:transaction/reviewed %)) txs))
         uncategorized    (count (filter needs-category? txs))
         balanced?        (boolean (:all-reconciled? reconciliation))
@@ -376,15 +379,16 @@
         all-categorized? (zero? uncategorized)
         closed?          (some? close)
         frozen-net       (:reconciliation/net close)]
-    {:rows      (:rows reconciliation)
-     :gate      {:unreviewed unreviewed :uncategorized uncategorized
-                 :all-reviewed? all-reviewed? :all-categorized? all-categorized?
-                 :balanced? balanced?
-                 :ready? (and all-reviewed? all-categorized? balanced?)}
-     :closed?   closed?
-     :closed-at (:reconciliation/closed-at close)
-     :drift     (when (and closed? net-now (not= frozen-net net-now))
-                  {:frozen frozen-net :now net-now})}))
+    {:rows            (:rows reconciliation)
+     :gate            {:unreviewed unreviewed :uncategorized uncategorized
+                       :all-reviewed? all-reviewed? :all-categorized? all-categorized?
+                       :balanced? balanced?
+                       :ready? (and all-reviewed? all-categorized? balanced?)}
+     :closed?         closed?
+     :closed-at       (:reconciliation/closed-at close)
+     :drift           (when (and closed? net-now (not= frozen-net net-now))
+                        {:frozen frozen-net :now net-now})
+     :manual-balances (vec manual-balances)}))
 
 ;; --- Presenter: the response view-model -------------------------------------
 ;; The single transformation entry point a handler routes a month's transactions through to get
@@ -400,7 +404,7 @@
    when `:reported` is supplied) is the monthly-close panel model (per-account
    reconciliation + completeness gate + close state). `:close` (the persisted event,
    or nil) and `:categories` feed the close model's drift + uncategorized gate."
-  [txs view-st {:keys [linger categories reported close]}]
+  [txs view-st {:keys [linger categories reported close manual-balances]}]
   (let [rollup (when categories (category-rollup txs categories))
         recon  (when (some? reported) (reconcile-month txs reported))]
     (cond-> {:result              (if (some? linger)
@@ -413,4 +417,5 @@
       rollup (assoc :rollup rollup)
       recon  (assoc :close (month-close txs {:reconciliation recon
                                              :close close
-                                             :net-now (:grand-total rollup)})))))
+                                             :net-now (:grand-total rollup)
+                                             :manual-balances manual-balances})))))

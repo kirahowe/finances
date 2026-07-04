@@ -8,12 +8,14 @@
   (:require
    [clojure.string :as str]
    [finance-aggregator.auth :as auth]
+   [finance-aggregator.db.accounts :as db-accounts]
    [finance-aggregator.db.categories :as db-categories]
    [finance-aggregator.db.reconciliations :as db-reconciliations]
    [finance-aggregator.db.snapshots :as db-snapshots]
    [finance-aggregator.db.stats :as db-stats]
    [finance-aggregator.db.transactions :as db-transactions]
    [finance-aggregator.db.transfers :as db-transfers]
+   [finance-aggregator.utils :as u]
    [finance-aggregator.web.commands :as commands]
    [finance-aggregator.web.layout :as layout]
    [finance-aggregator.web.month :as month]
@@ -93,7 +95,8 @@
           reported (db-snapshots/reported-deltas db-conn account-eids month-str)
           close (db-reconciliations/get-close db-conn month-str)
           view-st (vs/query->view-state (:query-params req))
-          model (view/present txs view-st {:categories categories :reported reported :close close})]
+          model (view/present txs view-st {:categories categories :reported reported :close close
+                                           :manual-balances (db-snapshots/list-manual-balances db-conn)})]
       {:status 200
        :headers {"Content-Type" "text/html"}
        :body
@@ -371,26 +374,67 @@
         reported (db-snapshots/reported-deltas db-conn account-eids month)]
     (view/month-close txs {:reconciliation (view/reconcile-month txs reported)
                            :close (db-reconciliations/get-close db-conn month)
-                           :net-now (:grand-total (view/category-rollup txs categories))})))
+                           :net-now (:grand-total (view/category-rollup txs categories))
+                           :manual-balances (db-snapshots/list-manual-balances db-conn)})))
 
 (defn- patch-close-panel!
   "Re-render the reconciliation panel for `month` and morph it into #reconciliation."
   [db-conn req month]
   (sse-response req (fn [sse] (patch! sse (tv/close-panel (close-model-for db-conn month))))))
 
+(defn statement-editor
+  "GET /transactions/statement-modal — render the statement-balance modal into
+   #modal-root and seed its form signals. The date defaults to the viewed month's end
+   (statements usually close there; the user picks the real closing date); the account
+   preselects from ?account= (a drifting row's 'Set balance'), else the first account.
+   A pure read — lists ALL accounts so one with no activity this month still reconciles."
+  [{:keys [db-conn]}]
+  (fn [req]
+    (let [signals (r/read-signals req)
+          month (signals-month signals)
+          accounts (->> (db-accounts/list-with-institution db-conn)
+                        (map (fn [a] {:eid (:db/id a) :name (:account/external-name a)}))
+                        (sort-by :name))
+          default-date (str (u/date->local-date (db-snapshots/month-end-date month)))
+          selected (or (some-> (get-in req [:query-params "account"]) parse-long)
+                       (:eid (first accounts)))]
+      (sse-response req
+       (fn [sse]
+         (d*/patch-signals! sse (r/signals {:stmtAccount (str selected) :stmtDate default-date :stmtBalance ""}))
+         (patch! sse (tv/statement-modal accounts default-date selected)))))))
+
 (defn set-statement-balance
-  "POST /transactions/reconcile/:account/statement — record a user-entered statement
-   ending balance for the account (the amount rides in the $stmt courier) for the
-   current month, then re-patch the reconciliation panel. A blank amount is a no-op."
+  "POST /transactions/statement — record a user-entered bank statement balance (the
+   $stmtAccount / $stmtDate / $stmtBalance couriers) as a dated :manual snapshot, then
+   re-patch the reconciliation panel. Surfaces an error when a field is missing/blank."
   [{:keys [db-conn]}]
   (fn [req]
     (handle-edit req
      (fn []
-       (let [account-eid (path-id req :account)
-             signals (r/read-signals req)
+       (let [signals (r/read-signals req)
+             month (signals-month signals)
+             account-eid (some-> (:stmtAccount signals) str not-empty parse-long)
+             date (some-> (:stmtDate signals) str not-empty u/string->date)
+             balance (parse-money (:stmtBalance signals))]
+         (if (and account-eid date balance)
+           (do (db-snapshots/record-manual-balance! db-conn account-eid date balance)
+               (sse-response req
+                (fn [sse]
+                  (patch! sse (tv/close-panel (close-model-for db-conn month)))
+                  (patch! sse [:div {:id "modal-root"}]))))
+           (error-response req "Enter an account, date, and balance.")))))))
+
+(defn delete-statement-balance
+  "POST /transactions/statement/delete — remove a recorded :manual statement balance
+   (its snapshot id rides in the $stmtDel courier), then re-patch the panel."
+  [{:keys [db-conn]}]
+  (fn [req]
+    (handle-edit req
+     (fn []
+       (let [signals (r/read-signals req)
              month (signals-month signals)]
-         (when-let [balance (parse-money (:stmt signals))]
-           (db-snapshots/record-manual-balance! db-conn account-eid (db-snapshots/month-end-date month) balance))
+         (when-let [id (some-> (:stmtDel signals) str not-empty)]
+           (db-snapshots/delete-manual-balance! db-conn id))
          (patch-close-panel! db-conn req month))))))
 
 (defn close-month

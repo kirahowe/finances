@@ -25,9 +25,12 @@
       (is (re-find #"Chequing" h))
       (is (re-find #"matches" h))
       (is (re-find #"off by" h)))
-    (testing "unreconciled accounts get a statement entry on an open month"
-      (is (re-find #"reconcile-stmt" h))
-      (is (re-find #"/transactions/reconcile/3/statement" h) "posts for the account eid"))
+    (testing "unreconciled accounts get a 'Set balance' affordance on an open month"
+      (is (re-find #"reconcile-set-balance" h))
+      (is (re-find #"/transactions/statement-modal\?account=3" h) "opens the modal preselected to the account eid"))
+    (testing "the panel-level Add statement balance action is present"
+      (is (re-find #"Add statement balance" h))
+      (is (re-find #"statement-modal&apos;\)" h) "the no-account (any-account) modal open"))
     (testing "gate lines + a disabled Close button (not ready)"
       (is (re-find #"2 to review" h))
       (is (re-find #"Close month" h))
@@ -50,13 +53,37 @@
                   :gate {:ready? true}
                   :closed? true :closed-at #inst "2026-03-03"
                   :drift {:frozen (bigdec "1865") :now (bigdec "1900")}}))]
-    (testing "closed banner + Reopen; no statement inputs; no Close button"
+    (testing "closed banner + Reopen; no per-account Set balance; no Close button"
       (is (re-find #"Closed" h))
       (is (re-find #"Reopen" h))
       (is (not (re-find #"Close month" h)))
-      (is (not (re-find #"reconcile-stmt" h))))
+      (is (not (re-find #"reconcile-set-balance" h))))
     (testing "drift note shows the frozen-vs-now change"
       (is (re-find #"Changed since close" h)))))
 
+(deftest close-panel-lists-statement-balances-with-their-dates
+  (let [h (html (tv/close-panel
+                 {:rows [{:account-id 1 :name "Visa" :status :drift :difference (bigdec "5.00")}]
+                  :gate {:ready? false}
+                  :closed? false
+                  :manual-balances [{:id "v:manual:2026-07-15" :account-name "Visa"
+                                     :date #inst "2026-07-15" :balance (bigdec "1240.00")}
+                                    {:id "v:manual:2026-06-15" :account-name "Visa"
+                                     :date #inst "2026-06-15" :balance (bigdec "1190.00")}]}))]
+    (testing "each recorded balance shows account, its applied date, and amount"
+      (is (re-find #"Statement balances" h))
+      (is (re-find #"Jul 15, 2026" h) "the date it's applied on is visible")
+      (is (re-find #"Jun 15, 2026" h))
+      (is (re-find #"1,240.00" h)))
+    (testing "each has a delete that couriers its snapshot id"
+      (is (re-find #"v:manual:2026-07-15" h))
+      (is (re-find #"/transactions/statement/delete" h)))))
+
 (deftest close-panel-empty-when-no-activity
   (is (nil? (tv/close-panel {:rows [] :gate {}}))))
+
+(deftest close-panel-renders-for-manual-balances-without-activity
+  (testing "an account with a recorded balance but no activity this month still shows"
+    (is (some? (tv/close-panel {:rows [] :gate {}
+                                :manual-balances [{:id "x:manual:2026-07-31" :account-name "Savings"
+                                                   :date #inst "2026-07-31" :balance (bigdec "500.00")}]})))))

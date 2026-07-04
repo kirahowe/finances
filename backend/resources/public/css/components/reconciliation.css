@@ -64,33 +64,9 @@
   font-weight: 700;
 }
 
-/* Inline statement-balance entry (open month, unreconciled account). */
-.reconcile-entry {
-  display: inline-flex;
-  align-items: center;
-  gap: var(--spacing-xs);
-}
-
-.reconcile-stmt {
-  width: 6.5rem;
-  padding: 0.15rem 0.35rem;
-  font: inherit;
-  font-size: var(--text-sm);
-  text-align: right;
-  font-variant-numeric: tabular-nums;
-  color: var(--color-ink);
-  background: var(--color-surface);
-  border: 1px solid var(--color-border-strong);
-  border-radius: var(--radius-sm);
-}
-
-.reconcile-stmt:focus-visible {
-  outline: none;
-  box-shadow: var(--focus-ring);
-  border-color: var(--color-pine-soft-border);
-}
-
-.reconcile-stmt-save {
+/* "Set balance" — opens the statement-balance modal for an unreconciled account
+   (open month). A quiet pine text-button, matching the reconcile row's density. */
+.reconcile-set-balance {
   padding: 0.15rem 0.5rem;
   font: inherit;
   font-size: var(--text-sm);
@@ -99,10 +75,108 @@
   border: 1px solid var(--color-pine-soft-border);
   border-radius: var(--radius-sm);
   cursor: pointer;
+  white-space: nowrap;
 }
 
-.reconcile-stmt-save:hover {
+.reconcile-set-balance:hover {
   background: var(--color-accent-soft);
+}
+
+.reconcile-set-balance:focus-visible {
+  outline: none;
+  box-shadow: var(--focus-ring);
+}
+
+/* Recorded statement balances — the "which date is this applied on" history, each
+   row showing account · date · amount with a × to remove it. */
+.reconcile-statements {
+  margin-top: var(--spacing-md);
+  padding-top: var(--spacing-sm);
+  border-top: 1px solid var(--color-border);
+}
+
+.reconcile-statements-title {
+  margin: 0 0 var(--spacing-xs);
+  font-size: var(--text-2xs);
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.14em;
+  color: var(--color-text-muted);
+}
+
+.reconcile-statement-list {
+  list-style: none;
+  margin: 0 0 var(--spacing-sm);
+  padding: 0;
+}
+
+.reconcile-statement {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto auto auto;
+  align-items: baseline;
+  gap: var(--spacing-sm);
+  padding: 0.15rem 0;
+  font-size: var(--text-sm);
+}
+
+.reconcile-statement-acct {
+  color: var(--color-ink);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.reconcile-statement-date {
+  color: var(--color-text-muted);
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+
+.reconcile-statement-amt {
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+
+.reconcile-statement-del {
+  padding: 0 0.25rem;
+  line-height: 1;
+  font-size: var(--text-base);
+  color: var(--color-text-muted);
+  background: none;
+  border: none;
+  border-radius: var(--radius-sm);
+  cursor: pointer;
+}
+
+.reconcile-statement-del:hover {
+  color: var(--color-negative);
+  background: var(--color-accent-soft);
+}
+
+.reconcile-statement-del:focus-visible {
+  outline: none;
+  box-shadow: var(--focus-ring);
+}
+
+/* "+ Add statement balance" — the panel-level entry point (works for any account). */
+.reconcile-add-statement {
+  padding: 0.2rem 0.5rem;
+  font: inherit;
+  font-size: var(--text-sm);
+  color: var(--color-pine-hover);
+  background: none;
+  border: none;
+  border-radius: var(--radius-sm);
+  cursor: pointer;
+}
+
+.reconcile-add-statement:hover {
+  background: var(--color-accent-soft);
+}
+
+.reconcile-add-statement:focus-visible {
+  outline: none;
+  box-shadow: var(--focus-ring);
 }
 
 /* Close controls: the completeness gate + the Close/Reopen action. */
