@@ -66,17 +66,17 @@
                  {:rows [{:account-id 1 :name "Visa" :status :drift :difference (bigdec "5.00")}]
                   :gate {:ready? false}
                   :closed? false
-                  :manual-balances [{:id "v:manual:2026-07-15" :account-name "Visa"
+                  :manual-balances [{:id 4207 :account-name "Visa"
                                      :date #inst "2026-07-15" :balance (bigdec "1240.00")}
-                                    {:id "v:manual:2026-06-15" :account-name "Visa"
+                                    {:id 4206 :account-name "Visa"
                                      :date #inst "2026-06-15" :balance (bigdec "1190.00")}]}))]
     (testing "each recorded balance shows account, its applied date, and amount"
       (is (re-find #"Statement balances" h))
       (is (re-find #"Jul 15, 2026" h) "the date it's applied on is visible")
       (is (re-find #"Jun 15, 2026" h))
       (is (re-find #"1,240.00" h)))
-    (testing "each has a delete that couriers its snapshot id"
-      (is (re-find #"v:manual:2026-07-15" h))
+    (testing "each has a delete that couriers its numeric snapshot id (no string in the JS expr)"
+      (is (re-find #"\$stmtDel = 4207" h))
       (is (re-find #"/transactions/statement/delete" h)))))
 
 (deftest close-panel-empty-when-no-activity

@@ -71,31 +71,52 @@
                         :snapshot/source  :manual}])
     conn))
 
+(defn- prior-month-start
+  "First instant of the calendar month before `month-str` (YYYY-MM) — the earliest a
+   snapshot can sit and still count as that month's ending balance (the reconciliation
+   start boundary)."
+  ^Date [month-str]
+  (let [{:keys [year month]} (u/parse-month-string month-str)
+        prev (if (= month 1) {:year (dec year) :month 12}
+                 {:year year :month (dec month)})]
+    (:start-date (u/month-date-range (format "%04d-%02d" (:year prev) (:month prev))))))
+
 (defn list-manual-balances
-  "Every user-entered :manual statement balance, most recent first, as display maps
-   {:id :date :balance :account-eid :account-name} — the reconcile panel's visible
-   'which date is this applied on' list. Reads the snapshot history."
-  [conn]
-  (->> (d/q '[:find [(pull ?s [:snapshot/id :snapshot/date :snapshot/balance
-                               {:snapshot/account [:db/id :account/external-name]}]) ...]
-              :where [?s :snapshot/source :manual]]
-            (d/db conn))
-       (map (fn [s]
-              {:id           (:snapshot/id s)
-               :date         (:snapshot/date s)
-               :balance      (:snapshot/balance s)
-               :account-eid  (get-in s [:snapshot/account :db/id])
-               :account-name (get-in s [:snapshot/account :account/external-name])}))
-       (sort-by :date)
-       reverse
-       vec))
+  "The user-entered :manual statement balances relevant to `month` (YYYY-MM) — those
+   dated within the month or the immediately prior month, the two boundaries the close
+   check reads — most recent first, as display maps
+   {:id :date :balance :account-eid :account-name}. `:id` is the snapshot ENTITY id
+   (numeric, for deletion). The reconcile panel's visible 'which date is this applied
+   on' list; scoping to the boundary window keeps a later month's panel from listing the
+   whole cross-month history. Reads the snapshot history."
+  [conn month]
+  (let [lo (prior-month-start month)
+        hi (:end-date (u/month-date-range month))]
+    (->> (d/q '[:find [(pull ?s [:db/id :snapshot/date :snapshot/balance
+                                 {:snapshot/account [:db/id :account/external-name]}]) ...]
+                :in $ ?lo ?hi
+                :where
+                [?s :snapshot/source :manual]
+                [?s :snapshot/date ?d]
+                [(<= ?lo ?d)]
+                [(< ?d ?hi)]]
+              (d/db conn) lo hi)
+         (map (fn [s]
+                {:id           (:db/id s)
+                 :date         (:snapshot/date s)
+                 :balance      (:snapshot/balance s)
+                 :account-eid  (get-in s [:snapshot/account :db/id])
+                 :account-name (get-in s [:snapshot/account :account/external-name])}))
+         (sort-by :date)
+         reverse
+         vec)))
 
 (defn delete-manual-balance!
-  "Retract the :manual statement snapshot identified by `snapshot-id`. Guards on the
-   :manual source so a crafted id can never retract an auto-recorded :reported
-   snapshot. No-op when the id is absent or not a manual balance. Returns db-conn."
-  [conn snapshot-id]
-  (let [s (d/pull (d/db conn) [:db/id :snapshot/source] [:snapshot/id snapshot-id])]
+  "Retract the :manual statement snapshot with entity id `eid`. Guards on the :manual
+   source so a non-manual snapshot can never be retracted this way. No-op when the id is
+   absent or not a manual balance. Returns db-conn."
+  [conn eid]
+  (let [s (d/pull (d/db conn) [:db/id :snapshot/source] eid)]
     (when (and (:db/id s) (= :manual (:snapshot/source s)))
       (d/transact! conn [[:db/retractEntity (:db/id s)]])))
   conn)
@@ -131,15 +152,6 @@
                           (sort-by (fn [[d _ src]] [d (source-rank src 0)]))
                           last)]
     [d bal]))
-
-(defn- prior-month-start
-  "First instant of the calendar month before `month-str` (YYYY-MM) — the earliest a
-   snapshot can sit and still count as that month's ending balance."
-  ^java.util.Date [month-str]
-  (let [{:keys [year month]} (u/parse-month-string month-str)
-        prev (if (= month 1) {:year (dec year) :month 12}
-                 {:year year :month (dec month)})]
-    (:start-date (u/month-date-range (format "%04d-%02d" (:year prev) (:month prev))))))
 
 (defn- reported-delta*
   "Reported-balance delta for `account-eid` across `month` against an already-

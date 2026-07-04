@@ -96,7 +96,7 @@
           close (db-reconciliations/get-close db-conn month-str)
           view-st (vs/query->view-state (:query-params req))
           model (view/present txs view-st {:categories categories :reported reported :close close
-                                           :manual-balances (db-snapshots/list-manual-balances db-conn)})]
+                                           :manual-balances (db-snapshots/list-manual-balances db-conn month-str)})]
       {:status 200
        :headers {"Content-Type" "text/html"}
        :body
@@ -375,7 +375,7 @@
     (view/month-close txs {:reconciliation (view/reconcile-month txs reported)
                            :close (db-reconciliations/get-close db-conn month)
                            :net-now (:grand-total (view/category-rollup txs categories))
-                           :manual-balances (db-snapshots/list-manual-balances db-conn)})))
+                           :manual-balances (db-snapshots/list-manual-balances db-conn month)})))
 
 (defn- patch-close-panel!
   "Re-render the reconciliation panel for `month` and morph it into #reconciliation."
@@ -433,8 +433,8 @@
      (fn []
        (let [signals (r/read-signals req)
              month (signals-month signals)]
-         (when-let [id (some-> (:stmtDel signals) str not-empty)]
-           (db-snapshots/delete-manual-balance! db-conn id))
+         (when-let [eid (some-> (:stmtDel signals) str not-empty parse-long)]
+           (db-snapshots/delete-manual-balance! db-conn eid))
          (patch-close-panel! db-conn req month))))))
 
 (defn close-month

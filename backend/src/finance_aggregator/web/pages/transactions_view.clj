@@ -855,7 +855,7 @@
    [:span.reconcile-statement-amt.numeric (fmt/amount balance)]
    [:button.reconcile-statement-del
     {:type "button" :aria-label (str "Remove statement balance for " account-name " on " (fmt/date date))
-     "data-on:click" (str "$stmtDel = '" id "'; @post('/transactions/statement/delete')")}
+     "data-on:click" (str "$stmtDel = " id "; @post('/transactions/statement/delete')")}
     "×"]])
 
 (defn- statement-balances-section
