@@ -79,8 +79,13 @@
       (is (re-find #"\$stmtDel = 4207" h))
       (is (re-find #"/transactions/statement/delete" h)))))
 
-(deftest close-panel-empty-when-no-activity
-  (is (nil? (tv/close-panel {:rows [] :gate {}}))))
+(deftest close-panel-empty-renders-a-hidden-but-present-morph-target
+  ;; It must NOT return nil — an SSE patch that empties the panel (deleting the last
+  ;; row/balance) still needs an #reconciliation element to morph, or the stale panel sticks.
+  (let [h (html (tv/close-panel {:rows [] :gate {}}))]
+    (is (re-find #"id=\"reconciliation\"" h) "the morph target still exists")
+    (is (re-find #"hidden" h) "but it's hidden when there's nothing to show")
+    (is (not (re-find #"Reconciliation" h)) "no title/content rendered")))
 
 (deftest close-panel-renders-for-manual-balances-without-activity
   (testing "an account with a recorded balance but no activity this month still shows"

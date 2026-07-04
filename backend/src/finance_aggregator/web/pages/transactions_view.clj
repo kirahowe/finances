@@ -1050,15 +1050,21 @@
    balances with their applied dates + the 'Add statement balance' action, and the
    completeness gate + Close / Reopen action. Its own #reconciliation element, kept
    OUTSIDE #category-rollup so the rollup's edit re-patches never clobber it; this
-   panel is re-patched only by its own statement/close/reopen actions. Renders nothing
-   when the month has neither activity nor a recorded statement balance."
+   panel is re-patched by its own statement/close/reopen actions and by manual
+   create/delete. The #reconciliation wrapper is ALWAYS rendered (a stable SSE morph
+   target); when the month has neither activity nor a recorded balance it's `:hidden`
+   — so an action that empties it (deleting the last row/balance) still has an element
+   to morph, rather than leaving a stale panel on screen (cf. active-filters)."
   [{:keys [rows closed? manual-balances] :as model}]
-  (when (or (seq rows) (seq manual-balances))
-    [:section.reconcile-panel {:id "reconciliation" :aria-label "Monthly close"}
-     [:h3.reconcile-title "Reconciliation"]
-     (into [:ul.reconcile-rows] (map #(reconcile-row closed? %) rows))
-     (statement-balances-section manual-balances)
-     (close-controls model)]))
+  (let [empty? (not (or (seq rows) (seq manual-balances)))]
+    [:section.reconcile-panel (cond-> {:id "reconciliation" :aria-label "Monthly close"}
+                                empty? (assoc :hidden true))
+     (when-not empty?
+       (list
+        [:h3.reconcile-title "Reconciliation"]
+        (into [:ul.reconcile-rows] (map #(reconcile-row closed? %) rows))
+        (statement-balances-section manual-balances)
+        (close-controls model)))]))
 
 (defn rollup-pane [{:keys [income expenses transfers grand-total]}]
   (let [sections (filter #(seq (:rows %)) [income expenses transfers])]
