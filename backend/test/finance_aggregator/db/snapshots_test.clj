@@ -126,22 +126,58 @@
     (put-account! "acc-1")
     (record! "acc-1" "100.00" (date 2026 2 28))   ; prior month-end (reported sync)
     ;; No reported snapshot inside March → user enters the statement ending balance.
-    (snapshots/record-manual-balance! setup/*test-conn* (account-eid "acc-1") "2026-03" "175.00")
+    (snapshots/record-manual-balance! setup/*test-conn* (account-eid "acc-1") (date 2026 3 31) "175.00")
     (is (= (bigdec "75.00")
            (snapshots/reported-delta setup/*test-conn* (account-eid "acc-1") "2026-03"))))
-  (testing "re-entering the same month overwrites (idempotent)"
-    (snapshots/record-manual-balance! setup/*test-conn* (account-eid "acc-1") "2026-03" "180.00")
+  (testing "re-entering the same day overwrites (idempotent)"
+    (snapshots/record-manual-balance! setup/*test-conn* (account-eid "acc-1") (date 2026 3 31) "180.00")
     (is (= (bigdec "80.00")
            (snapshots/reported-delta setup/*test-conn* (account-eid "acc-1") "2026-03")))))
 
-(deftest manual-balance-outranks-same-month-reported
-  (testing "when both exist for the month, the user's :manual figure wins the boundary"
+(deftest manual-balance-honours-an-arbitrary-mid-month-date
+  (testing "a statement closing mid-month lands on its real date and still anchors the month"
+    (put-account! "acc-1")
+    (record! "acc-1" "100.00" (date 2026 2 28))
+    (snapshots/record-manual-balance! setup/*test-conn* (account-eid "acc-1") (date 2026 3 15) "160.00")
+    (is (= (bigdec "60.00")
+           (snapshots/reported-delta setup/*test-conn* (account-eid "acc-1") "2026-03")))))
+
+(deftest manual-balance-outranks-same-day-reported
+  (testing "when both exist on the same day, the user's :manual figure wins the boundary"
     (put-account! "acc-1")
     (record! "acc-1" "100.00" (date 2026 2 28))
     (record! "acc-1" "170.00" (date 2026 3 31))   ; reported month-end
-    (snapshots/record-manual-balance! setup/*test-conn* (account-eid "acc-1") "2026-03" "172.00")
+    (snapshots/record-manual-balance! setup/*test-conn* (account-eid "acc-1") (date 2026 3 31) "172.00")
     (is (= (bigdec "72.00")
            (snapshots/reported-delta setup/*test-conn* (account-eid "acc-1") "2026-03")))))
+
+(deftest month-end-date-is-the-months-last-day
+  (is (= (date 2026 3 31) (snapshots/month-end-date "2026-03")))
+  (is (= (date 2026 2 28) (snapshots/month-end-date "2026-02"))))
+
+(deftest list-and-delete-manual-balances
+  (testing "list returns dated manual balances (most recent first) with account name; delete retracts"
+    (d/transact! setup/*test-conn* [{:account/external-id "acc-1" :account/provider :plaid
+                                     :account/external-name "Visa"}])
+    (snapshots/record-manual-balance! setup/*test-conn* (account-eid "acc-1") (date 2026 6 15) "1190.00")
+    (snapshots/record-manual-balance! setup/*test-conn* (account-eid "acc-1") (date 2026 7 15) "1240.00")
+    (let [balances (snapshots/list-manual-balances setup/*test-conn*)]
+      (is (= 2 (count balances)))
+      (is (= [(date 2026 7 15) (date 2026 6 15)] (map :date balances)) "most recent first")
+      (is (= "Visa" (:account-name (first balances))))
+      (is (= (bigdec "1240.00") (:balance (first balances))))
+      (testing "delete removes just that dated balance"
+        (snapshots/delete-manual-balance! setup/*test-conn* (:id (first balances)))
+        (let [left (snapshots/list-manual-balances setup/*test-conn*)]
+          (is (= 1 (count left)))
+          (is (= (date 2026 6 15) (:date (first left)))))))))
+
+(deftest delete-manual-balance-never-touches-reported
+  (testing "a reported snapshot's id can't be retracted via the manual delete guard"
+    (put-account! "acc-1")
+    (record! "acc-1" "100.00" (date 2026 3 31))
+    (snapshots/delete-manual-balance! setup/*test-conn* "acc-1:2026-03-31")
+    (is (= 1 (count (snapshots-for "acc-1"))) "reported snapshot survives")))
 
 (deftest reported-deltas-omits-accounts-without-a-pair
   (put-account! "acc-1")

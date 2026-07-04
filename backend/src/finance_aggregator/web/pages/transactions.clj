@@ -390,7 +390,7 @@
              signals (r/read-signals req)
              month (signals-month signals)]
          (when-let [balance (parse-money (:stmt signals))]
-           (db-snapshots/record-manual-balance! db-conn account-eid month balance))
+           (db-snapshots/record-manual-balance! db-conn account-eid (db-snapshots/month-end-date month) balance))
          (patch-close-panel! db-conn req month))))))
 
 (defn close-month

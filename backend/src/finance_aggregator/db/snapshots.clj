@@ -41,28 +41,64 @@
       (d/transact! db-conn (vec tx)))
     db-conn))
 
-(defn month-end-instant
-  "Last instant of `month` (YYYY-MM) — 1 ms before the next month begins. A manual
-   statement-ending balance is recorded here, so it sits inside the month as that
-   month's ending reading."
+(defn month-end-date
+  "Last calendar day of `month` (YYYY-MM) as a UTC-midnight Date — the default date
+   the statement-balance UI seeds (statements most often close at month-end), still
+   editable by the user to the real statement-closing date."
   ^Date [month]
-  (Date. (dec (.getTime ^Date (:end-date (u/month-date-range month))))))
+  (-> (u/month-date-range month) :end-date .getTime (- 86400000) Date.))
+
+(defn- manual-snapshot-id
+  "Idempotency key for a user-entered statement balance: one per account per UTC day,
+   in its own `:manual:` namespace so it coexists with the auto-recorded `:reported`
+   snapshot for the same day (and wins the boundary tie-break — see source-rank)."
+  [external-id ^Date date]
+  (str external-id ":manual:" (u/date->local-date date)))
 
 (defn record-manual-balance!
   "Record a user-entered statement ending balance for the account (entity id
-   `account-eid`) for `month` (YYYY-MM) as a :manual snapshot at the month's last
-   instant — the reported side of the close check when the bank sync has no
-   month-boundary snapshot. Idempotent per account-month (re-entering overwrites).
-   Kept in its own id namespace so it coexists with any :reported snapshot and wins
-   the boundary tie-break (see reported-sources / source-rank). Returns db-conn."
-  [conn account-eid month balance]
+   `account-eid`) at `date` (a java.util.Date) as a :manual snapshot — the reported
+   side of the close check when the bank sync has no snapshot at that date. The date
+   is explicit so a statement that closes mid-month lands on its real closing date,
+   clearly visible in the panel. Idempotent per account-day (re-entering the same day
+   overwrites); distinct dates accumulate a history. Returns db-conn."
+  [conn account-eid ^Date date balance]
   (let [ext (:account/external-id (d/pull (d/db conn) [:account/external-id] account-eid))]
-    (d/transact! conn [{:snapshot/id      (str ext ":manual:" month)
+    (d/transact! conn [{:snapshot/id      (manual-snapshot-id ext date)
                         :snapshot/account account-eid
-                        :snapshot/date    (month-end-instant month)
+                        :snapshot/date    date
                         :snapshot/balance (bigdec balance)
                         :snapshot/source  :manual}])
     conn))
+
+(defn list-manual-balances
+  "Every user-entered :manual statement balance, most recent first, as display maps
+   {:id :date :balance :account-eid :account-name} — the reconcile panel's visible
+   'which date is this applied on' list. Reads the snapshot history."
+  [conn]
+  (->> (d/q '[:find [(pull ?s [:snapshot/id :snapshot/date :snapshot/balance
+                               {:snapshot/account [:db/id :account/external-name]}]) ...]
+              :where [?s :snapshot/source :manual]]
+            (d/db conn))
+       (map (fn [s]
+              {:id           (:snapshot/id s)
+               :date         (:snapshot/date s)
+               :balance      (:snapshot/balance s)
+               :account-eid  (get-in s [:snapshot/account :db/id])
+               :account-name (get-in s [:snapshot/account :account/external-name])}))
+       (sort-by :date)
+       reverse
+       vec))
+
+(defn delete-manual-balance!
+  "Retract the :manual statement snapshot identified by `snapshot-id`. Guards on the
+   :manual source so a crafted id can never retract an auto-recorded :reported
+   snapshot. No-op when the id is absent or not a manual balance. Returns db-conn."
+  [conn snapshot-id]
+  (let [s (d/pull (d/db conn) [:db/id :snapshot/source] [:snapshot/id snapshot-id])]
+    (when (and (:db/id s) (= :manual (:snapshot/source s)))
+      (d/transact! conn [[:db/retractEntity (:db/id s)]])))
+  conn)
 
 ;; --- Reading: reported balance deltas for the monthly close ----------------
 
