@@ -138,3 +138,23 @@
     (is (= #{tx-id} (commands/linger user)))
     (commands/clear-linger! user)
     (is (= #{} (commands/linger user)) "a pure view change clears lingering pins")))
+
+(deftest forget-purges-commands-referencing-a-deleted-tx
+  ;; A manual transaction that was matched (and reviewed) is deleted; forget! must drop
+  ;; every command touching it so a later undo can't replay unmatch!/set-reviewed! against
+  ;; the retracted row (which throws and would jam the stack forever).
+  (let [conn setup/*test-conn*
+        a (make-tx! "c-forget-a")             ; the "manual" row that gets deleted (-100)
+        b (counterpart-tx! "c-forget-b" 100.00M)
+        user :uforget]
+    ;; The match command references A via :after (initiated from B); the reviewed command
+    ;; references A via :tx-id — forget! must drop BOTH.
+    (commands/apply! conn user {:type :set-match :tx-id b :before nil :after a :label "Matched transfer"})
+    (commands/apply! conn user {:type :set-reviewed :tx-id a :before false :after true :label "Marked reviewed"})
+    (is (= "Marked reviewed" (commands/undo-label user)))
+    (is (contains? (commands/linger user) a))
+
+    (commands/forget! user a)
+    (is (nil? (commands/undo-label user)) "every command referencing A (by :tx-id or match :after) is gone")
+    (is (nil? (commands/undo! conn user)) "nothing left to undo — no replay against the retracted row")
+    (is (not (contains? (commands/linger user) a)) "A is no longer lingering")))

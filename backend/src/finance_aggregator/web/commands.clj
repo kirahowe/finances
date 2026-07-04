@@ -90,6 +90,30 @@
   [user]
   (swap! log update user #(assoc (or % empty-state) :linger #{})))
 
+(defn- references?
+  "Does command `cmd` act on or point at transaction `id`? Its :tx-id, its :partner
+   (reject-match), or — for a transfer match — its before/after partner leg (only
+   :set-match's before/after hold tx-ids; other commands' hold category ids / strings /
+   split vectors, so they're not matched)."
+  [id {:keys [type tx-id partner before after]}]
+  (or (= tx-id id)
+      (= partner id)
+      (and (= type :set-match) (or (= before id) (= after id)))))
+
+(defn forget!
+  "Drop every undo/redo command (and any linger pin) that references transaction `tx-id`.
+   Called when a manual transaction is deleted: the row is gone, so replaying a command
+   against it would throw (e.g. unmatch! / set-splits! on a retracted entity) and jam the
+   stack. Purging keeps the log replay-safe."
+  [user tx-id]
+  (swap! log update user
+         (fn [s]
+           (let [s (or s empty-state)]
+             (-> s
+                 (update :undo #(vec (remove (partial references? tx-id) %)))
+                 (update :redo #(vec (remove (partial references? tx-id) %)))
+                 (update :linger disj tx-id))))))
+
 (defn undo-label
   "Label of the action a press of Undo would reverse (drives the undo button's enabled
    state + tooltip), or nil when there's nothing to undo."

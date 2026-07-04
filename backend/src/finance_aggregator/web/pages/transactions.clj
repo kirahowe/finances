@@ -550,6 +550,9 @@
              signals (r/read-signals req)
              month   (signals-month signals)]
          (db-transactions/delete-manual! db-conn tx-id)
+         ;; The row is gone — drop any undo/redo command that would replay against it
+         ;; (a matched/split manual row would otherwise jam the stack on undo).
+         (commands/forget! auth/user-id tx-id)
          (edit-response db-conn req signals :close-modal? true
                         :after-patch (fn [sse]
                                        (patch! sse (tv/close-panel (close-model-for db-conn month))))))))))
