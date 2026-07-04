@@ -1,5 +1,6 @@
 (ns finance-aggregator.db.transactions-test
-  (:require [clojure.test :refer [deftest is testing use-fixtures]]
+  (:require [clojure.string :as str]
+            [clojure.test :refer [deftest is testing use-fixtures]]
             [datalevin.core :as d]
             [finance-aggregator.db.transactions :as transactions]
             [finance-aggregator.db.categories :as categories]
@@ -462,3 +463,69 @@
       (let [db (d/db setup/*test-conn*)
             tx-after (d/pull db '[* {:transaction/category [*]}] tx-id)]
         (is (nil? (:transaction/category tx-after)))))))
+
+;; --- Manual transactions ---------------------------------------------------
+
+(defn- make-account!
+  "Create an account and return its :db/id."
+  [external-name]
+  (d/transact! setup/*test-conn* [{:account/external-id (str "acct-" external-name)
+                                   :account/external-name external-name
+                                   :account/provider :plaid}])
+  (:db/id (d/pull (d/db setup/*test-conn*) '[:db/id] [:account/external-id (str "acct-" external-name)])))
+
+(deftest create-manual-test
+  (testing "stores the canonical signed amount, provider :manual, dates and payee; returns the eid"
+    (let [acct (make-account! "Chequing")
+          date (java.util.Date. 1700000000000)
+          eid  (transactions/create-manual! setup/*test-conn* "test-user"
+                                            {:account-eid acct :amount -42.50M :date date
+                                             :payee "Cash withdrawal"})
+          tx   (d/pull (d/db setup/*test-conn*) '[* {:transaction/account [:db/id]}] eid)]
+      (is (some? eid))
+      (is (== -42.50M (:transaction/amount tx)) "stored exactly as given (no invert-amount flip)")
+      (is (= :manual (:transaction/provider tx)))
+      (is (= "Cash withdrawal" (:transaction/payee tx)))
+      (is (= date (:transaction/date tx)))
+      (is (= date (:transaction/posted-date tx)))
+      (is (= acct (get-in tx [:transaction/account :db/id])))
+      (is (str/starts-with? (:transaction/external-id tx) "manual-"))))
+
+  (testing "optional category is applied as a post-create overlay"
+    (let [acct (make-account! "Visa")
+          cat  (make-category! "Groceries" :category/groceries)
+          eid  (transactions/create-manual! setup/*test-conn* "test-user"
+                                            {:account-eid acct :amount 10.00M
+                                             :date (java.util.Date.) :category-id cat})
+          tx   (d/pull (d/db setup/*test-conn*) '[{:transaction/category [:db/id]}] eid)]
+      (is (= cat (get-in tx [:transaction/category :db/id])))))
+
+  (testing "blank payee/description are omitted, not stored as empty strings"
+    (let [acct (make-account! "Savings")
+          eid  (transactions/create-manual! setup/*test-conn* "test-user"
+                                            {:account-eid acct :amount 1.00M :date (java.util.Date.)
+                                             :payee "  " :description ""})
+          tx   (d/pull (d/db setup/*test-conn*) '[:transaction/payee :transaction/description] eid)]
+      (is (nil? (:transaction/payee tx)))
+      (is (nil? (:transaction/description tx)))))
+
+  (testing "missing required fields throw :bad-request"
+    (is (thrown? clojure.lang.ExceptionInfo
+                 (transactions/create-manual! setup/*test-conn* "test-user"
+                                              {:amount 5.00M :date (java.util.Date.)})))))
+
+(deftest delete-manual-test
+  (testing "deletes a manually-created transaction"
+    (let [acct (make-account! "Cash")
+          eid  (transactions/create-manual! setup/*test-conn* "test-user"
+                                            {:account-eid acct :amount -5.00M :date (java.util.Date.)})]
+      (transactions/delete-manual! setup/*test-conn* eid)
+      (is (nil? (:transaction/external-id
+                 (d/pull (d/db setup/*test-conn*) '[:transaction/external-id] eid))))))
+
+  (testing "refuses to delete an imported (non-manual) transaction"
+    (let [tx-id (make-tx! "imported-1" {})]
+      (is (thrown-with-msg? clojure.lang.ExceptionInfo #"manually-added"
+                            (transactions/delete-manual! setup/*test-conn* tx-id)))
+      (is (some? (:transaction/external-id
+                  (d/pull (d/db setup/*test-conn*) '[:transaction/external-id] tx-id)))))))

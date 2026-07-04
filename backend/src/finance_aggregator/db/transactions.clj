@@ -3,7 +3,8 @@
             [datalevin.core :as d]
             [finance-aggregator.db.transfers :as db-transfers]
             [finance-aggregator.splits :as splits]
-            [finance-aggregator.utils :as utils]))
+            [finance-aggregator.utils :as utils])
+  (:import [java.util Date UUID]))
 
 (def split-pull
   "Pull sub-pattern for a transaction's split parts. Shared with the list endpoint
@@ -255,3 +256,72 @@
             reviewed-retract [[:db/retract tx-id :transaction/reviewed]]]
         (d/transact! conn (into reviewed-retract (into retract-ops (or assert-ops []))))
         (with-derived-fields (d/pull (d/db conn) transaction-pull-pattern tx-id))))))
+
+;; --- Manual transactions ---------------------------------------------------
+;; A user-entered transaction is a first-class :transaction/* row (provider :manual),
+;; not an overlay: once created it categorizes, reviews, splits, sorts and reconciles
+;; exactly like an imported one. Only its provenance and its direct create/delete
+;; lifecycle differ.
+
+(defn- ensure-user!
+  "Create the user entity if absent — a :transaction/user lookup ref (a ref *value*)
+   must resolve to an existing entity (unlike a top-level unique-id map, datalevin does
+   not upsert it). Imported rows get this from db/insert!'s ensure-users!; a direct
+   manual insert needs the same guarantee."
+  [conn user-id]
+  (when-not (d/entity (d/db conn) [:user/id user-id])
+    (d/transact! conn [{:user/id user-id :user/created-at (Date.)}])))
+
+(defn create-manual!
+  "Insert a user-entered manual transaction and return its entity id.
+
+   `tx` is {:account-eid long :amount bigdec :date Date :payee string?
+            :description string? :category-id long?}. The amount is the canonical
+   signed value (inflows +, outflows −) the caller derived from the money-out/-in
+   choice, and is stored EXACTLY as given — a manual entry is deliberately NOT run
+   through the provider invert-amount normalization (that flip is for imported data;
+   re-applying it here would double-flip the sign on an inverted account).
+
+   Stamped :transaction/provider :manual with a generated external-id (no dedup — each
+   creation is a distinct row). Because the overlay contract forbids baking a category
+   into an insert, an optional :category-id is applied as a separate update-category!
+   after creation — exactly how an imported row gets categorized.
+   Conn is a datalevin connection (not an atom)."
+  [conn user-id {:keys [account-eid amount date payee description category-id]}]
+  (when-not (and account-eid amount date)
+    (throw (ex-info "A manual transaction needs an account, amount, and date"
+                    {:type :bad-request})))
+  (ensure-user! conn user-id)
+  (let [ext (str "manual-" (UUID/randomUUID))]
+    (d/transact! conn
+                 [(cond-> {:transaction/external-id ext
+                           :transaction/account     account-eid
+                           :transaction/user        [:user/id user-id]
+                           :transaction/date        date
+                           :transaction/posted-date date
+                           :transaction/amount      (bigdec amount)
+                           :transaction/provider    :manual}
+                    (not-empty (some-> payee str/trim))       (assoc :transaction/payee (str/trim payee))
+                    (not-empty (some-> description str/trim)) (assoc :transaction/description (str/trim description)))])
+    (let [eid (:db/id (d/pull (d/db conn) [:db/id] [:transaction/external-id ext]))]
+      (when category-id (update-category! conn eid category-id))
+      eid)))
+
+(defn delete-manual!
+  "Delete a manually-created transaction (entity id `tx-id`). Guards on
+   :transaction/provider :manual so an imported/synced row can never be deleted this
+   way — throws ex-info :bad-request otherwise (and :not-found for a missing id).
+   Unlinks any transfer pair first (retracting the partner's back-reference, which
+   retractEntity would otherwise leave dangling), then retracts the transaction — its
+   split parts cascade via :db/isComponent. Returns db-conn."
+  [conn tx-id]
+  (let [tx (d/pull (d/db conn) [:db/id :transaction/provider
+                                {:transaction/transfer-pair [:db/id]}] tx-id)]
+    (when-not (:db/id tx)
+      (throw (ex-info "Transaction not found" {:type :not-found})))
+    (when-not (= :manual (:transaction/provider tx))
+      (throw (ex-info "Only manually-added transactions can be deleted" {:type :bad-request})))
+    (let [partner (get-in tx [:transaction/transfer-pair :db/id])]
+      (d/transact! conn (cond-> [[:db/retractEntity tx-id]]
+                          partner (conj [:db/retract partner :transaction/transfer-pair tx-id]))))
+    conn))
