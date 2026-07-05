@@ -30,8 +30,13 @@
 .pagination-nav-button {
   min-width: var(--control-square-sm);
   padding: var(--control-pad-y-sm) 0;
-  font-size: var(--glyph);
-  line-height: 1;
+}
+
+/* First/prev/next/last are the app's shared 1rem stroke chevrons (single = step,
+   double = jump to end), matching the row caret, month nav, and summary-card toggles. */
+.pagination-nav-button svg {
+  width: 1rem;
+  height: 1rem;
 }
 
 .pagination-page-button {

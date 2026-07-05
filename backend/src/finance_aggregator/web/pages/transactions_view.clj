@@ -34,9 +34,11 @@
                :stroke-linecap "round" :stroke-linejoin "round" :aria-hidden "true"}]
         body))
 
-(defn chevron-left  [] (icon [:polyline {:points "15 18 9 12 15 6"}]))
-(defn chevron-right [] (icon [:polyline {:points "9 18 15 12 9 6"}]))
-(defn chevron-down  [] (icon [:polyline {:points "6 9 12 15 18 9"}]))
+(defn chevron-left   [] (icon [:polyline {:points "15 18 9 12 15 6"}]))
+(defn chevron-right  [] (icon [:polyline {:points "9 18 15 12 9 6"}]))
+(defn chevron-down   [] (icon [:polyline {:points "6 9 12 15 18 9"}]))
+(defn chevrons-left  [] (icon [:polyline {:points "11 17 6 12 11 7"}] [:polyline {:points "18 17 13 12 18 7"}]))
+(defn chevrons-right [] (icon [:polyline {:points "13 17 18 12 13 7"}] [:polyline {:points "6 17 11 12 6 7"}]))
 (defn undo-icon     [] (icon [:path {:d "M9 14 4 9l5-5"}] [:path {:d "M4 9h10.5a5.5 5.5 0 0 1 5.5 5.5 5.5 5.5 0 0 1-5.5 5.5H11"}]))
 (defn redo-icon     [] (icon [:path {:d "m15 14 5-5-5-5"}] [:path {:d "M20 9H9.5A5.5 5.5 0 0 0 4 14.5 5.5 5.5 0 0 0 9.5 20H13"}]))
 
@@ -404,11 +406,11 @@
                   "data-on:click" (str "$pageSize = " n "; $page = 0; @get('/transactions/rows')")}
          (str n)])]
      [:div.pagination-navigation
-      (nav-btn {:title "First page"    :disabled? first? :js "$page = 0; @get('/transactions/rows')"} "«")
-      (nav-btn {:title "Previous page" :disabled? first? :js "$page = Math.max(0, $page - 1); @get('/transactions/rows')"} "‹")
+      (nav-btn {:title "First page"    :disabled? first? :js "$page = 0; @get('/transactions/rows')"} (chevrons-left))
+      (nav-btn {:title "Previous page" :disabled? first? :js "$page = Math.max(0, $page - 1); @get('/transactions/rows')"} (chevron-left))
       [:span.pagination-status (str "Page " (inc page) " of " page-count)]
-      (nav-btn {:title "Next page" :disabled? last? :js "$page = $page + 1; @get('/transactions/rows')"} "›")
-      (nav-btn {:title "Last page" :disabled? last? :js (str "$page = " (dec page-count) "; @get('/transactions/rows')")} "»")]]))
+      (nav-btn {:title "Next page" :disabled? last? :js "$page = $page + 1; @get('/transactions/rows')"} (chevron-right))
+      (nav-btn {:title "Last page" :disabled? last? :js (str "$page = " (dec page-count) "; @get('/transactions/rows')")} (chevrons-right))]]))
 
 ;; ---------------------------------------------------------------------------
 ;; Lingering + edit fragments
