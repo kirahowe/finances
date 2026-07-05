@@ -1,10 +1,10 @@
-/* Category rollup pane: a summary column beside the transactions table.
+/* Category rollup pane: part of the summary column beside the transactions table.
 
-   The table card and this pane sit in a flex row; the pane is sticky and owns its
-   own vertical scroll (`.rollup-scroll`), so a short table never forces a long
-   page scroll to reach the Net line, and a long table never pushes the pane out of
-   view. Below a breakpoint the pane drops beneath the table and scrolls with the
-   page. */
+   The table card and the summary column sit in a flex row. The column stacks two
+   collapsible summary cards — the reconciliation panel and this category rollup. In
+   the wide fixed-viewport shell the column fills the row height and each card scrolls
+   internally in its body (dashboard.css); below the breakpoint the column drops beneath
+   the table and scrolls with the page. */
 :root {
   /* Clears the sticky masthead with a small gap. */
   --rollup-sticky-top: 5rem;
@@ -23,11 +23,10 @@
   min-width: 0;
 }
 
-/* The summary column: the reconciliation readout stacked above the category
-   rollup. In the wide fixed-viewport shell it fills the workspace row, the
-   reconciliation band pins to the top, and the rollup pane scrolls internally;
-   below the breakpoint it flows normally with the page (sticky, with its own
-   max-height) so neither panel forces a long page scroll. */
+/* The summary column: the reconciliation card stacked above the category rollup card.
+   In the wide fixed-viewport shell (dashboard.css) it fills the workspace row and each
+   card scrolls internally; below the breakpoint it flows normally with the page (sticky,
+   with its own max-height) so neither card forces a long page scroll. */
 .rollup-column {
   flex: 0 0 300px;
   align-self: flex-start;
@@ -41,17 +40,9 @@
   margin-bottom: var(--spacing-lg);
 }
 
-.rollup-pane {
-  background: var(--color-surface);
-  border: 1px solid var(--color-border);
-  border-radius: var(--radius-lg);
-  box-shadow: var(--shadow-sm);
-  overflow: hidden; /* clip to the rounded corners */
-}
-
-.rollup-scroll {
-  padding: var(--spacing-lg);
-}
+/* The pane's card chrome (surface/border/shadow/clip) and its scroll body's padding now
+   come from the shared .summary-card / .summary-card-body (summary-card.css); only the
+   rollup-specific innards live below. */
 
 .rollup-empty {
   margin: 0;

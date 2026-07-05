@@ -1,28 +1,11 @@
 /* Monthly-close reconciliation panel — the period-delta confidence readout that sits
-   above the category rollup in the summary column. Per account: does the tracked
+   above the category rollup in the summary column (its card chrome + collapsible header
+   are the shared .summary-card, see summary-card.css). Per account: does the tracked
    activity match the bank's reported balance change for the month? Also hosts the
    recorded statement balances (each with the date it's applied on), the "Set balance"
    / "Add statement balance" entry points, and the completeness gate + Close/Reopen
    action. All colors come from the shared design tokens, so dark mode
    (prefers-color-scheme) and WCAG-AA contrast follow the design system automatically. */
-
-.reconcile-panel {
-  background: var(--color-surface);
-  border: 1px solid var(--color-border);
-  border-radius: var(--radius-lg);
-  box-shadow: var(--shadow-sm);
-  padding: var(--spacing-lg);
-}
-
-.reconcile-title {
-  margin: 0 0 var(--spacing-sm);
-  font-family: var(--font-body);
-  font-size: var(--text-2xs);
-  font-weight: 600;
-  text-transform: uppercase;
-  letter-spacing: 0.14em;
-  color: var(--color-text-muted);
-}
 
 .reconcile-rows {
   list-style: none;
@@ -30,29 +13,48 @@
   padding: 0;
 }
 
+/* Two aligned columns: the account name (truncated) and, hard against the right edge,
+   its status or entry action — so every row's right side lines up regardless of name
+   length. One dense, non-wrapping line per account. */
 .reconcile-row {
-  display: flex;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
   align-items: baseline;
-  justify-content: space-between;
   gap: var(--spacing-sm);
-  padding: 0.25rem 0;
+  padding: 0.2rem 0;
+  font-size: var(--text-sm);
 }
 
 .reconcile-account {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
   color: var(--color-ink);
 }
 
-.reconcile-status {
-  font-size: var(--text-sm);
+/* The right column: a status label, and on a drift row the label plus a quiet re-set. */
+.reconcile-status,
+.reconcile-cell {
+  justify-self: end;
+  display: inline-flex;
+  align-items: baseline;
+  gap: 0.3rem;
   font-variant-numeric: tabular-nums;
   white-space: nowrap;
 }
 
-.reconcile-row--reconciled .reconcile-status {
+/* A drift row pairs the "off by $X" label with the quiet re-set action — give them a
+   bit more air than the tick-and-word gap inside a single status. */
+.reconcile-cell {
+  gap: var(--spacing-sm);
+}
+
+.reconcile-status--ok {
   color: var(--color-success);
 }
 
-.reconcile-row--drift .reconcile-status {
+.reconcile-status--drift {
   color: var(--color-negative);
   font-weight: 600;
 }
@@ -66,25 +68,26 @@
 }
 
 /* "Set balance" — opens the statement-balance modal for an unreconciled account
-   (open month). A quiet pine text-button, matching the reconcile row's density. */
+   (open month). A quiet pine text action; on a no-statement row it stands in for the
+   status, so it reads as one calm right-aligned column down the list. */
 .reconcile-set-balance {
-  padding: 0.15rem 0.5rem;
+  justify-self: end;
+  padding: 0;
   font: inherit;
-  font-size: var(--text-sm);
   color: var(--color-pine-hover);
   background: none;
-  border: 1px solid var(--color-pine-soft-border);
-  border-radius: var(--radius-sm);
+  border: none;
   cursor: pointer;
   white-space: nowrap;
 }
 
 .reconcile-set-balance:hover {
-  background: var(--color-accent-soft);
+  text-decoration: underline;
 }
 
 .reconcile-set-balance:focus-visible {
   outline: none;
+  border-radius: var(--radius-sm);
   box-shadow: var(--focus-ring);
 }
 
@@ -180,10 +183,11 @@
   box-shadow: var(--focus-ring);
 }
 
-/* Close controls: the completeness gate + the Close/Reopen action. */
+/* Close controls: the completeness gate + the Close/Reopen action. Pinned as the card
+   footer below the scrolling body, so it carries its own padding (the card itself has
+   none) and a divider to sit apart from the rows above. */
 .reconcile-close {
-  margin-top: var(--spacing-md);
-  padding-top: var(--spacing-sm);
+  padding: var(--spacing-md) var(--spacing-lg);
   border-top: 1px solid var(--color-border);
 }
 

@@ -179,6 +179,10 @@
                   :institution (csv-param qp "fi")
                   :category (csv-param qp "fc")}
          :_colsOpen false
+         ;; Summary-column panels default open; collapse state is ephemeral (survives
+         ;; SSE morphs of #reconciliation/#category-rollup, resets on a full reload).
+         :_reconcileOpen true
+         :_rollupOpen true
          :_openFunnel ""
          :_funnelX 0
          :_funnelY 0

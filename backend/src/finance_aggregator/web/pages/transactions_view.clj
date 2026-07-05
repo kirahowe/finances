@@ -36,6 +36,7 @@
 
 (defn chevron-left  [] (icon [:polyline {:points "15 18 9 12 15 6"}]))
 (defn chevron-right [] (icon [:polyline {:points "9 18 15 12 9 6"}]))
+(defn chevron-down  [] (icon [:polyline {:points "6 9 12 15 18 9"}]))
 (defn undo-icon     [] (icon [:path {:d "M9 14 4 9l5-5"}] [:path {:d "M4 9h10.5a5.5 5.5 0 0 1 5.5 5.5 5.5 5.5 0 0 1-5.5 5.5H11"}]))
 (defn redo-icon     [] (icon [:path {:d "m15 14 5-5-5-5"}] [:path {:d "M20 9H9.5A5.5 5.5 0 0 0 4 14.5 5.5 5.5 0 0 0 9.5 20H13"}]))
 
@@ -814,36 +815,59 @@
     [:span.rollup-row-name (str (rollup-section-labels type) " total")]
     [:span.rollup-amount (fmt/amount total)]]])
 
+(defn- summary-toggle
+  "The collapsible header for a summary-column card: an <h2> section heading whose
+   button flips `open-signal` (a Datastar ephemeral signal like \"$_rollupOpen\"). The
+   chevron is the app's shared stroke icon — it points down when open and rotates to the
+   row-caret's right when collapsed. `controls-id` names the body it shows/hides."
+  [title open-signal controls-id]
+  [:h2.summary-card-heading
+   [:button.summary-toggle
+    ;; Emit the string 'true'/'false' (not a bare boolean): Datastar's data-attr drops an
+    ;; attribute whose value is boolean false, which would strip aria-expanded entirely and
+    ;; break both the a11y state and the [aria-expanded="false"] chevron rotation.
+    {:type "button" :aria-controls controls-id
+     "data-on:click" (str open-signal " = !" open-signal)
+     "data-attr" (str "{'aria-expanded': " open-signal " ? 'true' : 'false'}")}
+    title
+    (chevron-down)]])
+
 (defn- set-balance-button
   "Open the statement-balance modal preselected to `account-id` (open month, an
-   account we can't yet reconcile). The modal records a dated :manual balance."
+   account we can't yet reconcile). The modal records a dated :manual balance. A quiet
+   pine text action — on a no-statement row it stands in for the status itself."
   [account-id]
   [:button.reconcile-set-balance
    {:type "button" :aria-haspopup "dialog"
     "data-on:click" (str "@get('/transactions/statement-modal?account=" account-id "')")}
    "Set balance"])
 
+(defn- reconcile-status-span [status difference]
+  (cond
+    (= :reconciled status)
+    [:span.reconcile-status.reconcile-status--ok
+     {:title "Tracked activity matches the bank's balance change"}
+     [:span.reconcile-tick {:aria-hidden "true"} "✓"] "matches"]
+    (= :drift status)
+    [:span.reconcile-status.reconcile-status--drift
+     {:title "Computed change differs from the bank's reported change"}
+     "off by " (fmt/amount difference)]
+    :else
+    [:span.reconcile-status.reconcile-status--muted "no statement"]))
+
 (defn- reconcile-row [closed? {:keys [account-id status difference] acct-name :name}]
   [:li {:class (str "reconcile-row reconcile-row--" (name status))}
-   [:span.reconcile-account acct-name]
-   (cond
-     (= :reconciled status)
-     [:span.reconcile-status {:title "Tracked activity matches the bank's balance change"}
-      [:span.reconcile-tick {:aria-hidden "true"} "✓ "] "matches"]
-     ;; A closed month is locked — show the frozen status, no entry affordance.
-     closed?
+   [:span.reconcile-account {:title acct-name} acct-name]
+   (if (or closed? (= :reconciled status))
+     ;; Locked, or already matched — just the frozen status, no entry affordance.
+     (reconcile-status-span status difference)
+     ;; Open + unreconciled. For a drift, show the amount and a quiet re-set; for a
+     ;; no-statement account the pine "Set balance" *is* the status (no muted label).
      (if (= :drift status)
-       [:span.reconcile-status {:title "Computed change differs from the bank's reported change"}
-        "off by " (fmt/amount difference)]
-       [:span.reconcile-status.reconcile-status--muted "no statement"])
-     ;; Open month — let the user record the bank's statement balance for this account.
-     :else
-     (list
-      (if (= :drift status)
-        [:span.reconcile-status {:title "Computed change differs from the bank's reported change"}
-         "off by " (fmt/amount difference)]
-        [:span.reconcile-status.reconcile-status--muted "no statement"])
-      (set-balance-button account-id)))])
+       [:span.reconcile-cell
+        (reconcile-status-span status difference)
+        (set-balance-button account-id)]
+       (set-balance-button account-id)))])
 
 (defn- statement-balance-row
   "One recorded manual statement balance — account, the date it's applied on (shown
@@ -1058,22 +1082,31 @@
    create/delete. The #reconciliation wrapper is ALWAYS rendered (a stable SSE morph
    target); when the month has neither activity nor a recorded balance it's `:hidden`
    — so an action that empties it (deleting the last row/balance) still has an element
-   to morph, rather than leaving a stale panel on screen (cf. active-filters)."
+   to morph, rather than leaving a stale panel on screen (cf. active-filters).
+
+   A collapsible summary card: the header toggles $_reconcileOpen (an ephemeral body
+   signal that survives these morphs); the account rows + statement balances scroll in
+   the body while the completeness gate + Close action stay pinned as the footer."
   [{:keys [rows closed? manual-balances] :as model}]
   (let [empty? (not (or (seq rows) (seq manual-balances)))]
-    [:section.reconcile-panel (cond-> {:id "reconciliation" :aria-label "Monthly close"}
-                                empty? (assoc :hidden true))
+    [:section.reconcile-panel.summary-card
+     (cond-> {:id "reconciliation" :aria-label "Monthly close"
+              "data-class" "{'summary-collapsed': !$_reconcileOpen}"}
+       empty? (assoc :hidden true))
      (when-not empty?
        (list
-        [:h3.reconcile-title "Reconciliation"]
-        (into [:ul.reconcile-rows] (map #(reconcile-row closed? %) rows))
-        (statement-balances-section manual-balances)
+        (summary-toggle "Reconciliation" "$_reconcileOpen" "reconcile-body")
+        [:div.reconcile-body.summary-card-body {:id "reconcile-body"}
+         (into [:ul.reconcile-rows] (map #(reconcile-row closed? %) rows))
+         (statement-balances-section manual-balances)]
         (close-controls model)))]))
 
 (defn rollup-pane [{:keys [income expenses transfers grand-total]}]
   (let [sections (filter #(seq (:rows %)) [income expenses transfers])]
-    [:aside.rollup-pane {:id "category-rollup" :aria-label "Category summary"}
-     [:div.rollup-scroll
+    [:aside.rollup-pane.summary-card {:id "category-rollup" :aria-label "Category summary"
+                                      "data-class" "{'summary-collapsed': !$_rollupOpen}"}
+     (summary-toggle "Summary" "$_rollupOpen" "rollup-scroll")
+     [:div.rollup-scroll.summary-card-body {:id "rollup-scroll"}
       (if (empty? sections)
         [:p.rollup-empty "No activity to summarize."]
         (map rollup-section sections))
