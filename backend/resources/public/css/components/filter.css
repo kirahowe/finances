@@ -138,10 +138,11 @@
   align-items: center;
 }
 
-/* Secondary toolbar buttons (the Columns dropdown trigger + "Review transfers") — pinned
-   to the shared control height with the toolbar's --text-sm so they match the chips/scope
-   exactly instead of the taller base-.button footprint. */
-.filter-button {
+/* Secondary toolbar buttons (the Columns dropdown trigger, "Review transfers", and
+   "Add transaction") — pinned to the shared control height with the toolbar's --text-sm
+   so they match the chips/scope exactly instead of the taller base-.button footprint. */
+.filter-button,
+.add-transaction-button {
   display: inline-flex;
   align-items: center;
   gap: var(--spacing-sm);
