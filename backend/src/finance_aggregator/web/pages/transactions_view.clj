@@ -454,9 +454,11 @@
    [:button.button.button-secondary.filter-button
     {:type "button" :aria-haspopup "true"
      "data-on:click__stop" "$_colsOpen = !$_colsOpen"
-     "data-attr" "{'aria-expanded': $_colsOpen}"}
+     ;; String 'true'/'false' (not a bare boolean): Datastar drops a false-valued attr,
+     ;; which would strip aria-expanded and the [aria-expanded="true"] caret flip.
+     "data-attr" "{'aria-expanded': $_colsOpen ? 'true' : 'false'}"}
     "Columns"
-    [:span.filter-button-arrow {"data-text" "$_colsOpen ? '▲' : '▼'"} "▼"]]
+    [:span.filter-button-arrow (chevron-down)]]
    [:div.filter-dropdown
     {"data-show" "$_colsOpen" "data-on:click__outside" "$_colsOpen = false"}
     [:ul.filter-dropdown-list

@@ -152,9 +152,22 @@
   white-space: nowrap;
 }
 
+/* The dropdown caret is the app's shared stroke chevron (points down when closed,
+   flips up when the menu is open), flex-centred so it sits on the button's midline. */
 .filter-button-arrow {
-  font-size: var(--text-2xs);
-  opacity: 0.7;
+  display: inline-flex;
+  align-items: center;
+  color: var(--color-medium-gray);
+}
+
+.filter-button-arrow svg {
+  width: 0.85rem;
+  height: 0.85rem;
+  transition: transform 0.15s var(--ease-out);
+}
+
+.filter-button[aria-expanded="true"] .filter-button-arrow svg {
+  transform: rotate(180deg);
 }
 
 /* Filter Dropdown */
