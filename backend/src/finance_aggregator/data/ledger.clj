@@ -39,6 +39,26 @@
    {}
    txs))
 
+(defn reconcile-period
+  "Reconcile one period — a month-boundary period or a statement — against the account's
+   transactions in its span. `start-balance`/`end-balance` are bigdecs (nil = not yet
+   entered); `span-txns` the account's transactions in (start, end]. Returns
+   {:reported :computed :difference :status}: :reported = end − start (nil if a balance is
+   missing), :computed = Σ signed amounts, :difference = reported − computed, and :status is
+   :no-snapshot / :reconciled / :drift — the same period-delta verdict, over an arbitrary span.
+   Pure."
+  [start-balance end-balance span-txns & {:keys [tolerance] :or {tolerance default-tolerance}}]
+  (let [computed   (reduce (fn [acc tx] (+ acc (amount tx))) 0M span-txns)
+        reported   (when (and (some? start-balance) (some? end-balance)) (- end-balance start-balance))
+        difference (when (some? reported) (- reported computed))]
+    {:reported   reported
+     :computed   computed
+     :difference difference
+     :status     (cond
+                   (nil? reported)                :no-snapshot
+                   (<= (abs difference) tolerance) :reconciled
+                   :else                           :drift)}))
+
 (defn reconcile-row
   "Combine one account's computed delta with its reported delta (nil when a
    boundary snapshot is missing) into a display row:

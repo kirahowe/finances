@@ -37,6 +37,31 @@
 (defn- sorted-splits [pulled]
   (sort-by :split/order (:transaction/splits pulled)))
 
+(defn- range-date [y m d]
+  (-> (java.time.LocalDate/of y m d)
+      (.atStartOfDay java.time.ZoneOffset/UTC) .toInstant java.util.Date/from))
+
+(deftest list-for-account-range-test
+  (testing "returns the account's txns in the reconcile span (from, to], posted-date ascending"
+    (d/transact! setup/*test-conn* [{:account/external-id "acct-r" :account/external-name "Visa"}])
+    (let [acct (d/q '[:find ?a . :in $ ?e :where [?a :account/external-id ?e]]
+                    (d/db setup/*test-conn*) "acct-r")]
+      (d/transact! setup/*test-conn*
+                   [{:transaction/external-id "r1" :transaction/account acct
+                     :transaction/amount 10M :transaction/posted-date (range-date 2026 4 16)}
+                    {:transaction/external-id "r2" :transaction/account acct
+                     :transaction/amount 20M :transaction/posted-date (range-date 2026 4 20)}
+                    {:transaction/external-id "r3" :transaction/account acct
+                     :transaction/amount 30M :transaction/posted-date (range-date 2026 5 16)}
+                    {:transaction/external-id "r4" :transaction/account acct
+                     :transaction/amount 40M :transaction/posted-date (range-date 2026 5 20)}])
+      (let [rows (transactions/list-for-account-range setup/*test-conn* acct
+                                                      (range-date 2026 4 16) (range-date 2026 5 16))]
+        (is (= ["r2" "r3"] (map :transaction/external-id rows))
+            "excludes the start-date txn (its balance is the opening), includes the end-date txn")
+        (is (= [(range-date 2026 4 20) (range-date 2026 5 16)] (map :transaction/posted-date rows))
+            "posted-date ascending")))))
+
 (deftest set-splits-test
   (testing "happy path: stores parts with bigdec amounts, category refs and order"
     (let [groceries (make-category! "Groceries" :category/groceries)

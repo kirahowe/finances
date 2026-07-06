@@ -84,6 +84,21 @@
    :snapshot/balance {:db/valueType :db.type/bigdec}
    :snapshot/source  {:db/valueType :db.type/keyword}    ; :reported, :manual, :calculated
 
+   ;; Statement periods (arbitrary-span reconciliation). A first-class, self-contained
+   ;; statement for an account: two dated balances whose change the tracked activity in the
+   ;; span must explain (end-balance - start-balance = Σ txns in (start, end]). Unlike the
+   ;; month-boundary reconciliation (which reads :snapshot/* at calendar bounds), a statement
+   ;; runs between ARBITRARY dates - a credit-card statement whose balance can't be read on a
+   ;; chosen day. A month reconciles for an account when its transactions are all covered by
+   ;; reconciled periods (the month-boundary period OR statements). Identified by :db/id
+   ;; (edited/deleted as a unit) - no unique key, since a statement's dates can change.
+   :statement/account       {:db/valueType :db.type/ref}
+   :statement/user          {:db/valueType :db.type/ref}
+   :statement/start-date    {:db/valueType :db.type/instant}
+   :statement/start-balance {:db/valueType :db.type/bigdec}
+   :statement/end-date      {:db/valueType :db.type/instant}
+   :statement/end-balance   {:db/valueType :db.type/bigdec}
+
    ;; Monthly close (reconciliation lock). One event per user per calendar month:
    ;; the "lock it in" record created when a month is closed. Being CLOSED is a
    ;; month-level fact - whether a transaction is reconciled is DERIVED from its

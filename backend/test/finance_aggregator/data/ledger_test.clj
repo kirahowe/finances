@@ -8,6 +8,24 @@
            :transaction/amount  (bigdec amount)}
     splits (assoc :transaction/splits splits)))
 
+(deftest reconcile-period-verdict
+  ;; A statement/period: does end − start match Σ of the span's transactions?
+  (let [span [{:transaction/amount 40M} {:transaction/amount 100M}]]   ; Σ = 140
+    (testing "reconciled when end − start = Σ (within tolerance)"
+      (is (= :reconciled (:status (ledger/reconcile-period 500M 640M span)))))
+    (testing "drift carries the reported/computed/signed-difference"
+      (let [r (ledger/reconcile-period 500M 700M span)]
+        (is (= :drift (:status r)))
+        (is (= 200M (:reported r)))
+        (is (= 140M (:computed r)))
+        (is (= 60M  (:difference r)) "reported − computed")))
+    (testing "no-snapshot until BOTH balances are entered"
+      (is (= :no-snapshot (:status (ledger/reconcile-period nil 640M span))))
+      (is (= :no-snapshot (:status (ledger/reconcile-period 500M nil span)))))
+    (testing "an empty span sums to zero"
+      (is (= :reconciled (:status (ledger/reconcile-period 500M 500M []))))
+      (is (= :drift (:status (ledger/reconcile-period 500M 510M [])))))))
+
 (deftest account-computed-deltas-sums-signed-amounts-per-account
   (testing "groups by account and sums signed amounts (inflows +, outflows -)"
     (let [deltas (ledger/account-computed-deltas

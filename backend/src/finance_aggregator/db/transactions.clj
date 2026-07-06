@@ -5,7 +5,7 @@
             [finance-aggregator.db.users :as db-users]
             [finance-aggregator.splits :as splits]
             [finance-aggregator.utils :as utils])
-  (:import [java.util UUID]))
+  (:import [java.util Date UUID]))
 
 (def split-pull
   "Pull sub-pattern for a transaction's split parts. Shared with the list endpoint
@@ -86,6 +86,27 @@
                  (d/db conn) transaction-pull-pattern end-date)]
     (mapv with-derived-fields
           (filter #(not (.before (:transaction/posted-date %) start-date)) raw))))
+
+(defn list-for-account-range
+  "`account-eid`'s transactions in the reconcile span (from, to] — after `from` (the period's
+   start date, whose balance already reflects that day's activity) up to and including `to`
+   (the period's end date). `from`/`to` are Dates (UTC day granularity). Pulled + annotated,
+   posted-date ascending. Used to reconcile + display a statement period, which may cross a
+   calendar-month boundary. Datalevin can't combine two date predicates, so we bound the upper
+   end in the query (end-of-`to` day) and post-filter the lower end."
+  [conn account-eid ^Date from ^Date to]
+  (let [to-exclusive (Date. (+ (.getTime to) 86400000))   ; include txns dated on `to`
+        raw (d/q '[:find [(pull ?e pattern) ...]
+                   :in $ pattern ?acct ?to-excl
+                   :where
+                   [?e :transaction/account ?acct]
+                   [?e :transaction/posted-date ?date]
+                   [(< ?date ?to-excl)]]
+                 (d/db conn) transaction-pull-pattern account-eid to-exclusive)]
+    (->> raw
+         (filter #(.after ^Date (:transaction/posted-date %) from))
+         (sort-by :transaction/posted-date)
+         (mapv with-derived-fields))))
 
 (defn list-all
   "All transactions, pulled + annotated with the derived API fields."
