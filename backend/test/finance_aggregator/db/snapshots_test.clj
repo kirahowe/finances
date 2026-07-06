@@ -155,41 +155,23 @@
   (is (= (date 2026 3 31) (snapshots/month-end-date "2026-03")))
   (is (= (date 2026 2 28) (snapshots/month-end-date "2026-02"))))
 
-(deftest list-and-delete-manual-balances
-  (testing "list returns dated manual balances (most recent first) with account name; delete retracts"
-    (d/transact! setup/*test-conn* [{:account/external-id "acc-1" :account/provider :plaid
-                                     :account/external-name "Visa"}])
-    (snapshots/record-manual-balance! setup/*test-conn* (account-eid "acc-1") (date 2026 6 15) "1190.00")
-    (snapshots/record-manual-balance! setup/*test-conn* (account-eid "acc-1") (date 2026 7 15) "1240.00")
-    (let [balances (snapshots/list-manual-balances setup/*test-conn* "2026-07")]
-      (is (= 2 (count balances)) "viewing July shows July + the prior-month boundary (June)")
-      (is (= [(date 2026 7 15) (date 2026 6 15)] (map :date balances)) "most recent first")
-      (is (= "Visa" (:account-name (first balances))))
-      (is (= (bigdec "1240.00") (:balance (first balances))))
-      (is (every? int? (map :id balances)) ":id is the numeric snapshot entity id")
-      (testing "delete (by entity id) removes just that dated balance"
-        (snapshots/delete-manual-balance! setup/*test-conn* (:id (first balances)))
-        (let [left (snapshots/list-manual-balances setup/*test-conn* "2026-07")]
-          (is (= 1 (count left)))
-          (is (= (date 2026 6 15) (:date (first left)))))))))
+(deftest opening-date-is-the-prior-months-last-day
+  (testing "a month's opening date is the prior month's last day (end-of-day boundary)"
+    (is (= (date 2026 2 28) (snapshots/opening-date "2026-03")))
+    (is (= (date 2025 12 31) (snapshots/opening-date "2026-01")) "January's opening is the prior December")))
 
-(deftest list-manual-balances-scoped-to-the-boundary-window
-  (testing "a balance older than the immediately prior month is not listed for the viewed month"
-    (d/transact! setup/*test-conn* [{:account/external-id "acc-1" :account/provider :plaid
-                                     :account/external-name "Visa"}])
-    (snapshots/record-manual-balance! setup/*test-conn* (account-eid "acc-1") (date 2026 5 15) "1000.00")
-    (snapshots/record-manual-balance! setup/*test-conn* (account-eid "acc-1") (date 2026 7 15) "1240.00")
-    (is (= [(date 2026 7 15)] (map :date (snapshots/list-manual-balances setup/*test-conn* "2026-07")))
-        "May (two months back) is outside July's window; June/July would be in it")))
-
-(deftest delete-manual-balance-never-touches-reported
-  (testing "a reported snapshot's entity id can't be retracted via the manual delete guard"
+(deftest boundary-balances-are-the-two-anchors-on-file
+  (testing "the opening (prior month-end) and closing (this month-end) balances currently on file"
     (put-account! "acc-1")
-    (record! "acc-1" "100.00" (date 2026 3 31))
-    (let [reported-eid (:db/id (d/pull (d/db setup/*test-conn*) [:db/id]
-                                       [:snapshot/id "acc-1:2026-03-31"]))]
-      (snapshots/delete-manual-balance! setup/*test-conn* reported-eid)
-      (is (= 1 (count (snapshots-for "acc-1"))) "reported snapshot survives"))))
+    (record! "acc-1" "100.00" (date 2026 2 28))   ; opening = prior month-end (reported sync)
+    (snapshots/record-manual-balance! setup/*test-conn* (account-eid "acc-1") (date 2026 3 31) "175.00") ; closing
+    (is (= {:opening (bigdec "100.00") :closing (bigdec "175.00")}
+           (snapshots/boundary-balances setup/*test-conn* (account-eid "acc-1") "2026-03"))))
+  (testing "a boundary with no usable snapshot is nil (still needs that figure entered)"
+    (put-account! "acc-2")
+    (record! "acc-2" "50.00" (date 2026 3 31))   ; only a closing, no opening
+    (is (= {:opening nil :closing (bigdec "50.00")}
+           (snapshots/boundary-balances setup/*test-conn* (account-eid "acc-2") "2026-03")))))
 
 (deftest reported-deltas-omits-accounts-without-a-pair
   (put-account! "acc-1")

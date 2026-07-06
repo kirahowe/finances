@@ -48,6 +48,17 @@
   ^Date [month]
   (-> (u/month-date-range month) :end-date .getTime (- 86400000) Date.))
 
+(defn opening-date
+  "The reconciliation OPENING date for `month` (YYYY-MM): the last calendar day of the
+   immediately prior month, as a UTC-midnight Date. A month's opening balance is the prior
+   month's closing (end-of-day) balance, so it anchors the period-delta's start boundary —
+   the app owns this date so the user only ever enters two figures, never a date."
+  ^Date [month]
+  (let [{:keys [year month]} (u/parse-month-string month)
+        prev (if (= month 1) (format "%04d-12" (dec year))
+                 (format "%04d-%02d" year (dec month)))]
+    (month-end-date prev)))
+
 (defn- manual-snapshot-id
   "Idempotency key for a user-entered statement balance: one per account per UTC day,
    in its own `:manual:` namespace so it coexists with the auto-recorded `:reported`
@@ -81,46 +92,6 @@
                  {:year year :month (dec month)})]
     (:start-date (u/month-date-range (format "%04d-%02d" (:year prev) (:month prev))))))
 
-(defn list-manual-balances
-  "The user-entered :manual statement balances relevant to `month` (YYYY-MM) — those
-   dated within the month or the immediately prior month, the two boundaries the close
-   check reads — most recent first, as display maps
-   {:id :date :balance :account-eid :account-name}. `:id` is the snapshot ENTITY id
-   (numeric, for deletion). The reconcile panel's visible 'which date is this applied
-   on' list; scoping to the boundary window keeps a later month's panel from listing the
-   whole cross-month history. Reads the snapshot history."
-  [conn month]
-  (let [lo (prior-month-start month)
-        hi (:end-date (u/month-date-range month))]
-    (->> (d/q '[:find [(pull ?s [:db/id :snapshot/date :snapshot/balance
-                                 {:snapshot/account [:db/id :account/external-name]}]) ...]
-                :in $ ?lo ?hi
-                :where
-                [?s :snapshot/source :manual]
-                [?s :snapshot/date ?d]
-                [(<= ?lo ?d)]
-                [(< ?d ?hi)]]
-              (d/db conn) lo hi)
-         (map (fn [s]
-                {:id           (:db/id s)
-                 :date         (:snapshot/date s)
-                 :balance      (:snapshot/balance s)
-                 :account-eid  (get-in s [:snapshot/account :db/id])
-                 :account-name (get-in s [:snapshot/account :account/external-name])}))
-         (sort-by :date)
-         reverse
-         vec)))
-
-(defn delete-manual-balance!
-  "Retract the :manual statement snapshot with entity id `eid`. Guards on the :manual
-   source so a non-manual snapshot can never be retracted this way. No-op when the id is
-   absent or not a manual balance. Returns db-conn."
-  [conn eid]
-  (let [s (d/pull (d/db conn) [:db/id :snapshot/source] eid)]
-    (when (and (:db/id s) (= :manual (:snapshot/source s)))
-      (d/transact! conn [[:db/retractEntity (:db/id s)]])))
-  conn)
-
 ;; --- Reading: reported balance deltas for the monthly close ----------------
 
 ;; Sources that represent the institution's own reported truth (so they can anchor
@@ -153,18 +124,38 @@
                           last)]
     [d bal]))
 
-(defn- reported-delta*
-  "Reported-balance delta for `account-eid` across `month` against an already-
-   deref'd `db`. See `reported-delta` for the full contract."
+(defn- boundary-snapshots
+  "The two boundary [date balance] pairs the period-delta reads for `account-eid` in
+   `month` against an already-deref'd `db`: {:start … :end …}, each nil when no usable
+   snapshot anchors that boundary. The `:end` reading must sit within `month`, the
+   `:start` within the immediately prior calendar month (else a sync gap would make the
+   delta span multiple months and read as spurious drift)."
   [db account-eid month]
   (let [{:keys [start-date end-date]} (u/month-date-range month)
         prior-start (prior-month-start month)
         end   (latest-snapshot-before db account-eid end-date)
         start (latest-snapshot-before db account-eid start-date)]
-    (when (and end start
-               (not (.before ^Date (first end) start-date))
-               (not (.before ^Date (first start) prior-start)))
+    {:end   (when (and end   (not (.before ^Date (first end) start-date)))   end)
+     :start (when (and start (not (.before ^Date (first start) prior-start))) start)}))
+
+(defn- reported-delta*
+  "Reported-balance delta for `account-eid` across `month` against an already-
+   deref'd `db`. See `reported-delta` for the full contract."
+  [db account-eid month]
+  (let [{:keys [start end]} (boundary-snapshots db account-eid month)]
+    (when (and start end)
       (- (second end) (second start)))))
+
+(defn boundary-balances
+  "The reconciliation opening/closing balances currently on file for `account-eid` in
+   `month` (YYYY-MM): {:opening bigdec-or-nil :closing bigdec-or-nil}, the two boundary
+   snapshots the period-delta reads. `nil` for a boundary with no usable snapshot (the
+   account still needs that figure entered). The prefill for the focused reconcile card.
+   Reads the snapshot history."
+  [conn account-eid month]
+  (let [{:keys [start end]} (boundary-snapshots (d/db conn) account-eid month)]
+    {:opening (some-> start second)
+     :closing (some-> end second)}))
 
 (defn reported-delta
   "The change in the bank-reported balance for `account-eid` across `month`

@@ -49,14 +49,40 @@ $X / no statement", a completeness gate, and Close / Reopen.
   dialog (`delete-manual!`, guarded to `:manual`). Both create + delete re-patch `#reconciliation`
   (a new/removed row moves the computed deltas + gate).
 
-Suite: **all green** — `clojure -M:test -m kaocha.runner` (347 tests), `bb lint` clean, `bb e2e` all
-18 specs green (`v2-reconcile.ts` + `v2-add-transaction.ts`). Nothing pushed.
+**Reconciliation redesign (2026-07-05) — per-account DRILL + month-boundary AND arbitrary-span
+statements. Step 1 of 2 DONE.** The panel is no longer a flat all-accounts list; it's a drill:
 
-**NEXT — Phase 3: the cross-month tracking view** (the tracking payoff). Read `db.reconciliations/
-list-closes` (already built, newest-first) into a month-over-month view: net + income/expense per
-month, category trends. It reads the **frozen** close totals, so it's immutable and cheap — never
-recomputed from raw rows. Locate it as a new workspace surface (a `/tracking` page, or a section) —
-**pause to design it** the way the reconciliation panel was designed (integrate, don't bolt on).
+- **Overview ⟷ focus, driven by the account funnel.** Overview = every active account (a drill
+  BUTTON showing matches / off by $X / needs balances) + the completeness gate + Close/Reopen. Drilling
+  (click a row, or filter the table to one account) opens the FOCUSED single-account view; Back returns.
+  Drill/back flow through `/transactions/rows`, so the panel and the table stay in sync.
+- **Month-boundary card — the app owns the dates.** In the focused view you enter the account's opening
+  (end of the prior month's last day) + closing (end of this month's last day); the app supplies those
+  dates (end-of-day semantics), you type two figures. Backed by `:manual` snapshots; `boundary-balances`
+  prefills; `set-reconcile-balances` writes both at `opening-date`/`month-end-date`. The old free-date
+  "Set balance" modal + cross-account balance list are GONE.
+- **Statements (NEW) — arbitrary spans.** A first-class `:statement/*` entity (account, start/end date +
+  balance) for accounts whose balance can't be read on a chosen day (credit cards). The focused view
+  lists the account's statements overlapping the month, each with its own period-delta verdict
+  (`ledger/reconcile-period` over `db.transactions/list-for-account-range`); add/edit/delete via a modal
+  (no account picker — lands on the drilled-into account). Clicking a statement NARROWS the table to its
+  span (may cross a month boundary; a 2nd click un-narrows). `$reconFrom`/`$reconTo` drive the narrow.
+- **The narrow is a LENS, not a filter** (`transactions/table-and-facets`): the faceted funnels / counts
+  / chips / rollup stay month-wide; only the table :result is the span slice. (Computing facets over the
+  slice collapsed the account funnel and cleared `$filter.account`, which drives the focus — do not
+  reintroduce that.)
+
+Suite: **all green** — kaocha 355, `bb lint` clean, `bb e2e` all specs pass (`v2-reconcile` 37/37 covers
+the whole statement flow). Nothing pushed.
+
+**NEXT — Step 2: coverage-strict closing.** Today the OVERVIEW status + the close gate still use only the
+month-boundary period, so a credit card reconciled by statements reads "needs balances" and can't close.
+Make the per-account status + the gate **coverage-based**: a month is reconciled for an account when
+every one of its month transactions falls inside a **reconciled** period (month-boundary OR statement).
+A straddling statement's tail that isn't yet covered blocks the close with a clear reason; the escape is
+a readable month-end balance point. Coverage is a pure fn (gather the account's reconciled spans, check
+every month txn is inside one). Design agreed with the user 2026-07-05 (coverage-strict; no-mode; a list
+of statements). **The cross-month tracking view (the old Phase 3) is deferred behind Step 2.**
 
 ### Commit trail (monthly-close, on `main`, unpushed)
 ```

@@ -162,14 +162,9 @@
         (is (= #{2} (:stale-ids (:result m))) "edited-out t2 kept stale")))
     (testing ":categories add the whole-month rollup"
       (is (= (view/category-rollup txs []) (:rollup (view/present txs vs {:categories []})))))
-    (testing ":reported adds the monthly-close model, else it's absent"
-      (is (not (contains? (view/present txs vs {}) :close)) "no :reported → no close model")
-      ;; Chequing (eid 100): +4000 -2000 = 2000; Visa (eid 101): -85 -50 -200 = -335.
-      (let [close   (:close (view/present txs vs {:reported {100 2000M 101 -335M}}))
-            by-name (into {} (map (juxt :name :status) (:rows close)))]
-        (is (= :reconciled (by-name "Chequing")))
-        (is (= :reconciled (by-name "Visa")))
-        (is (true? (get-in close [:gate :balanced?])) "both accounts reconcile → balanced")))))
+    (testing "the monthly-close panel is assembled by the handler, never by present"
+      (is (not (contains? (view/present txs vs {}) :close)))
+      (is (not (contains? (view/present txs vs {:categories []}) :close))))))
 
 ;; --- Monthly close ----------------------------------------------------------
 
@@ -212,6 +207,38 @@
       (let [m (view/month-close [] {:reconciliation recon :close close-evt :net-now 1000M})]
         (is (true? (:closed? m)))
         (is (= #inst "2026-03-01" (:closed-at m)))))))
+
+;; --- Focused single-account reconcile card ----------------------------------
+;; The drill-in card: one account's opening/closing balances vs its tracked activity, the
+;; same period-delta verdict as the overview, scoped to one account. Chequing (eid 100):
+;; +4000 -2000 = 2000; Visa (eid 101): -85 -50 -200 = -335.
+
+(deftest focus-close-single-account-verdict
+  (testing "matches when opening + tracked = closing (the period-delta ties out)"
+    (let [f (view/focus-close txs {:account-eid 100 :opening 500M :closing 2500M
+                                   :opening-date #inst "2025-01-31" :closing-date #inst "2025-02-28"})]
+      (is (= "Chequing" (:name f)) "name comes from the account's activity")
+      (is (= 2000M (:tracked f)))
+      (is (= 2000M (:expected f)) "closing − opening")
+      (is (= :reconciled (:status f)))
+      (is (= #inst "2025-01-31" (:opening-date f)) "boundary dates pass through for the labels")))
+  (testing "off by the difference when they don't tie out (drift)"
+    (let [f (view/focus-close txs {:account-eid 100 :opening 0M :closing 2500M})]
+      (is (= 2500M (:expected f)))
+      (is (= 500M (:difference f)) "expected − tracked = 2500 − 2000")
+      (is (= :drift (:status f)))))
+  (testing "no verdict until both balances are entered (no-snapshot)"
+    (let [f (view/focus-close txs {:account-eid 101 :opening nil :closing -335M})]
+      (is (= "Visa" (:name f)))
+      (is (= -335M (:tracked f)))
+      (is (nil? (:expected f)))
+      (is (= :no-snapshot (:status f)))))
+  (testing "an account with no activity this month tracks 0 and uses the name fallback"
+    (let [f (view/focus-close txs {:account-eid 999 :name-fallback "Savings" :opening 10M :closing 10M})]
+      (is (= "Savings" (:name f)))
+      (is (= 0M (:tracked f)))
+      (is (= 0M (:expected f)))
+      (is (= :reconciled (:status f)) "0 change explained by 0 activity → reconciled"))))
 
 ;; --- Lingering --------------------------------------------------------------
 ;; A row edited out of the active filter should stay visible *in its original position*

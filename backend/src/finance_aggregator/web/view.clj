@@ -358,20 +358,17 @@
      :reconciliation   — reconcile-month output {:rows :all-reconciled?}
      :close            — the persisted :reconciliation/* event map, or nil
      :net-now          — the month's current signed net (rollup :grand-total), for drift
-     :manual-balances  — the user-entered statement balances to list (db/snapshots
-                         list-manual-balances shape), passed straight through
    Returns
      {:rows [reconcile-row…]
       :gate {:unreviewed n :uncategorized n :all-reviewed? b :all-categorized? b
              :balanced? b :ready? b}
       :closed? b :closed-at inst
-      :drift {:frozen bd :now bd} | nil
-      :manual-balances [statement-balance…]}
+      :drift {:frozen bd :now bd} | nil}
    `:ready?` — the month may be closed cleanly — needs everything reviewed AND
    categorized AND every account's balance reconciled. `:drift` is present only for a
    CLOSED month whose current net no longer matches the frozen net (it changed since
    the lock)."
-  [txs {:keys [reconciliation close net-now manual-balances]}]
+  [txs {:keys [reconciliation close net-now]}]
   (let [unreviewed       (count (remove #(true? (:transaction/reviewed %)) txs))
         uncategorized    (count (filter needs-category? txs))
         balanced?        (boolean (:all-reconciled? reconciliation))
@@ -387,8 +384,43 @@
      :closed?         closed?
      :closed-at       (:reconciliation/closed-at close)
      :drift           (when (and closed? net-now (not= frozen-net net-now))
-                        {:frozen frozen-net :now net-now})
-     :manual-balances (vec manual-balances)}))
+                        {:frozen frozen-net :now net-now})}))
+
+(defn focus-close
+  "The focused single-account reconcile card model. Pure. Given the month's `txs`, the
+   drilled-into `account-eid`, the opening/closing bank balances currently on file (bigdec
+   or nil when not yet entered) and their app-owned boundary dates, returns
+     {:account-id :name :opening :closing :opening-date :closing-date
+      :expected :tracked :difference :status}
+   where :expected is the reported change (closing − opening, nil if either missing),
+   :tracked is Σ the account's month transactions, and :status is
+   :reconciled / :drift / :no-snapshot — the same period-delta verdict the overview uses,
+   scoped to one account. `name-fallback` names the account when it has no activity."
+  [txs {:keys [account-eid name-fallback opening closing opening-date closing-date]}]
+  (let [row      (get (ledger/account-computed-deltas txs) account-eid)
+        tracked  (or (:computed-delta row) 0M)
+        nm       (or (:name row) name-fallback "Account")
+        expected (when (and opening closing) (- closing opening))
+        verdict  (ledger/reconcile-row {:account-id account-eid :name nm :computed-delta tracked}
+                                       expected ledger/default-tolerance)]
+    {:account-id   account-eid
+     :name         nm
+     :opening      opening
+     :closing      closing
+     :opening-date opening-date
+     :closing-date closing-date
+     :expected     expected
+     :tracked      tracked
+     :difference   (:difference verdict)
+     :status       (:status verdict)}))
+
+(defn reconcile-statement
+  "A statement (db.statements display shape: :id :start-date :start-balance :end-date
+   :end-balance …) annotated with its period-delta verdict over `span-txns` (the account's
+   transactions in the statement's span). Adds :reported :computed :difference :status. Pure."
+  [statement span-txns]
+  (merge statement
+         (ledger/reconcile-period (:start-balance statement) (:end-balance statement) span-txns)))
 
 ;; --- Presenter: the response view-model -------------------------------------
 ;; The single transformation entry point a handler routes a month's transactions through to get
@@ -400,13 +432,11 @@
    `:result` is the paginated page — lingering (an edited-out row stays visible) when a
    `:linger` set is supplied, a plain view otherwise; `:counts` are the faceted toolbar counts;
    the three `:*-options` are the faceted funnel option lists; `:rollup` (only when
-   `:categories` is supplied) is the whole-month category breakdown; `:close` (only
-   when `:reported` is supplied) is the monthly-close panel model (per-account
-   reconciliation + completeness gate + close state). `:close` (the persisted event,
-   or nil) and `:categories` feed the close model's drift + uncategorized gate."
-  [txs view-st {:keys [linger categories reported close manual-balances]}]
-  (let [rollup (when categories (category-rollup txs categories))
-        recon  (when (some? reported) (reconcile-month txs reported))]
+   `:categories` is supplied) is the whole-month category breakdown. The monthly-close
+   panel model is assembled separately by the handler (it needs the account filter + the
+   snapshot history), not here."
+  [txs view-st {:keys [linger categories]}]
+  (let [rollup (when categories (category-rollup txs categories))]
     (cond-> {:result              (if (some? linger)
                                     (view-with-linger txs view-st linger)
                                     (view txs view-st))
@@ -414,8 +444,4 @@
              :account-options     (account-options txs view-st)
              :institution-options (institution-options txs view-st)
              :category-options    (category-funnel-options txs view-st)}
-      rollup (assoc :rollup rollup)
-      recon  (assoc :close (month-close txs {:reconciliation recon
-                                             :close close
-                                             :net-now (:grand-total rollup)
-                                             :manual-balances manual-balances})))))
+      rollup (assoc :rollup rollup))))

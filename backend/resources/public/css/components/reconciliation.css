@@ -1,11 +1,11 @@
 /* Monthly-close reconciliation panel — the period-delta confidence readout that sits
    above the category rollup in the summary column (its card chrome + collapsible header
-   are the shared .summary-card, see summary-card.css). Per account: does the tracked
-   activity match the bank's reported balance change for the month? Also hosts the
-   recorded statement balances (each with the date it's applied on), the "Set balance"
-   / "Add statement balance" entry points, and the completeness gate + Close/Reopen
-   action. All colors come from the shared design tokens, so dark mode
-   (prefers-color-scheme) and WCAG-AA contrast follow the design system automatically. */
+   are the shared .summary-card, see summary-card.css). Two modes: an OVERVIEW list where
+   each account is a drill button (does the tracked activity match the bank's balance
+   change for the month?), and a FOCUSED single-account card (opening/closing entry +
+   verdict) drilled into from the overview or by filtering the table to one account. All
+   colors come from the shared design tokens, so dark mode (prefers-color-scheme) and
+   WCAG-AA contrast follow the design system automatically. */
 
 .reconcile-rows {
   list-style: none;
@@ -13,16 +13,37 @@
   padding: 0;
 }
 
-/* Two aligned columns: the account name (truncated) and, hard against the right edge,
-   its status or entry action — so every row's right side lines up regardless of name
-   length. One dense, non-wrapping line per account. */
 .reconcile-row {
+  font-size: var(--text-sm);
+}
+
+/* The whole account row is a drill button: name (truncated) left, status hard against the
+   right edge (so every row's status lines up regardless of name length). Quiet — reads as
+   a calm list line until hovered. */
+.reconcile-drill {
   display: grid;
   grid-template-columns: minmax(0, 1fr) auto;
   align-items: baseline;
   gap: var(--spacing-sm);
-  padding: 0.2rem 0;
-  font-size: var(--text-sm);
+  width: 100%;
+  padding: 0.25rem 0.4rem;
+  margin: 0 -0.4rem;
+  font: inherit;
+  text-align: left;
+  color: inherit;
+  background: none;
+  border: none;
+  border-radius: var(--radius-sm);
+  cursor: pointer;
+}
+
+.reconcile-drill:hover {
+  background: var(--color-accent-soft);
+}
+
+.reconcile-drill:focus-visible {
+  outline: none;
+  box-shadow: var(--focus-ring);
 }
 
 .reconcile-account {
@@ -33,21 +54,13 @@
   color: var(--color-ink);
 }
 
-/* The right column: a status label, and on a drift row the label plus a quiet re-set. */
-.reconcile-status,
-.reconcile-cell {
+.reconcile-status {
   justify-self: end;
   display: inline-flex;
   align-items: baseline;
   gap: 0.3rem;
   font-variant-numeric: tabular-nums;
   white-space: nowrap;
-}
-
-/* A drift row pairs the "off by $X" label with the quiet re-set action — give them a
-   bit more air than the tick-and-word gap inside a single status. */
-.reconcile-cell {
-  gap: var(--spacing-sm);
 }
 
 .reconcile-status--ok {
@@ -67,13 +80,25 @@
   font-weight: 700;
 }
 
-/* "Set balance" — opens the statement-balance modal for an unreconciled account
-   (open month). A quiet pine text action; on a no-statement row it stands in for the
-   status, so it reads as one calm right-aligned column down the list. */
-.reconcile-set-balance {
-  justify-self: end;
+/* --- Focused single-account reconcile card ------------------------------- */
+/* The drill-in workspace: Back, the opening/closing entry (app-owned end-of-day dates),
+   Save, and the expected-vs-tracked readout with the match / off-by verdict. */
+.reconcile-focus {
+  display: flex;
+  flex-direction: column;
+  gap: var(--spacing-md);
+}
+
+.reconcile-focus-head {
+  display: flex;
+  align-items: baseline;
+  gap: var(--spacing-sm);
+}
+
+.reconcile-back {
   padding: 0;
   font: inherit;
+  font-size: var(--text-sm);
   color: var(--color-pine-hover);
   background: none;
   border: none;
@@ -81,25 +106,90 @@
   white-space: nowrap;
 }
 
-.reconcile-set-balance:hover {
+.reconcile-back:hover {
   text-decoration: underline;
 }
 
-.reconcile-set-balance:focus-visible {
+.reconcile-back:focus-visible {
   outline: none;
   border-radius: var(--radius-sm);
   box-shadow: var(--focus-ring);
 }
 
-/* Recorded statement balances — the "which date is this applied on" history, each
-   row showing account · date · amount with a × to remove it. */
-.reconcile-statements {
-  margin-top: var(--spacing-md);
+.reconcile-focus-title {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-weight: 600;
+  color: var(--color-ink);
+}
+
+.reconcile-focus-fields {
+  display: flex;
+  flex-direction: column;
+  gap: var(--spacing-sm);
+}
+
+.reconcile-field {
+  display: flex;
+  flex-direction: column;
+  gap: 0.2rem;
+}
+
+/* Label carries the app-owned boundary date as a muted note, so the user only types a
+   figure and never has to reason about which date the balance is "as of". */
+.reconcile-field-label {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: var(--spacing-sm);
+  font-size: var(--text-sm);
+  color: var(--color-ink);
+}
+
+.reconcile-field-note {
+  font-size: var(--text-2xs);
+  color: var(--color-text-muted);
+  white-space: nowrap;
+}
+
+.reconcile-save {
+  width: 100%;
+}
+
+/* The verdict: expected change vs tracked activity, then the match / off-by line. */
+.reconcile-focus-readout {
   padding-top: var(--spacing-sm);
   border-top: 1px solid var(--color-border);
 }
 
-.reconcile-statements-title {
+.reconcile-readout-line {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: var(--spacing-sm);
+  font-size: var(--text-sm);
+  padding: 0.1rem 0;
+}
+
+.reconcile-readout-label {
+  color: var(--color-text-muted);
+}
+
+.reconcile-readout-amt {
+  font-variant-numeric: tabular-nums;
+  color: var(--color-ink);
+}
+
+.reconcile-focus-status {
+  margin: var(--spacing-xs) 0 0;
+  font-size: var(--text-sm);
+  font-weight: 600;
+}
+
+/* A small section label above the month card and the statements list. */
+.reconcile-subhead {
   margin: 0 0 var(--spacing-xs);
   font-size: var(--text-2xs);
   font-weight: 600;
@@ -108,63 +198,22 @@
   color: var(--color-text-muted);
 }
 
-.reconcile-statement-list {
-  list-style: none;
-  margin: 0 0 var(--spacing-sm);
-  padding: 0;
+/* --- Statements list (arbitrary-span periods) ---------------------------- */
+.reconcile-statements {
+  margin-top: var(--spacing-md);
+  padding-top: var(--spacing-sm);
+  border-top: 1px solid var(--color-border);
 }
 
-.reconcile-statement {
-  display: grid;
-  grid-template-columns: minmax(0, 1fr) auto auto auto;
+.reconcile-statements-head {
+  display: flex;
   align-items: baseline;
+  justify-content: space-between;
   gap: var(--spacing-sm);
-  padding: 0.15rem 0;
-  font-size: var(--text-sm);
 }
 
-.reconcile-statement-acct {
-  color: var(--color-ink);
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
-.reconcile-statement-date {
-  color: var(--color-text-muted);
-  font-variant-numeric: tabular-nums;
-  white-space: nowrap;
-}
-
-.reconcile-statement-amt {
-  font-variant-numeric: tabular-nums;
-  white-space: nowrap;
-}
-
-.reconcile-statement-del {
-  padding: 0 0.25rem;
-  line-height: 1;
-  font-size: var(--text-base);
-  color: var(--color-text-muted);
-  background: none;
-  border: none;
-  border-radius: var(--radius-sm);
-  cursor: pointer;
-}
-
-.reconcile-statement-del:hover {
-  color: var(--color-negative);
-  background: var(--color-accent-soft);
-}
-
-.reconcile-statement-del:focus-visible {
-  outline: none;
-  box-shadow: var(--focus-ring);
-}
-
-/* "+ Add statement balance" — the panel-level entry point (works for any account). */
 .reconcile-add-statement {
-  padding: 0.2rem 0.5rem;
+  padding: 0.15rem 0.4rem;
   font: inherit;
   font-size: var(--text-sm);
   color: var(--color-pine-hover);
@@ -172,6 +221,7 @@
   border: none;
   border-radius: var(--radius-sm);
   cursor: pointer;
+  white-space: nowrap;
 }
 
 .reconcile-add-statement:hover {
@@ -181,6 +231,98 @@
 .reconcile-add-statement:focus-visible {
   outline: none;
   box-shadow: var(--focus-ring);
+}
+
+.reconcile-statement-list {
+  list-style: none;
+  margin: var(--spacing-xs) 0 0;
+  padding: 0;
+}
+
+.reconcile-statement {
+  display: flex;
+  align-items: flex-start;
+  gap: var(--spacing-xs);
+}
+
+/* The clickable span: two stacked lines (dates + status, then the two balances muted).
+   Narrows the table to this statement when clicked; highlighted while it's the active span. */
+.reconcile-statement-span {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 0.1rem;
+  padding: 0.25rem 0.4rem;
+  margin: 0 0 0 -0.4rem;
+  font: inherit;
+  text-align: left;
+  color: inherit;
+  background: none;
+  border: none;
+  border-radius: var(--radius-sm);
+  cursor: pointer;
+}
+
+.reconcile-statement-span:hover {
+  background: var(--color-accent-soft);
+}
+
+.reconcile-statement-span:focus-visible {
+  outline: none;
+  box-shadow: var(--focus-ring);
+}
+
+.reconcile-statement.is-selected .reconcile-statement-span {
+  background: var(--color-pine-soft);
+  box-shadow: inset 2px 0 0 var(--color-pine);
+}
+
+.reconcile-statement-line {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: var(--spacing-sm);
+}
+
+.reconcile-statement-dates {
+  font-size: var(--text-sm);
+  color: var(--color-ink);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.reconcile-statement-bals {
+  font-size: var(--text-2xs);
+  color: var(--color-text-muted);
+  font-variant-numeric: tabular-nums;
+}
+
+.reconcile-statement-edit {
+  padding: 0.25rem 0.3rem;
+  font: inherit;
+  font-size: var(--text-2xs);
+  color: var(--color-pine-hover);
+  background: none;
+  border: none;
+  border-radius: var(--radius-sm);
+  cursor: pointer;
+}
+
+.reconcile-statement-edit:hover {
+  background: var(--color-accent-soft);
+}
+
+.reconcile-statement-edit:focus-visible {
+  outline: none;
+  box-shadow: var(--focus-ring);
+}
+
+.reconcile-statements-empty {
+  margin: var(--spacing-xs) 0 0;
+  font-size: var(--text-sm);
+  color: var(--color-text-muted);
 }
 
 /* Close controls: the completeness gate + the Close/Reopen action. Pinned as the card

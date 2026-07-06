@@ -30,9 +30,10 @@
    ["/transactions/manual"              {:post {:handler (transactions/create-manual deps) :name ::manual-create}}]
    ["/transactions/:id/manual/delete"   {:get  {:handler (transactions/delete-transaction-editor deps) :name ::manual-delete-modal}
                                          :post {:handler (transactions/delete-manual deps) :name ::manual-delete}}]
-   ["/transactions/statement-modal"  {:get  {:handler (transactions/statement-editor deps) :name ::statement-modal}}]
-   ["/transactions/statement"        {:post {:handler (transactions/set-statement-balance deps) :name ::statement}}]
-   ["/transactions/statement/delete" {:post {:handler (transactions/delete-statement-balance deps) :name ::statement-delete}}]
+   ["/transactions/reconcile"       {:post {:handler (transactions/set-reconcile-balances deps) :name ::reconcile}}]
+   ["/transactions/statement-modal" {:get  {:handler (transactions/statement-editor deps) :name ::statement-modal}}]
+   ["/transactions/statement"       {:post {:handler (transactions/save-statement deps) :name ::statement}}]
+   ["/transactions/statement/delete" {:post {:handler (transactions/delete-statement deps) :name ::statement-delete}}]
    ["/transactions/close"           {:post {:handler (transactions/close-month deps) :name ::close}}]
    ["/transactions/reopen"          {:post {:handler (transactions/reopen-month deps) :name ::reopen}}]
    ["/setup"          {:get  {:handler (setup/page deps) :name ::setup}}]

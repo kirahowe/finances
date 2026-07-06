@@ -15,7 +15,7 @@
    {:account-id 2 :name "Visa"     :status :drift        :difference (bigdec "5.00")}
    {:account-id 3 :name "Savings"  :status :no-snapshot  :difference nil}])
 
-(deftest close-panel-open-month
+(deftest close-panel-overview-drills-per-account
   (let [h (html (tv/close-panel
                  {:rows mixed-rows
                   :gate {:unreviewed 2 :uncategorized 1 :all-reviewed? false
@@ -24,13 +24,15 @@
     (testing "per-account statuses render"
       (is (re-find #"Chequing" h))
       (is (re-find #"matches" h))
-      (is (re-find #"off by" h)))
-    (testing "unreconciled accounts get a 'Set balance' affordance on an open month"
-      (is (re-find #"reconcile-set-balance" h))
-      (is (re-find #"/transactions/statement-modal\?account=3" h) "opens the modal preselected to the account eid"))
-    (testing "the panel-level Add statement balance action is present"
-      (is (re-find #"Add statement balance" h))
-      (is (re-find #"statement-modal&apos;\)" h) "the no-account (any-account) modal open"))
+      (is (re-find #"off by" h))
+      (is (re-find #"needs balances" h) "a no-snapshot account reads 'needs balances'"))
+    (testing "each account row is a button that drills in (filters the table to that eid)"
+      (is (re-find #"reconcile-drill" h))
+      (is (re-find #"&apos;3&apos;" h) "drilling sets the account funnel to the row's eid"))
+    (testing "no statement-balance modal affordances remain"
+      (is (not (re-find #"Set balance" h)))
+      (is (not (re-find #"Add statement balance" h)))
+      (is (not (re-find #"statement-modal" h))))
     (testing "gate lines + a disabled Close button (not ready)"
       (is (re-find #"2 to review" h))
       (is (re-find #"Close month" h))
@@ -53,42 +55,104 @@
                   :gate {:ready? true}
                   :closed? true :closed-at #inst "2026-03-03"
                   :drift {:frozen (bigdec "1865") :now (bigdec "1900")}}))]
-    (testing "closed banner + Reopen; no per-account Set balance; no Close button"
+    (testing "closed banner + Reopen; no Close button"
       (is (re-find #"Closed" h))
       (is (re-find #"Reopen" h))
-      (is (not (re-find #"Close month" h)))
-      (is (not (re-find #"reconcile-set-balance" h))))
+      (is (not (re-find #"Close month" h))))
     (testing "drift note shows the frozen-vs-now change"
       (is (re-find #"Changed since close" h)))))
 
-(deftest close-panel-lists-statement-balances-with-their-dates
-  (let [h (html (tv/close-panel
-                 {:rows [{:account-id 1 :name "Visa" :status :drift :difference (bigdec "5.00")}]
-                  :gate {:ready? false}
-                  :closed? false
-                  :manual-balances [{:id 4207 :account-name "Visa"
-                                     :date #inst "2026-07-15" :balance (bigdec "1240.00")}
-                                    {:id 4206 :account-name "Visa"
-                                     :date #inst "2026-06-15" :balance (bigdec "1190.00")}]}))]
-    (testing "each recorded balance shows account, its applied date, and amount"
-      (is (re-find #"Statement balances" h))
-      (is (re-find #"Jul 15, 2026" h) "the date it's applied on is visible")
-      (is (re-find #"Jun 15, 2026" h))
-      (is (re-find #"1,240.00" h)))
-    (testing "each has a delete that couriers its numeric snapshot id (no string in the JS expr)"
-      (is (re-find #"\$stmtDel = 4207" h))
-      (is (re-find #"/transactions/statement/delete" h)))))
-
-(deftest close-panel-empty-renders-a-hidden-but-present-morph-target
-  ;; It must NOT return nil — an SSE patch that empties the panel (deleting the last
-  ;; row/balance) still needs an #reconciliation element to morph, or the stale panel sticks.
+(deftest close-panel-empty-overview-is-a-hidden-morph-target
+  ;; It must NOT return nil — an SSE patch that empties the panel (deleting the last row)
+  ;; still needs an #reconciliation element to morph, or the stale panel sticks.
   (let [h (html (tv/close-panel {:rows [] :gate {}}))]
     (is (re-find #"id=\"reconciliation\"" h) "the morph target still exists")
     (is (re-find #"hidden" h) "but it's hidden when there's nothing to show")
     (is (not (re-find #"Reconciliation" h)) "no title/content rendered")))
 
-(deftest close-panel-renders-for-manual-balances-without-activity
-  (testing "an account with a recorded balance but no activity this month still shows"
-    (is (some? (tv/close-panel {:rows [] :gate {}
-                                :manual-balances [{:id "x:manual:2026-07-31" :account-name "Savings"
-                                                   :date #inst "2026-07-31" :balance (bigdec "500.00")}]})))))
+(deftest close-panel-focused-card
+  (let [h (html (tv/close-panel
+                 {:rows mixed-rows :gate {} :closed? false
+                  :focus {:account-id 2 :name "Visa"
+                          :opening (bigdec "1190.00") :closing (bigdec "1240.00")
+                          :opening-date #inst "2026-04-30" :closing-date #inst "2026-05-31"
+                          :expected (bigdec "50.00") :tracked (bigdec "45.00")
+                          :difference (bigdec "5.00") :status :drift}}))]
+    (testing "the focused account's card renders, not the overview list or gate"
+      (is (re-find #"reconcile-focus" h))
+      (is (re-find #"Visa" h))
+      (is (not (re-find #"reconcile-rows" h)) "the overview list is replaced by the focused card")
+      (is (not (re-find #"Close month" h)) "the month gate/Close live in the overview only"))
+    (testing "opening/closing fields carry their app-owned end-of-day dates + prefilled values"
+      (is (re-find #"Opening" h))
+      (is (re-find #"Closing" h))
+      (is (re-find #"end of Apr 30, 2026" h))
+      (is (re-find #"end of May 31, 2026" h))
+      (is (re-find #"1190.00" h) "opening prefill seeded as the raw input value"))
+    (testing "the verdict + readout render (drift → off by, with a nudge to fix)"
+      (is (re-find #"Expected change" h))
+      (is (re-find #"Tracked activity" h))
+      (is (re-find #"off by" h))
+      (is (re-find #"fix the transactions" h)))
+    (testing "Back returns to the overview by clearing the account filter"
+      (is (re-find #"reconcile-back" h))
+      (is (re-find #"filter\.account = \[\]" h)))
+    (testing "Save posts the balances"
+      (is (re-find #"reconcile-save" h))
+      (is (re-find #"/transactions/reconcile" h)))))
+
+(deftest close-panel-focused-card-verdicts
+  (testing "a reconciled focus reads 'checks out'; a no-snapshot focus asks for balances"
+    (let [ok (html (tv/close-panel
+                    {:rows [] :gate {}
+                     :focus {:account-id 1 :name "Chequing" :opening 0M :closing 2000M
+                             :opening-date #inst "2026-04-30" :closing-date #inst "2026-05-31"
+                             :expected 2000M :tracked 2000M :difference 0M :status :reconciled}}))
+          none (html (tv/close-panel
+                      {:rows [] :gate {}
+                       :focus {:account-id 1 :name "Chequing" :opening nil :closing nil
+                               :opening-date #inst "2026-04-30" :closing-date #inst "2026-05-31"
+                               :expected nil :tracked 2000M :difference nil :status :no-snapshot}}))]
+      (is (re-find #"checks out" ok))
+      (is (re-find #"Enter the opening and closing" none)))))
+
+(deftest close-panel-focused-card-lists-statements
+  (let [h (html (tv/close-panel
+                 {:rows [] :gate {} :closed? false
+                  :focus {:account-id 2 :name "Visa"
+                          :opening nil :closing nil
+                          :opening-date #inst "2026-04-30" :closing-date #inst "2026-05-31"
+                          :expected nil :tracked 45M :difference nil :status :no-snapshot
+                          :statements [{:id 7 :start-date #inst "2026-04-16" :end-date #inst "2026-05-16"
+                                        :start-iso "2026-04-16" :end-iso "2026-05-16"
+                                        :start-balance 500M :end-balance 640M
+                                        :status :reconciled :difference 0M}
+                                       {:id 8 :start-date #inst "2026-05-16" :end-date #inst "2026-06-16"
+                                        :start-iso "2026-05-16" :end-iso "2026-06-16"
+                                        :start-balance 640M :end-balance 810M
+                                        :status :drift :difference 12M}]}}))]
+    (testing "each statement renders its span, balances, and verdict"
+      (is (re-find #"Statements" h))
+      (is (re-find #"Apr 16, 2026" h))
+      (is (re-find #"May 16, 2026" h))
+      (is (re-find #"matches" h))
+      (is (re-find #"off by" h)))
+    (testing "a statement narrows the table to its span and offers Edit"
+      (is (re-find #"reconcile-statement-span" h))
+      (is (re-find #"2026-04-16" h) "the span dates ride the narrow toggle")
+      (is (re-find #"statement-modal\?id=7" h)))
+    (testing "the add-statement action is present"
+      (is (re-find #"Add statement" h)))))
+
+(deftest statement-modal-add-vs-edit
+  (let [add  (html (tv/statement-modal false))
+        edit (html (tv/statement-modal true))]
+    (testing "add mode: titled Add, four fields, posts to /statement, no delete"
+      (is (re-find #"Add statement" add))
+      (is (re-find #"st-start" add))
+      (is (re-find #"st-end-bal" add))
+      (is (re-find #"/transactions/statement" add))
+      (is (not (re-find #"Delete" add))))
+    (testing "edit mode: titled Edit and offers Delete"
+      (is (re-find #"Edit statement" edit))
+      (is (re-find #"Delete" edit)))))

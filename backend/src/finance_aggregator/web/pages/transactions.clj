@@ -12,6 +12,7 @@
    [finance-aggregator.db.categories :as db-categories]
    [finance-aggregator.db.reconciliations :as db-reconciliations]
    [finance-aggregator.db.snapshots :as db-snapshots]
+   [finance-aggregator.db.statements :as db-statements]
    [finance-aggregator.db.stats :as db-stats]
    [finance-aggregator.db.transactions :as db-transactions]
    [finance-aggregator.db.transfers :as db-transfers]
@@ -76,6 +77,108 @@
   (patch! sse (funnel-list "category" category-options))
   (patch! sse (active-filters account-options institution-options category-options view-st)))
 
+;; --- Courier / money parsers (shared by the reconcile + modal handlers) ----
+
+(defn- parse-money
+  "Parse a courier money string to bigdec, or nil when blank/unparseable."
+  [s]
+  (when-let [t (some-> s str str/trim not-empty)]
+    (try (bigdec t) (catch NumberFormatException _ nil))))
+
+(defn- courier-eid
+  "Parse a courier signal carrying an entity id (blank/nil → nil)."
+  [v]
+  (some-> v str not-empty parse-long))
+
+(defn- courier-date
+  "Parse a courier signal carrying a yyyy-MM-dd date (blank/nil → nil) to a Date."
+  [v]
+  (some-> v str not-empty u/string->date))
+
+;; --- Monthly-close panel model --------------------------------------------
+;; Assembled in the handler (not web.view/present) because it needs the account filter + the
+;; snapshot history: the all-accounts overview, or a focused single-account card when the
+;; table is filtered to one account. Every panel re-patch (full load, filter/edit, reconcile,
+;; close/reopen) rebuilds it from current db state.
+
+(defn- focus-account-eid
+  "The single account the panel drills into (from `view-st`), or nil — exactly one account
+   funnel selection means the table is filtered to one account, so the panel focuses it."
+  [view-st]
+  (let [accts (:accounts view-st)]
+    (when (= 1 (count accts)) (first accts))))
+
+(defn- statement-models
+  "The account's statements overlapping `month`, each annotated with its period-delta verdict
+   (over the account's transactions in the statement's span). The statement half of the focused
+   card's period list."
+  [db-conn account-eid month]
+  (let [{:keys [start-date end-date]} (u/month-date-range month)]
+    (mapv (fn [s]
+            (-> (view/reconcile-statement
+                 s (db-transactions/list-for-account-range db-conn account-eid (:start-date s) (:end-date s)))
+                (assoc :start-iso (str (u/date->local-date (:start-date s)))
+                       :end-iso   (str (u/date->local-date (:end-date s))))))
+          (db-statements/list-overlapping db-conn account-eid start-date end-date))))
+
+(defn- close-model-for
+  "Rebuild the monthly-close panel model for `month` from current db state (the month's txs,
+   reported deltas, rollup net, and the persisted close event). When the table is filtered to
+   a single account (`view-st`), attach the :focus card — that account's month-boundary
+   opening/closing card (period-delta verdict from the snapshot history) plus its statements
+   overlapping the month (each with its own verdict); otherwise the overview."
+  [db-conn month view-st]
+  (let [txs (db-transactions/list-for-month db-conn month)
+        categories (db-categories/list-all db-conn)
+        account-eids (distinct (keep #(get-in % [:transaction/account :db/id]) txs))
+        reported (db-snapshots/reported-deltas db-conn account-eids month)
+        base (view/month-close txs {:reconciliation (view/reconcile-month txs reported)
+                                    :close (db-reconciliations/get-close db-conn month)
+                                    :net-now (:grand-total (view/category-rollup txs categories))})
+        focus-eid (focus-account-eid view-st)]
+    (cond-> base
+      focus-eid
+      (assoc :focus
+             (let [{:keys [opening closing]} (db-snapshots/boundary-balances db-conn focus-eid month)]
+               (-> (view/focus-close txs {:account-eid  focus-eid
+                                          :opening      opening
+                                          :closing      closing
+                                          :opening-date (db-snapshots/opening-date month)
+                                          :closing-date (db-snapshots/month-end-date month)})
+                   (assoc :statements (statement-models db-conn focus-eid month))))))))
+
+(defn- recon-signals
+  "The focused card's opening/closing prefill signals for a panel `model` (blank in overview
+   mode). Seeded whenever the panel is entered/saved, so a drill shows the balances on file."
+  [model]
+  (let [f (:focus model)
+        s #(if (some? %) (str %) "")]
+    {:reconOpen (s (:opening f)) :reconClose (s (:closing f))}))
+
+(defn- reconcile-range
+  "The active reconcile span {:account :from :to} narrowing the table to a statement — both
+   $reconFrom/$reconTo set AND exactly one account focused — else nil."
+  [signals view-st]
+  (let [from (courier-date (:reconFrom signals))
+        to   (courier-date (:reconTo signals))
+        acct (focus-account-eid view-st)]
+    (when (and from to acct) {:account acct :from from :to to})))
+
+(defn- table-and-facets
+  "The presented view-model for a view change. The faceted funnels / counts / chips / rollup are
+   always computed over the whole MONTH — so the account funnel never collapses to the focused
+   account (which would clear the $filter.account binding that drives the focus) and the month's
+   figures stay stable. The reconcile narrowing is a LENS, not a real filter: only the table
+   :result is the narrowed span slice when a reconcile range is active (a single account +
+   $reconFrom/$reconTo), which may cross a calendar-month boundary."
+  [db-conn month signals view-st present-opts]
+  (let [month-txs (db-transactions/list-for-month db-conn month)
+        model (view/present month-txs view-st present-opts)]
+    (if-let [{:keys [account from to]} (reconcile-range signals view-st)]
+      (let [slice (db-transactions/list-for-account-range db-conn account from to)]
+        (assoc model :result (:result (view/present slice view-st (select-keys present-opts [:linger])))))
+      model)))
+
 
 (defn page
   "GET / — full page. Seeds the view-state from the URL; a fresh load clears lingering."
@@ -86,38 +189,37 @@
           month-str (month/serialize m)
           txs (db-transactions/list-for-month db-conn month-str)
           categories (db-categories/list-all db-conn)
-          ;; Reported balance deltas for the accounts active this month — the bank
-          ;; side of the period-delta close readout. Computed once on full-page load
-          ;; (computed deltas are edit-invariant: imported amounts are immutable and
-          ;; splits/category/reviewed never move an account's total), so the panel
-          ;; needs no SSE re-patching.
-          account-eids (distinct (keep #(get-in % [:transaction/account :db/id]) txs))
-          reported (db-snapshots/reported-deltas db-conn account-eids month-str)
-          close (db-reconciliations/get-close db-conn month-str)
           view-st (vs/query->view-state (:query-params req))
-          model (view/present txs view-st {:categories categories :reported reported :close close
-                                           :manual-balances (db-snapshots/list-manual-balances db-conn month-str)})]
+          ;; The reconciliation panel is assembled here (it needs the account filter + the
+          ;; snapshot history): the all-accounts overview, or the focused card when the URL
+          ;; filters to a single account.
+          close-model (close-model-for db-conn month-str view-st)
+          model (assoc (view/present txs view-st {:categories categories}) :close close-model)]
       {:status 200
        :headers {"Content-Type" "text/html"}
        :body
        (layout/document
         {:title "Finance Aggregator"
          :islands ["combobox" "url" "grid-nav" "resize" "split-editor" "modal"]
-         :signals (vs/client-signals view-st month-str (:result model) (:query-params req))}
+         :signals (merge (vs/client-signals view-st month-str (:result model) (:query-params req))
+                         (recon-signals close-model))}
         (page-body {:month m :stats (db-stats/entity-counts db-conn) :categories categories
                     :view-st view-st :model model :undo (undo-labels auth/user-id)
                     :empty? (empty? txs)}))})))
 
 (defn rows
   "GET /transactions/rows — a pure view change: clear lingering, re-run the view, morph the tbody +
-   pagination bar, patch $page back to the clamped value."
+   pagination bar, patch $page back to the clamped value. Also re-renders #reconciliation so the
+   panel stays in sync with the account filter: filtering to one account drills the panel into that
+   account's focused card, clearing it returns to the overview (the drill/back actions ARE this)."
   [{:keys [db-conn]}]
   (fn [req]
     (commands/clear-linger! auth/user-id)
     (let [signals (r/read-signals req)
-          txs (db-transactions/list-for-month db-conn (signals-month signals))
+          month (signals-month signals)
           view-st (vs/signals->view-state signals)
-          model (view/present txs view-st {})
+          model (table-and-facets db-conn month signals view-st {})
+          close-model (close-model-for db-conn month view-st)
           result (:result model)]
       (sse-response req
        (fn [sse]
@@ -129,7 +231,9 @@
          (patch! sse (tbody (:rows result)))
          (patch! sse (pagination-bar result))
          (patch-view! sse model view-st)
-         (d*/patch-signals! sse (r/signals {:page (:page result)})))))))
+         (patch! sse (tv/close-panel close-model))
+         (d*/patch-signals! sse (r/signals (merge {:page (:page result)}
+                                                  (recon-signals close-model)))))))))
 
 (defn- edit-response
   "Shared SSE response after any edit/undo/redo: re-render the tbody (lingering the touched
@@ -139,10 +243,12 @@
    in place instead of closing)."
   [db-conn req signals & {:keys [close-modal? after-patch]}]
   (let [user auth/user-id
-        txs (db-transactions/list-for-month db-conn (signals-month signals))
+        month (signals-month signals)
         view-st (vs/signals->view-state signals)
-        model (view/present txs view-st {:linger (commands/linger user)
-                                         :categories (db-categories/list-all db-conn)})
+        model (table-and-facets db-conn month signals view-st
+                                {:linger (commands/linger user)
+                                 :categories (db-categories/list-all db-conn)})
+        close-model (close-model-for db-conn month view-st)
         {:keys [stale-ids] :as result} (:result model)]
     (sse-response req
      (fn [sse]
@@ -156,6 +262,10 @@
        (patch! sse (undo-redo-controls (undo-labels user)))
        ;; A recategorize/split moves money between rollup rows, so re-patch the whole-month pane.
        (patch! sse (rollup-pane (:rollup model)))
+       ;; Keep the reconciliation panel live too: reviewing/categorizing moves the completeness
+       ;; gate, and adding/removing a manual row moves an account's tracked delta + focused verdict.
+       ;; (No recon prefill re-seed here — that would clobber unsaved typing in the balance fields.)
+       (patch! sse (tv/close-panel close-model))
        (when close-modal? (patch! sse [:div {:id "modal-root"}]))
        (when after-patch (after-patch sse))
        (d*/patch-signals! sse (r/signals {:page (:page result)}))))))
@@ -358,99 +468,122 @@
 ;; current db state. It lives outside #category-rollup, so edit re-patches don't
 ;; touch it and these don't touch the table.
 
-(defn- parse-money
-  "Parse a courier money string to bigdec, or nil when blank/unparseable."
-  [s]
-  (when-let [t (some-> s str str/trim not-empty)]
-    (try (bigdec t) (catch NumberFormatException _ nil))))
-
 (defn- account-picker-options
-  "All accounts as {:eid :name}, name-sorted — the option list both modal editors show."
+  "All accounts as {:eid :name}, name-sorted — the option list the add-transaction modal shows."
   [db-conn]
   (->> (db-accounts/list-with-institution db-conn)
        (map (fn [a] {:eid (:db/id a) :name (:account/external-name a)}))
        (sort-by :name)))
 
-(defn- courier-eid
-  "Parse a courier signal carrying an entity id (blank/nil → nil)."
-  [v]
-  (some-> v str not-empty parse-long))
-
-(defn- courier-date
-  "Parse a courier signal carrying a yyyy-MM-dd date (blank/nil → nil) to a Date."
-  [v]
-  (some-> v str not-empty u/string->date))
-
-(defn- close-model-for
-  "Rebuild the monthly-close panel model for `month` from current db state (the
-   month's txs, reported deltas, rollup net, and the persisted close event)."
-  [db-conn month]
-  (let [txs (db-transactions/list-for-month db-conn month)
-        categories (db-categories/list-all db-conn)
-        account-eids (distinct (keep #(get-in % [:transaction/account :db/id]) txs))
-        reported (db-snapshots/reported-deltas db-conn account-eids month)]
-    (view/month-close txs {:reconciliation (view/reconcile-month txs reported)
-                           :close (db-reconciliations/get-close db-conn month)
-                           :net-now (:grand-total (view/category-rollup txs categories))
-                           :manual-balances (db-snapshots/list-manual-balances db-conn month)})))
-
 (defn- patch-close-panel!
-  "Re-render the reconciliation panel for `month` and morph it into #reconciliation."
-  [db-conn req month]
-  (sse-response req (fn [sse] (patch! sse (tv/close-panel (close-model-for db-conn month))))))
+  "Re-render the reconciliation panel for `month`/`view-st` and morph it into #reconciliation,
+   re-seeding the focused-card prefill signals."
+  [db-conn req month view-st]
+  (sse-response req
+   (fn [sse]
+     (let [m (close-model-for db-conn month view-st)]
+       (patch! sse (tv/close-panel m))
+       (d*/patch-signals! sse (r/signals (recon-signals m)))))))
+
+(defn set-reconcile-balances
+  "POST /transactions/reconcile — record the focused account's opening and/or closing balances
+   (the $reconOpen / $reconClose couriers) as :manual snapshots at the app-owned month-boundary
+   dates (prior-month-end for the opening, this-month-end for the closing), then re-patch the
+   focused panel with the fresh verdict. The account is the single one the table is filtered to.
+   Surfaces an error when no account is focused or both fields are blank."
+  [{:keys [db-conn]}]
+  (fn [req]
+    (handle-edit req
+     (fn []
+       (let [signals (r/read-signals req)
+             month   (signals-month signals)
+             view-st (vs/signals->view-state signals)
+             eid     (focus-account-eid view-st)
+             opening (parse-money (:reconOpen signals))
+             closing (parse-money (:reconClose signals))]
+         (if (and eid (or opening closing))
+           (do
+             (when opening
+               (db-snapshots/record-manual-balance! db-conn eid (db-snapshots/opening-date month) opening))
+             (when closing
+               (db-snapshots/record-manual-balance! db-conn eid (db-snapshots/month-end-date month) closing))
+             (patch-close-panel! db-conn req month view-st))
+           (error-response req "Drill into an account and enter a balance.")))))))
+
+;; --- Statements (arbitrary-span reconciliation) ----------------------------
+;; A statement lands on the account you've drilled into (the focused account) — no picker.
+;; Add/edit share one modal + POST; the panel re-patches so the new verdict shows immediately.
 
 (defn statement-editor
-  "GET /transactions/statement-modal — render the statement-balance modal into
-   #modal-root and seed its form signals. The date defaults to the viewed month's end
-   (statements usually close there; the user picks the real closing date); the account
-   preselects from ?account= (a drifting row's 'Set balance'), else the first account.
-   A pure read — lists ALL accounts so one with no activity this month still reconciles."
+  "GET /transactions/statement-modal — render the add/edit statement modal into #modal-root and
+   seed its signals. With ?id=<eid> it edits that statement (prefilled); without, it adds a new
+   one (blank). The statement lands on the focused account."
   [{:keys [db-conn]}]
   (fn [req]
-    (let [signals (r/read-signals req)
-          month (signals-month signals)
-          accounts (account-picker-options db-conn)
-          default-date (str (u/date->local-date (db-snapshots/month-end-date month)))
-          selected (or (some-> (get-in req [:query-params "account"]) parse-long)
-                       (:eid (first accounts)))]
+    (let [eid (some-> (get-in req [:query-params "id"]) parse-long)
+          st  (when eid (db-statements/by-id db-conn eid))]
       (sse-response req
        (fn [sse]
-         (d*/patch-signals! sse (r/signals {:stmtAccount (str selected) :stmtDate default-date :stmtBalance ""}))
-         (patch! sse (tv/statement-modal accounts default-date selected)))))))
+         (d*/patch-signals!
+          sse (r/signals
+               (if st
+                 {:stId (str eid)
+                  :stStart (str (u/date->local-date (:start-date st))) :stStartBal (str (:start-balance st))
+                  :stEnd (str (u/date->local-date (:end-date st)))     :stEndBal (str (:end-balance st))}
+                 {:stId "" :stStart "" :stStartBal "" :stEnd "" :stEndBal ""})))
+         (patch! sse (tv/statement-modal (some? st))))))))
 
-(defn set-statement-balance
-  "POST /transactions/statement — record a user-entered bank statement balance (the
-   $stmtAccount / $stmtDate / $stmtBalance couriers) as a dated :manual snapshot, then
-   re-patch the reconciliation panel. Surfaces an error when a field is missing/blank."
+(defn- patch-panel+close-modal!
+  "Re-patch the reconciliation panel (+ its prefill signals) for `month`/`view-st` and empty
+   #modal-root — the shared tail of the statement create/update/delete handlers."
+  [db-conn req month view-st]
+  (sse-response req
+   (fn [sse]
+     (let [m (close-model-for db-conn month view-st)]
+       (patch! sse (tv/close-panel m))
+       (d*/patch-signals! sse (r/signals (recon-signals m)))
+       (patch! sse [:div {:id "modal-root"}])))))
+
+(defn save-statement
+  "POST /transactions/statement — create or update a statement for the focused account from the
+   $stStart/$stStartBal/$stEnd/$stEndBal couriers ($stId set = update, blank = create). Re-patches
+   the panel + closes the modal. Errors on a missing field or no focused account (create)."
+  [{:keys [db-conn]}]
+  (fn [req]
+    (handle-edit req
+     (fn []
+       (let [signals    (r/read-signals req)
+             month      (signals-month signals)
+             view-st    (vs/signals->view-state signals)
+             eid        (courier-eid (:stId signals))
+             account    (focus-account-eid view-st)
+             start-date (courier-date (:stStart signals))
+             end-date   (courier-date (:stEnd signals))
+             start-bal  (parse-money (:stStartBal signals))
+             end-bal    (parse-money (:stEndBal signals))]
+         (if (and start-date end-date start-bal end-bal (or eid account))
+           (do
+             (if eid
+               (db-statements/update! db-conn eid {:start-date start-date :start-balance start-bal
+                                                   :end-date end-date :end-balance end-bal})
+               (db-statements/create! db-conn {:account-eid account :start-date start-date :start-balance start-bal
+                                               :end-date end-date :end-balance end-bal}))
+             (patch-panel+close-modal! db-conn req month view-st))
+           (error-response req "Enter the statement's dates and balances.")))))))
+
+(defn delete-statement
+  "POST /transactions/statement/delete — delete the statement whose id rides in $stId, re-patch
+   the panel, and close the modal."
   [{:keys [db-conn]}]
   (fn [req]
     (handle-edit req
      (fn []
        (let [signals (r/read-signals req)
-             month (signals-month signals)
-             account-eid (courier-eid (:stmtAccount signals))
-             date (courier-date (:stmtDate signals))
-             balance (parse-money (:stmtBalance signals))]
-         (if (and account-eid date balance)
-           (do (db-snapshots/record-manual-balance! db-conn account-eid date balance)
-               (sse-response req
-                (fn [sse]
-                  (patch! sse (tv/close-panel (close-model-for db-conn month)))
-                  (patch! sse [:div {:id "modal-root"}]))))
-           (error-response req "Enter an account, date, and balance.")))))))
-
-(defn delete-statement-balance
-  "POST /transactions/statement/delete — remove a recorded :manual statement balance
-   (its snapshot id rides in the $stmtDel courier), then re-patch the panel."
-  [{:keys [db-conn]}]
-  (fn [req]
-    (handle-edit req
-     (fn []
-       (let [signals (r/read-signals req)
-             month (signals-month signals)]
-         (when-let [eid (courier-eid (:stmtDel signals))]
-           (db-snapshots/delete-manual-balance! db-conn eid))
-         (patch-close-panel! db-conn req month))))))
+             month   (signals-month signals)
+             view-st (vs/signals->view-state signals)]
+         (when-let [eid (courier-eid (:stId signals))]
+           (db-statements/delete! db-conn eid))
+         (patch-panel+close-modal! db-conn req month view-st))))))
 
 (defn close-month
   "POST /transactions/close — freeze the current month's category totals and lock it.
@@ -460,8 +593,10 @@
   (fn [req]
     (handle-edit req
      (fn []
-       (let [month (signals-month (r/read-signals req))]
-         (if-not (get-in (close-model-for db-conn month) [:gate :ready?])
+       (let [signals (r/read-signals req)
+             month (signals-month signals)
+             view-st (vs/signals->view-state signals)]
+         (if-not (get-in (close-model-for db-conn month view-st) [:gate :ready?])
            (error-response req "This month isn't ready to close yet.")
            (let [txs (db-transactions/list-for-month db-conn month)
                  categories (db-categories/list-all db-conn)
@@ -471,7 +606,7 @@
               {:income (:total income) :expenses (:total expenses)
                :transfers (:total transfers) :net grand-total}
               (java.util.Date.))
-             (patch-close-panel! db-conn req month))))))))
+             (patch-close-panel! db-conn req month view-st))))))))
 
 (defn reopen-month
   "POST /transactions/reopen — unlock the current month, then re-patch the panel."
@@ -479,9 +614,11 @@
   (fn [req]
     (handle-edit req
      (fn []
-       (let [month (signals-month (r/read-signals req))]
+       (let [signals (r/read-signals req)
+             month (signals-month signals)
+             view-st (vs/signals->view-state signals)]
          (db-reconciliations/reopen-month! db-conn month)
-         (patch-close-panel! db-conn req month))))))
+         (patch-close-panel! db-conn req month view-st))))))
 
 ;; --- Manual transactions ---------------------------------------------------
 ;; Add a transaction the bank feed didn't import (cash, a missed charge). A modal
@@ -527,7 +664,6 @@
     (handle-edit req
      (fn []
        (let [signals     (r/read-signals req)
-             month       (signals-month signals)
              account-eid (courier-eid (:txAccount signals))
              date        (courier-date (:txDate signals))
              magnitude   (some-> (parse-money (:txAmount signals)) .abs)
@@ -539,9 +675,8 @@
                                                 :payee (some-> (:txPayee signals) str)
                                                 :description (some-> (:txDesc signals) str)
                                                 :category-id category-id})
-               (edit-response db-conn req signals :close-modal? true
-                              :after-patch (fn [sse]
-                                             (patch! sse (tv/close-panel (close-model-for db-conn month))))))
+               ;; edit-response re-patches #reconciliation (the new row moves the tracked delta).
+               (edit-response db-conn req signals :close-modal? true))
            (error-response req "Enter an account, amount, and date.")))))))
 
 (defn delete-transaction-editor
@@ -560,12 +695,10 @@
     (handle-edit req
      (fn []
        (let [tx-id   (path-id req :id)
-             signals (r/read-signals req)
-             month   (signals-month signals)]
+             signals (r/read-signals req)]
          (db-transactions/delete-manual! db-conn tx-id)
          ;; The row is gone — drop any undo/redo command that would replay against it
          ;; (a matched/split manual row would otherwise jam the stack on undo).
          (commands/forget! auth/user-id tx-id)
-         (edit-response db-conn req signals :close-modal? true
-                        :after-patch (fn [sse]
-                                       (patch! sse (tv/close-panel (close-model-for db-conn month))))))))))
+         ;; edit-response re-patches #reconciliation (the removed row moves the tracked delta).
+         (edit-response db-conn req signals :close-modal? true))))))

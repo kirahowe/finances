@@ -155,11 +155,20 @@
    :editValue     ""
    :catValue      ""
    :splitValue    ""
-   ;; Statement-balance modal (feature: dated manual balances) couriers.
-   :stmtAccount   ""
-   :stmtDate      ""
-   :stmtBalance   ""
-   :stmtDel       ""
+   ;; Focused reconcile card (feature: monthly close) opening/closing balance couriers,
+   ;; seeded from the balances on file when you drill into an account.
+   :reconOpen     ""
+   :reconClose    ""
+   ;; Statement-period reconciliation: the add/edit-statement modal couriers ($stId blank =
+   ;; create) and the $reconFrom/$reconTo span that narrows the table to a statement (may
+   ;; cross a month boundary; blank = the whole month).
+   :stId          ""
+   :stStart       ""
+   :stStartBal    ""
+   :stEnd         ""
+   :stEndBal      ""
+   :reconFrom     ""
+   :reconTo       ""
    ;; Add-transaction modal (feature: manual transactions) couriers.
    :txAccount     ""
    :txDir         "out"
