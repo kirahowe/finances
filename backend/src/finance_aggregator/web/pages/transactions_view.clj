@@ -206,10 +206,24 @@
            " $_rowMenuY = el.getBoundingClientRect().bottom + 4")}
      (chevron-right)]]])
 
-(defn normal-row [stale? {:transaction/keys [posted-date payee effective-description
-                                              amount reviewed] :as tx}]
+(defn date-cell
+  "The date column: the transaction date (when the purchase happened), and — only when the
+   posted date differs, i.e. it cleared a day or two later — a muted inline '· posted <date>'
+   on the same line, mirroring how a bank/card statement shows both a transaction and a post
+   date. Reconciliation still buckets by the posted date. Both dates are short (no year — the
+   period header carries it); legacy rows imported before we captured the authorized date have
+   date == posted-date, so no hint shows."
+  [{:transaction/keys [date posted-date]}]
+  (let [shown (or date posted-date)]
+    [:td.date-cell
+     [:span.numeric (fmt/date-short shown)]
+     (when (and posted-date shown (not= shown posted-date))
+       [:span.posted-hint [:span.posted-sep "·"] "posted " (fmt/date-short posted-date)])]))
+
+(defn normal-row [stale? {:transaction/keys [payee effective-description
+                                             amount reviewed] :as tx}]
   [:tr {:role "row" :class (row-class "" stale?)}
-   [:td [:span.numeric (fmt/date posted-date)]]
+   (date-cell tx)
    [:td (account-name tx)]
    [:td (institution-name tx)]
    [:td payee]
@@ -220,9 +234,9 @@
    (row-actions-cell (:db/id tx) false (some? (:transaction/transfer-pair tx))
                      (= :manual (:transaction/provider tx)))])
 
-(defn split-parent-row [stale? {:transaction/keys [posted-date payee effective-description] :as tx}]
+(defn split-parent-row [stale? {:transaction/keys [payee effective-description] :as tx}]
   [:tr {:role "row" :class (row-class "is-split-parent" stale?)}
-   [:td [:span.numeric (fmt/date posted-date)]]
+   (date-cell tx)
    [:td (account-name tx)]
    [:td (institution-name tx)]
    [:td payee]
@@ -324,18 +338,32 @@
 ;; Toolbar
 ;; ---------------------------------------------------------------------------
 
-(defn month-navigator [m]
+(defn period-label
+  "The dateline label: the whole month (\"January 2025\") normally, or — when the table is
+   lensed to a statement period — the actual narrowed span (`from`/`to` Dates, which may cross
+   a calendar-month boundary, e.g. \"Dec 28 – Jan 27, 2025\")."
+  ([m] (month/display m))
+  ([m from to] (if (and from to) (fmt/date-span from to) (month/display m))))
+
+(defn period-display
+  "The dateline element, id'd so the rows handler can re-patch it when narrowing changes."
+  [label]
+  [:span#period-navigator-display.month-navigator-display label])
+
+(defn month-navigator
   ;; Full navigation (anchor). URL-state write-back (preserving filters across month
-  ;; change) isn't wired yet, so a month change resets the view.
-  [:div.month-navigator
-   [:div.month-navigator-controls
-    [:a.button.button-secondary.month-nav-button
-     {:href (str "/?month=" (month/serialize (month/prev-month m))) :title "Previous month"
-      :aria-label "Previous month"} (chevron-left)]
-    [:span.month-navigator-display (month/display m)]
-    [:a.button.button-secondary.month-nav-button
-     {:href (str "/?month=" (month/serialize (month/next-month m))) :title "Next month"
-      :aria-label "Next month"} (chevron-right)]]])
+  ;; change) isn't wired yet, so a month change resets the view (and clears any narrowing).
+  ([m] (month-navigator m nil nil))
+  ([m from to]
+   [:div.month-navigator
+    [:div.month-navigator-controls
+     [:a.button.button-secondary.month-nav-button
+      {:href (str "/?month=" (month/serialize (month/prev-month m))) :title "Previous month"
+       :aria-label "Previous month"} (chevron-left)]
+     (period-display (period-label m from to))
+     [:a.button.button-secondary.month-nav-button
+      {:href (str "/?month=" (month/serialize (month/next-month m))) :title "Next month"
+       :aria-label "Next month"} (chevron-right)]]]))
 
 (defn search-box []
   [:div.table-search

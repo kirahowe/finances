@@ -133,6 +133,10 @@ await focus.locator('.reconcile-statement').first().waitFor({ state: 'visible', 
 check('the statement appears in the list', (await focus.locator('.reconcile-statement').count()) === 1);
 check('the statement reconciles (matches)', /matches/i.test(await focus.locator('.reconcile-statement').innerText()));
 
+// The header dateline reads the whole month until we narrow.
+check('the header dateline shows the month (with year) before narrowing',
+  /January 2025/.test(await page.locator('#period-navigator-display').innerText()));
+
 // Clicking the statement narrows the table to its span — just the Jan 5 groceries, not Jan 12.
 await focus.locator('.reconcile-statement-span').click();
 await page.waitForFunction(
@@ -144,6 +148,12 @@ check('narrowing excludes txns outside the span (the Jan 12 payment)',
   !/Payment Received/.test(await page.locator('#tx-tbody').innerText()));
 check('the selected statement is highlighted',
   (await focus.locator('.reconcile-statement.is-selected').count()) === 1);
+// The header dateline now reflects the actual narrowed span, not the calendar month.
+await page.waitForFunction(
+  () => /–/.test(document.querySelector('#period-navigator-display')?.textContent || ''),
+  undefined, { timeout: 5000 }).catch(() => {});
+check('the header dateline switches to the narrowed span',
+  /Jan 4 – Jan 6, 2025/.test(await page.locator('#period-navigator-display').innerText()));
 
 // Edit it to an off-by end balance → the verdict flips.
 await focus.locator('.reconcile-statement-edit').click();

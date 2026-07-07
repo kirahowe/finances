@@ -85,6 +85,25 @@
   accent-color: var(--color-primary);
 }
 
+/* Date column: the transaction date, with the posted date inline after it only when the two
+   differ (a purchase that cleared a day or two later — the two-date view a bank or card
+   statement shows). Inline keeps every row the same height; the hint is quiet and small so
+   the same-day majority reads as a single clean date and the extra text only appears where
+   it's earning its place. Reconciliation still buckets by the posted date. */
+.date-cell {
+  white-space: nowrap;
+}
+
+.date-cell .posted-hint {
+  font-size: 0.86em;
+  color: var(--color-text-muted);
+}
+
+.date-cell .posted-sep {
+  opacity: 0.55;
+  margin: 0 0.35em;
+}
+
 .table.table-resizable th {
   position: relative;
   user-select: none;

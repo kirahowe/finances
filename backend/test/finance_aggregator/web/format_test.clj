@@ -12,6 +12,20 @@
   (is (= "Jan 5, 2025" (fmt/date #inst "2025-01-05T00:00:00.000-00:00")))
   (is (= "Dec 31, 2024" (fmt/date #inst "2024-12-31T00:00:00.000-00:00"))))
 
+(deftest date-short-drops-year
+  (is (= "Jan 5" (fmt/date-short #inst "2025-01-05T00:00:00.000-00:00")))
+  (is (= "Dec 31" (fmt/date-short #inst "2024-12-31T00:00:00.000-00:00"))))
+
+(deftest date-span-carries-year
+  (is (= "Dec 28 – Jan 27, 2025"
+         (fmt/date-span #inst "2025-12-28T00:00:00.000-00:00"
+                        #inst "2025-01-27T00:00:00.000-00:00"))
+      "same-year span collapses to one trailing year")
+  (is (= "Dec 28, 2024 – Jan 27, 2025"
+         (fmt/date-span #inst "2024-12-28T00:00:00.000-00:00"
+                        #inst "2025-01-27T00:00:00.000-00:00"))
+      "cross-year span spells out both years"))
+
 (deftest integer-grouped
   (is (= "1,234" (fmt/integer 1234)))
   (is (= "0" (fmt/integer 0)))

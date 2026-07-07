@@ -144,6 +144,32 @@
     (testing "the add-statement action is present"
       (is (re-find #"Add statement" h)))))
 
+(deftest date-cell-shows-posted-hint-only-when-dates-differ
+  (testing "same-day: a single short date (no year), no posted hint"
+    (let [h (html (tv/date-cell {:transaction/date #inst "2025-01-15"
+                                 :transaction/posted-date #inst "2025-01-15"}))]
+      (is (re-find #"Jan 15" h))
+      (is (not (re-find #"posted" h)) "no hint when authorized == posted")
+      (is (not (re-find #"2025" h)) "the row date drops the year (the header carries it)")))
+  (testing "posted later: transaction date leads, an inline 'posted <date>' follows"
+    (let [h (html (tv/date-cell {:transaction/date #inst "2025-01-30"
+                                 :transaction/posted-date #inst "2025-02-01"}))]
+      (is (re-find #"Jan 30" h) "leads with the transaction date")
+      (is (re-find #"posted Feb 1" h) "carries the posted date inline")
+      (is (re-find #"posted-hint" h))))
+  (testing "legacy row with no authorized date falls back cleanly (posted-date only)"
+    (let [h (html (tv/date-cell {:transaction/posted-date #inst "2025-01-20"}))]
+      (is (re-find #"Jan 20" h))
+      (is (not (re-find #"posted" h))))))
+
+(deftest period-label-month-vs-narrowed-span
+  (is (= "January 2025" (tv/period-label {:year 2025 :month 1}))
+      "no narrowing → the whole month, with the year for reference")
+  (is (= "Dec 28 – Jan 27, 2025"
+         (tv/period-label {:year 2025 :month 1}
+                          #inst "2025-12-28" #inst "2025-01-27"))
+      "narrowed → the actual span shown, not the calendar month"))
+
 (deftest statement-modal-add-vs-edit
   (let [add  (html (tv/statement-modal false))
         edit (html (tv/statement-modal true))]

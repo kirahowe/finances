@@ -31,6 +31,24 @@
     (str (nth month-abbrevs (dec (.getMonthValue ld))) " "
          (.getDayOfMonth ld) ", " (.getYear ld))))
 
+(defn date-short
+  "Format a java.util.Date as \"Mon D\" (no year) in UTC — for compact secondary
+   labels like the posted-date hint beneath a transaction's date."
+  [^Date d]
+  (let [^java.time.LocalDate ld (utils/date->local-date d)]
+    (str (nth month-abbrevs (dec (.getMonthValue ld))) " " (.getDayOfMonth ld))))
+
+(defn date-span
+  "Compact label for a period between two Dates, carrying the year for reference: a same-year
+   span collapses to one trailing year (\"Dec 28 – Jan 27, 2025\"); a cross-year span spells
+   out both (\"Dec 28, 2024 – Jan 27, 2025\"). Used for the period dateline in the header."
+  [^Date from ^Date to]
+  (let [^java.time.LocalDate lf (utils/date->local-date from)
+        ^java.time.LocalDate lt (utils/date->local-date to)]
+    (if (= (.getYear lf) (.getYear lt))
+      (str (date-short from) " – " (date to))
+      (str (date from) " – " (date to)))))
+
 (defn integer
   "Format an integer with grouping separators (e.g. 1,234). Shared by the masthead stats
    and the /setup stat cards."

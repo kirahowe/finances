@@ -230,6 +230,10 @@
                                      (if (= 1 (:total result)) " transaction" " transactions"))))
          (patch! sse (tbody (:rows result)))
          (patch! sse (pagination-bar result))
+         ;; Keep the header dateline in sync with the narrowing lens: show the statement span
+         ;; when narrowed to one, else fall back to the whole month.
+         (let [{:keys [from to]} (reconcile-range signals view-st)]
+           (patch! sse (tv/period-display (tv/period-label (month/parse month) from to))))
          (patch-view! sse model view-st)
          (patch! sse (tv/close-panel close-model))
          (d*/patch-signals! sse (r/signals (merge {:page (:page result)}
