@@ -303,7 +303,7 @@ export function openCombobox(opts: OpenOptions): void {
 
   // Flag the anchor so its at-rest/hover border is muted while the floating input sits
   // over it — the floating root is a <body> sibling positioned over the anchor, so
-  // without this the anchor's own (hover) border shows through behind the input's pine
+  // without this the anchor's own (hover) border shows through behind the input's accent
   // border as a doubled outline. CSS keys off `.combobox-open` (category-button.css /
   // split-modal.css); the floating input owns the single border + focus ring.
   anchor.classList.add('combobox-open');

@@ -1,6 +1,6 @@
 /* Lunchflow / provider connection modal */
 .provider-connection-content {
-  max-width: 560px;
+  max-width: 35rem;
   width: 90vw;
 }
 
@@ -37,8 +37,8 @@
 }
 
 .provider-institution-logo {
-  width: 20px;
-  height: 20px;
+  width: 1.25rem;
+  height: 1.25rem;
   object-fit: contain;
   border-radius: var(--radius-sm);
 }

@@ -1,13 +1,11 @@
 .category-dropdown {
   position: relative;
-  /* Fill the category cell rather than forcing a wider box that would spill
-     past the table edge; the absolutely-positioned list inherits this width. */
   width: 100%;
 }
 
-/* The combobox island floats this container at the clicked cell — fixed so it escapes
-   the table's horizontal-scroll overflow. Only the rect coordinates (left/top/width)
-   are set inline; the static positioning lives here. */
+/* The combobox island floats this container at the clicked cell — fixed so
+   it escapes the table's horizontal-scroll overflow. Only the rect
+   coordinates (left/top/width) are set inline. */
 .category-dropdown.is-floating {
   position: fixed;
   z-index: 1000;
@@ -15,13 +13,9 @@
 
 .category-dropdown-input {
   width: 100%;
-  /* Shares .category-button's box so opening the editor never shifts the row.
-     The floating root sits fixed over the cell; this input is the only active
-     surface, so it carries the whole focus affordance: ONE pine border plus the
-     app's soft focus-ring glow, matching .form-input:focus. (The underlying
-     .category-button is masked out below so its border can't double up — the
-     regression was two nested borders, the cell's hover/active edge showing
-     through behind this input's edge.) */
+  /* Shares .category-button's box so opening the editor never shifts the
+     row. Carries the whole focus affordance: ONE accent border plus the
+     soft focus-ring glow, matching .form-input:focus. */
   padding: var(--category-field-padding-y) var(--category-field-padding-x);
   margin: calc(-1 * var(--category-field-padding-y))
     calc(-1 * var(--category-field-padding-x));
@@ -32,30 +26,21 @@
   line-height: inherit;
   color: var(--color-ink);
   background: var(--color-surface);
-  /* The single source of the focus ring. .form-input:focus uses the same glow. */
   box-shadow: var(--focus-ring);
 }
 
 .category-dropdown-input:focus {
   outline: none;
-  /* No second ring: the at-rest box-shadow above already is the focus ring (the
-     combobox always opens focused), so :focus only suppresses the UA outline. */
   border-color: var(--color-primary);
   box-shadow: var(--focus-ring);
 }
 
-/* Grid variant: the combobox opens over an active grid cell that already wears the cell ring,
-   so the input goes flush — NO border, glow, or fill of its own. A TRANSPARENT background lets
-   the cell's own colour show through, so the field matches the row (white normally, the pine
-   tint when the row is active) instead of a white box punched into a tinted row; the underlying
-   button's text is hidden (category-button.css) so it can't double up behind the input. The cell
-   ring stays the single, stable outline, so nothing jumps when the combobox opens. (The
-   split-modal combobox omits .is-in-cell and keeps its bordered, filled input.)
-
-   margin:0 drops the shared negative margin here: the floating root is positioned at the
-   BUTTON's border-box (which the button's own negative margin sits one field-padding left/up of
-   its text), so the input's content must land at the root's edge to line up with the button's
-   text — otherwise the negative margin shifts the text a padding-width and it jitters on open. */
+/* Grid variant: the combobox opens over an active grid cell that already
+   wears the cell ring, so the input goes flush — NO border, glow, or fill
+   of its own. A TRANSPARENT background lets the cell's own colour show
+   through. margin:0 drops the shared negative margin here: the floating
+   root is positioned at the BUTTON's border-box, so the input's content
+   must land at the root's edge to line up with the button's text. */
 .category-dropdown.is-in-cell .category-dropdown-input,
 .category-dropdown.is-in-cell .category-dropdown-input:focus {
   margin: 0;
@@ -69,20 +54,19 @@
   top: 100%;
   left: 0;
   right: 0;
-  max-height: 300px;
+  max-height: 18rem;
   overflow-y: auto;
   background: var(--color-surface);
   border: 1px solid var(--color-border);
   border-radius: var(--border-radius);
-  margin-top: 5px;
+  margin-top: var(--spacing-xs);
   padding: var(--spacing-xs);
   list-style: none;
   box-shadow: var(--shadow-lg);
   z-index: 1000;
 }
 
-/* Portaled to <body> when the table scrolls horizontally; coordinates are set
-   inline from the input's rect, so the absolute top/left/right are overridden. */
+/* Portaled to <body> when the table scrolls horizontally. */
 .category-dropdown-list-portal {
   position: fixed;
   left: auto;
@@ -90,14 +74,14 @@
   margin-top: 0;
 }
 
-/* Hidden for the first paint, before the input's rect has been measured and the
-   fixed coordinates applied — avoids a flash at the wrong position. */
+/* Hidden for the first paint, before the input's rect has been measured
+   and the fixed coordinates applied — avoids a flash at the wrong position. */
 .category-dropdown-list-portal--measuring {
   visibility: hidden;
 }
 
 .category-dropdown-item {
-  padding: 0.4rem 0.6rem;
+  padding: var(--spacing-xs) var(--spacing-sm);
   border-radius: var(--radius-sm);
   cursor: pointer;
   text-align: left;
@@ -113,7 +97,7 @@
 
 /* Children sit under their parent, indented to read as nested. */
 .category-dropdown-item--child {
-  padding-left: 1.4rem;
+  padding-left: var(--spacing-lg);
 }
 
 .category-dropdown-item:hover {
@@ -122,7 +106,7 @@
 
 .category-dropdown-item.highlighted {
   background-color: var(--color-accent-soft);
-  color: var(--color-pine-hover);
+  color: var(--color-primary-hover);
   font-weight: 500;
   box-shadow: inset 2px 0 0 var(--color-primary);
 }

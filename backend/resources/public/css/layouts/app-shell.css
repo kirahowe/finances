@@ -8,8 +8,8 @@
   margin: 0 calc(-1 * var(--spacing-xl));
   padding: var(--spacing-sm) var(--spacing-xl) 0;
   background-color: var(--color-masthead-bg);
-  backdrop-filter: saturate(140%) blur(10px);
-  -webkit-backdrop-filter: saturate(140%) blur(10px);
+  backdrop-filter: blur(8px);
+  -webkit-backdrop-filter: blur(8px);
 }
 
 .masthead-bar {
@@ -23,7 +23,7 @@
 .wordmark {
   display: inline-flex;
   align-items: center;
-  gap: 0.55rem;
+  gap: var(--spacing-sm);
   text-decoration: none;
   color: var(--color-ink);
 }
@@ -31,24 +31,23 @@
 .wordmark-mark {
   display: inline-grid;
   place-items: center;
-  width: 1.7rem;
-  height: 1.7rem;
+  width: var(--spacing-xl);
+  height: var(--spacing-xl);
   border-radius: var(--radius-sm);
-  background: var(--color-pine);
+  background: var(--color-primary);
   color: var(--color-on-accent);
-  box-shadow: var(--shadow-sm);
 }
 
 .wordmark-mark svg {
-  width: 1.05rem;
-  height: 1.05rem;
+  width: var(--spacing-md);
+  height: var(--spacing-md);
 }
 
 .wordmark-text {
   font-family: var(--font-display);
-  font-size: var(--text-lg);
+  font-size: var(--text-md);
   font-weight: 500;
-  letter-spacing: -0.015em;
+  letter-spacing: -0.02em;
   margin: 0;
   white-space: nowrap;
 }
@@ -65,12 +64,13 @@
   align-items: center;
   padding: var(--control-pad-y-sm) var(--control-pad-x-sm);
   border-radius: var(--border-radius);
-  font-size: var(--text-base);
+  font-size: var(--text-sm);
   font-weight: 500;
   color: var(--color-ink-soft);
   text-decoration: none;
   white-space: nowrap;
-  transition: color 0.15s var(--ease-out), background-color 0.15s var(--ease-out);
+  transition: color var(--duration-fast) var(--ease-out),
+    background-color var(--duration-fast) var(--ease-out);
 }
 
 .view-tab:hover {
@@ -79,7 +79,7 @@
 }
 
 .view-tab.is-active {
-  color: var(--color-pine-hover);
+  color: var(--color-primary);
   background-color: var(--color-accent-soft);
 }
 
@@ -87,7 +87,7 @@
   margin-left: auto;
   display: flex;
   align-items: center;
-  gap: 0.6rem;
+  gap: var(--spacing-sm);
   font-family: var(--font-mono);
   font-size: var(--text-xs);
   color: var(--color-text-muted);

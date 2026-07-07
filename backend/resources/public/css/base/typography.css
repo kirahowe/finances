@@ -1,8 +1,10 @@
+/* Display face for headings — Newsreader serif. Distinct from the body
+   sans, but grounded and editorial, not decorative. */
 h1, h2, h3 {
   font-family: var(--font-display);
   font-weight: 500;
   letter-spacing: -0.015em;
-  line-height: 1.12;
+  line-height: 1.15;
   color: var(--color-ink);
 }
 
@@ -24,10 +26,10 @@ h3 {
 button {
   font-size: var(--text-base);
   font-weight: 500;
-  letter-spacing: 0.005em;
+  letter-spacing: -0.005em;
 }
 
-/* Tabular figures everywhere a number appears in the ledger. */
+/* Tabular figures everywhere a number appears. */
 .amount,
 .numeric {
   font-family: var(--font-mono);
@@ -36,12 +38,12 @@ button {
   letter-spacing: -0.01em;
 }
 
-/* Small-caps style label used for stat labels, table heads, eyebrows. */
+/* Small-caps label used for stat labels, table heads, eyebrows. */
 .eyebrow {
   font-family: var(--font-body);
   font-size: var(--text-2xs);
   font-weight: 600;
   text-transform: uppercase;
-  letter-spacing: 0.14em;
+  letter-spacing: 0.1em;
   color: var(--color-text-muted);
 }

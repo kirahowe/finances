@@ -81,7 +81,7 @@ check('Link Bank Account button present (#plaid-link-btn)',
 const lunchHref = await page.locator('a', { hasText: 'Connect Lunchflow' }).getAttribute('href');
 check('Connect Lunchflow links to /setup/lunchflow', lunchHref === '/setup/lunchflow', String(lunchHref));
 
-// 9. The carried-over design system actually applied (typography token resolved).
+// 9. The design system actually applied (typography token resolved).
 const bodyFont = await page.evaluate(() => getComputedStyle(document.body).fontFamily);
 check('design system CSS applied (Hanken Grotesk on body)', /Hanken Grotesk/i.test(bodyFont), bodyFont);
 

@@ -19,10 +19,10 @@ body {
   color: var(--color-text);
   background-color: var(--color-background);
   line-height: 1.55;
+  font-feature-settings: "ss01", "cv01";
   -webkit-font-smoothing: antialiased;
   -moz-osx-font-smoothing: grayscale;
   text-rendering: optimizeLegibility;
-  font-feature-settings: "ss01", "cv01";
 }
 
 h1, h2, h3, h4, h5, h6 {
@@ -40,13 +40,13 @@ table {
 }
 
 ::selection {
-  background-color: var(--color-pine-soft);
-  color: var(--color-pine-hover);
+  background-color: var(--color-accent-soft);
+  color: var(--color-primary-hover);
 }
 
 a {
   color: var(--color-primary);
-  text-underline-offset: 0.18em;
+  text-underline-offset: 0.2em;
   text-decoration-thickness: 1px;
 }
 

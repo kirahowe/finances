@@ -1,5 +1,5 @@
 .split-modal-content {
-  max-width: 680px;
+  max-width: 42rem;
   width: 90vw;
 }
 
@@ -30,7 +30,7 @@
 .split-amount-cell {
   display: flex;
   align-items: center;
-  gap: 0.35rem;
+  gap: var(--spacing-xs);
 }
 
 .split-amount-cell .split-amount-input {
@@ -55,9 +55,10 @@
   font-weight: 600;
   text-transform: uppercase;
   letter-spacing: 0.06em;
-  padding: 0.2rem 0.3rem;
+  padding: var(--spacing-xs) var(--spacing-xs);
   border-radius: var(--radius-sm);
-  transition: background-color 0.15s var(--ease-out), color 0.15s var(--ease-out);
+  transition: background-color var(--duration-fast) var(--ease-out),
+    color var(--duration-fast) var(--ease-out);
 }
 
 .split-fill-button:hover:not(:disabled) {
@@ -75,7 +76,7 @@
   font-size: var(--text-2xs);
   font-weight: 600;
   text-transform: uppercase;
-  letter-spacing: 0.08em;
+  letter-spacing: 0.06em;
   color: var(--color-text-muted);
   margin-bottom: var(--spacing-xs);
 }
@@ -84,24 +85,20 @@
   text-align: right;
 }
 
-/* Hosts the category button. The combobox the button opens is position:fixed, floated
-   to <body> (so it escapes the modal) — it is NOT a descendant of this cell, so it picks
-   up the shared .category-dropdown-input styles (one pine border + focus-ring glow) from
-   category-dropdown.css, matching the amount/description fields' focused look. */
+/* Hosts the category button. The combobox the button opens is position:fixed,
+   floated to <body> (so it escapes the modal). */
 .split-category-cell {
   min-width: 0;
   position: relative;
 }
 
-/* The category button reads as a form control alongside the amount/description inputs:
-   a bordered box at rest (like .form-input), the same height/padding as its siblings.
-   (In the table the category cell is borderless and editing is flush; in this form it's
-   a field like its siblings.) The full-width button overrides .category-button's flush,
-   negative-margin grid-cell layout. */
+/* The category button reads as a form control alongside the amount/description
+   inputs: a bordered box at rest (like .form-input), the same height/padding
+   as its siblings. */
 .split-category-cell .category-button {
   width: 100%;
   margin: 0;
-  padding: var(--control-pad-y) 0.7rem;
+  padding: var(--control-pad-y) var(--spacing-sm);
   border-radius: var(--border-radius);
   border: 1px solid var(--color-border-strong);
   background: transparent;
@@ -111,21 +108,21 @@
   text-overflow: ellipsis;
 }
 
-/* An unset category reads muted, like a form placeholder ("Select category…"). */
+/* An unset category reads muted, like a form placeholder. */
 .split-category-cell .category-button.is-placeholder {
   color: var(--color-text-muted);
 }
 
-/* Hover hints focus with a pine border, not the table's old filled box. */
+/* Hover hints focus with an accent border, not a filled box. */
 .split-category-cell .category-button:hover {
   background: transparent;
   border-color: var(--color-primary);
   color: var(--color-ink);
 }
 
-/* While the combobox floats over it, the floating .category-dropdown-input owns the
-   single border + focus ring. Mute this button's own border/glow so the two don't stack
-   into a doubled outline (same treatment as the grid cell in category-button.css). */
+/* While the combobox floats over it, the floating .category-dropdown-input
+   owns the single border + focus ring. Mute this button's own border/glow so
+   the two don't stack into a doubled outline. */
 .split-category-cell .category-button.combobox-open,
 .split-category-cell .category-button.combobox-open:hover {
   border-color: transparent;
@@ -141,7 +138,7 @@
   font-size: var(--text-sm);
   font-weight: 600;
   padding: var(--spacing-sm) 0;
-  transition: color 0.15s var(--ease-out);
+  transition: color var(--duration-fast) var(--ease-out);
 }
 
 .split-add-button:hover {
@@ -183,7 +180,8 @@
   line-height: 1;
   padding: var(--spacing-xs) var(--spacing-sm);
   border-radius: var(--radius-sm);
-  transition: color 0.15s var(--ease-out), background-color 0.15s var(--ease-out);
+  transition: color var(--duration-fast) var(--ease-out),
+    background-color var(--duration-fast) var(--ease-out);
 }
 
 .split-remove-button:hover:not(:disabled) {
@@ -196,7 +194,8 @@
   cursor: default;
 }
 
-/* The right cluster (Cancel / Save) sits opposite the optional Un-split on the left. */
+/* The right cluster (Cancel / Save) sits opposite the optional Un-split on
+   the left. */
 .split-modal-actions-right {
   display: flex;
   align-items: center;

@@ -1,10 +1,8 @@
 /* Summary-column cards — the shared collapsible-card chrome behind the monthly-close
-   reconciliation panel (#reconciliation) and the category rollup (#category-rollup).
-   Each is a surface with a clickable header (eyebrow title + chevron) over a body that
-   scrolls inside the fixed-viewport shell. Collapse is driven by an ephemeral Datastar
-   signal ($_reconcileOpen / $_rollupOpen) that toggles .summary-collapsed on the card
-   and flips the header's aria-expanded (which spins the chevron). All colors come from
-   the shared tokens, so dark mode + WCAG-AA contrast follow the design system. */
+   reconciliation panel and the category rollup. Each is a surface with a clickable
+   header (eyebrow title + chevron) over a body that scrolls inside the fixed-viewport
+   shell. Collapse is driven by an ephemeral Datastar signal that toggles
+   .summary-collapsed on the card and flips the header's aria-expanded. */
 
 .summary-card {
   display: flex;
@@ -13,19 +11,15 @@
   border: 1px solid var(--color-border);
   border-radius: var(--radius-lg);
   box-shadow: var(--shadow-sm);
-  overflow: hidden; /* clip the header hover + body scroll to the rounded corners */
+  overflow: hidden;
 }
 
-/* The card title is a real <h2> section heading (sentence case, the display face at
-   the app's card-title size, matching the /setup connection cards) — clearly a header,
-   distinct from the uppercase eyebrows of the sub-sections (Income / Statement balances)
-   inside the body. */
 .summary-card-heading {
   margin: 0;
 }
 
-/* The whole heading is the collapse toggle: a full-width button, title left, chevron
-   right. It carries the heading's type so the <h2> reads as the header it is. */
+/* The whole heading is the collapse toggle: a full-width button, title left,
+   chevron right. */
 .summary-toggle {
   display: flex;
   align-items: center;
@@ -52,29 +46,27 @@
   box-shadow: inset var(--focus-ring);
 }
 
-/* The chevron is the app's shared 1rem stroke icon (same as the row caret + month nav),
-   flex-centred so it never rides high off a glyph baseline. It points down when open and
-   rotates to the row-caret's right when the card is collapsed. */
+/* The chevron — shared stroke icon, flex-centred. Points down when open,
+   rotates right when the card is collapsed. */
 .summary-toggle svg {
   flex: none;
-  width: 1rem;
-  height: 1rem;
+  width: var(--spacing-md);
+  height: var(--spacing-md);
   color: var(--color-medium-gray);
-  transition: transform 0.15s var(--ease-out);
+  transition: transform var(--duration) var(--ease-out);
 }
 
 .summary-toggle[aria-expanded="false"] svg {
   transform: rotate(-90deg);
 }
 
-/* Collapsed: the body (+ any pinned footer) fold away so the card shrinks to its header. */
+/* Collapsed: the body (+ any pinned footer) fold away. */
 .summary-card.summary-collapsed .summary-card-body,
 .summary-card.summary-collapsed .reconcile-close {
   display: none;
 }
 
-/* One dense type scale (--text-sm) across both cards' bodies, so the reconciliation rows
-   and the rollup rows read as the same list, not two different sizes. */
+/* One dense type scale (--text-sm) across both cards' bodies. */
 .summary-card-body {
   padding: 0 var(--spacing-lg) var(--spacing-md);
   font-size: var(--text-sm);

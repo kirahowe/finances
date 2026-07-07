@@ -1,17 +1,13 @@
-/* Undo/redo controls (in the toolbar) + lingering-row styling for the server-authoritative
-   workspace. No toast — undo/redo live in the control panel, plus Cmd/Ctrl+Z(/+Shift). */
+/* Undo/redo controls (in the toolbar) + lingering-row styling. */
 .undo-redo {
   display: inline-flex;
-  gap: 0.25rem;
+  gap: var(--spacing-xs);
 }
 
 /* Square icon-button footprint, shared with the month-navigator carets
-   (.month-nav-button, see month-navigator.css). The toolbar's text controls (chips,
-   scope, search, Columns) are all --toolbar-control-height (29px) tall; these icon
-   buttons are that same height AND width, so they read as one square in the rule. The
-   glyph is an inline SVG (chevrons / undo-redo arrows) sized to 1rem and centred by the
-   base .button's flex — no text baseline to fight, so it's crisp and identical across
-   both, unlike a font glyph that sits off-centre in its em box. */
+   (.month-nav-button). The toolbar's text controls are all
+   --toolbar-control-height tall; these icon buttons are that same height
+   AND width, so they read as one square in the rule. */
 .month-nav-button,
 .undo-redo-btn {
   width: var(--toolbar-control-height);
@@ -22,8 +18,8 @@
 
 .month-nav-button svg,
 .undo-redo-btn svg {
-  width: 1rem;
-  height: 1rem;
+  width: var(--spacing-md);
+  height: var(--spacing-md);
 }
 
 .undo-redo-btn:disabled {
@@ -31,8 +27,8 @@
   cursor: default;
 }
 
-/* A row edited out of the active filter lingers (visible but de-emphasised) until the next
-   view change, so a fast mistake is noticeable rather than vanishing under you. */
+/* A row edited out of the active filter lingers (visible but de-emphasised)
+   until the next view change. */
 .table tr.is-stale td {
   opacity: 0.5;
 }

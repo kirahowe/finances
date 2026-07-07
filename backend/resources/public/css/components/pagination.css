@@ -15,7 +15,7 @@
 }
 
 .pagination-size-button {
-  min-width: 46px;
+  min-width: 2.75rem;
   padding: var(--control-pad-y-sm) var(--control-pad-x-sm);
   font-family: var(--font-mono);
   font-size: var(--text-sm);
@@ -32,11 +32,11 @@
   padding: var(--control-pad-y-sm) 0;
 }
 
-/* First/prev/next/last are the app's shared 1rem stroke chevrons (single = step,
-   double = jump to end), matching the row caret, month nav, and summary-card toggles. */
+/* First/prev/next/last are the app's shared stroke chevrons (single = step,
+   double = jump to end). */
 .pagination-nav-button svg {
-  width: 1rem;
-  height: 1rem;
+  width: var(--spacing-md);
+  height: var(--spacing-md);
 }
 
 .pagination-page-button {
@@ -55,8 +55,7 @@
   white-space: nowrap;
 }
 
-/* A row sliced out of the current page. data-show removes the inline display when a row
-   matches the filters, so this class layers on top to hide the off-page rows. */
+/* A row sliced out of the current page. */
 .page-hidden {
   display: none;
 }

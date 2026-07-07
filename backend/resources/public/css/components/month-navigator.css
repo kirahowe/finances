@@ -1,7 +1,5 @@
-/* The month navigator now lives inline at the head of the command bar — it's the
-   ledger "dateline" (the period you're looking at), not a row of its own. The display
-   stays in the Fraunces serif so it reads as the one editorial flourish on an
-   otherwise utilitarian control rule, but compact so it earns its vertical space. */
+/* The month navigator lives inline at the head of the command bar — it's
+   the dateline (the period you're looking at), not a row of its own. */
 .month-navigator {
   display: flex;
   align-items: center;
@@ -22,7 +20,3 @@
   text-align: center;
   color: var(--color-ink);
 }
-
-/* Rendered as anchors styled as buttons; their chevron glyphs are inline SVGs sized by
-   the shared square icon-button footprint in edit-controls.css (.month-nav-button,
-   .undo-redo-btn) — nothing further to set here. */

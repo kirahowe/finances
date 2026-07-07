@@ -1,11 +1,9 @@
-/* Monthly-close reconciliation panel — the period-delta confidence readout that sits
-   above the category rollup in the summary column (its card chrome + collapsible header
-   are the shared .summary-card, see summary-card.css). Two modes: an OVERVIEW list where
-   each account is a drill button (does the tracked activity match the bank's balance
-   change for the month?), and a FOCUSED single-account card (opening/closing entry +
-   verdict) drilled into from the overview or by filtering the table to one account. All
-   colors come from the shared design tokens, so dark mode (prefers-color-scheme) and
-   WCAG-AA contrast follow the design system automatically. */
+/* Monthly-close reconciliation panel — the period-delta confidence readout
+   that sits above the category rollup in the summary column. Its card chrome
+   + collapsible header are the shared .summary-card. Two modes: an OVERVIEW
+   list where each account is a drill button, and a FOCUSED single-account
+   card drilled into from the overview or by filtering the table to one
+   account. */
 
 .reconcile-rows {
   list-style: none;
@@ -17,17 +15,17 @@
   font-size: var(--text-sm);
 }
 
-/* The whole account row is a drill button: name (truncated) left, status hard against the
-   right edge (so every row's status lines up regardless of name length). Quiet — reads as
-   a calm list line until hovered. */
+/* The whole account row is a drill button: name (truncated) left, status
+   hard against the right edge. min-width:0 on the account span lets the
+   ellipsis actually shrink instead of pushing the row wider. */
 .reconcile-drill {
   display: grid;
   grid-template-columns: minmax(0, 1fr) auto;
   align-items: baseline;
   gap: var(--spacing-sm);
   width: 100%;
-  padding: 0.25rem 0.4rem;
-  margin: 0 -0.4rem;
+  padding: var(--spacing-xs) var(--spacing-sm);
+  margin: 0 calc(-1 * var(--spacing-sm));
   font: inherit;
   text-align: left;
   color: inherit;
@@ -58,7 +56,7 @@
   justify-self: end;
   display: inline-flex;
   align-items: baseline;
-  gap: 0.3rem;
+  gap: var(--spacing-xs);
   font-variant-numeric: tabular-nums;
   white-space: nowrap;
 }
@@ -80,26 +78,30 @@
   font-weight: 700;
 }
 
-/* --- Focused single-account reconcile card ------------------------------- */
-/* The drill-in workspace: Back, the opening/closing entry (app-owned end-of-day dates),
-   Save, and the expected-vs-tracked readout with the match / off-by verdict. */
+/* --- Focused single-account reconcile card -------------------------------
+   The card body owns its width (the .summary-card clips overflow); the
+   focus content is a column with min-width:0 so no descendant's nowrap
+   text (dates, amounts) can push the column wider when statements appear. */
 .reconcile-focus {
   display: flex;
   flex-direction: column;
   gap: var(--spacing-md);
+  min-width: 0;
 }
 
 .reconcile-focus-head {
   display: flex;
   align-items: baseline;
   gap: var(--spacing-sm);
+  min-width: 0;
 }
 
 .reconcile-back {
+  flex: 0 0 auto;
   padding: 0;
   font: inherit;
   font-size: var(--text-sm);
-  color: var(--color-pine-hover);
+  color: var(--color-primary-hover);
   background: none;
   border: none;
   cursor: pointer;
@@ -117,6 +119,7 @@
 }
 
 .reconcile-focus-title {
+  flex: 1 1 auto;
   min-width: 0;
   overflow: hidden;
   text-overflow: ellipsis;
@@ -134,11 +137,10 @@
 .reconcile-field {
   display: flex;
   flex-direction: column;
-  gap: 0.2rem;
+  gap: var(--spacing-xs);
 }
 
-/* Label carries the app-owned boundary date as a muted note, so the user only types a
-   figure and never has to reason about which date the balance is "as of". */
+/* Label carries the app-owned boundary date as a muted note. */
 .reconcile-field-label {
   display: flex;
   align-items: baseline;
@@ -155,7 +157,7 @@
 }
 
 .reconcile-save {
-  width: 100%;
+  align-self: flex-end;
 }
 
 /* The verdict: expected change vs tracked activity, then the match / off-by line. */
@@ -170,7 +172,7 @@
   justify-content: space-between;
   gap: var(--spacing-sm);
   font-size: var(--text-sm);
-  padding: 0.1rem 0;
+  padding: var(--spacing-xs) 0;
 }
 
 .reconcile-readout-label {
@@ -179,6 +181,7 @@
 
 .reconcile-readout-amt {
   font-variant-numeric: tabular-nums;
+  white-space: nowrap;
   color: var(--color-ink);
 }
 
@@ -194,15 +197,19 @@
   font-size: var(--text-2xs);
   font-weight: 600;
   text-transform: uppercase;
-  letter-spacing: 0.14em;
+  letter-spacing: 0.1em;
   color: var(--color-text-muted);
 }
 
-/* --- Statements list (arbitrary-span periods) ---------------------------- */
+/* --- Statements list (arbitrary-span periods) ----------------------------
+   The section owns its width: min-width:0 + overflow:hidden so the long
+   mono balance strings can never push the column wider when statements
+   appear vs. when they don't. */
 .reconcile-statements {
   margin-top: var(--spacing-md);
   padding-top: var(--spacing-sm);
   border-top: 1px solid var(--color-border);
+  min-width: 0;
 }
 
 .reconcile-statements-head {
@@ -210,13 +217,15 @@
   align-items: baseline;
   justify-content: space-between;
   gap: var(--spacing-sm);
+  min-width: 0;
 }
 
 .reconcile-add-statement {
-  padding: 0.15rem 0.4rem;
+  flex: 0 0 auto;
+  padding: var(--spacing-xs) var(--spacing-sm);
   font: inherit;
   font-size: var(--text-sm);
-  color: var(--color-pine-hover);
+  color: var(--color-primary-hover);
   background: none;
   border: none;
   border-radius: var(--radius-sm);
@@ -243,18 +252,19 @@
   display: flex;
   align-items: flex-start;
   gap: var(--spacing-xs);
+  min-width: 0;
 }
 
-/* The clickable span: two stacked lines (dates + status, then the two balances muted).
-   Narrows the table to this statement when clicked; highlighted while it's the active span. */
+/* The clickable span: two stacked lines. min-width:0 lets the dates
+   ellipsis shrink instead of forcing the row wider. */
 .reconcile-statement-span {
-  flex: 1;
+  flex: 1 1 auto;
   min-width: 0;
   display: flex;
   flex-direction: column;
-  gap: 0.1rem;
-  padding: 0.25rem 0.4rem;
-  margin: 0 0 0 -0.4rem;
+  gap: var(--spacing-xs);
+  padding: var(--spacing-xs) var(--spacing-sm);
+  margin: 0 0 0 calc(-1 * var(--spacing-sm));
   font: inherit;
   text-align: left;
   color: inherit;
@@ -262,6 +272,7 @@
   border: none;
   border-radius: var(--radius-sm);
   cursor: pointer;
+  overflow: hidden;
 }
 
 .reconcile-statement-span:hover {
@@ -274,8 +285,8 @@
 }
 
 .reconcile-statement.is-selected .reconcile-statement-span {
-  background: var(--color-pine-soft);
-  box-shadow: inset 2px 0 0 var(--color-pine);
+  background: var(--color-accent-soft);
+  box-shadow: inset 2px 0 0 var(--color-primary);
 }
 
 .reconcile-statement-line {
@@ -283,9 +294,11 @@
   align-items: baseline;
   justify-content: space-between;
   gap: var(--spacing-sm);
+  min-width: 0;
 }
 
 .reconcile-statement-dates {
+  min-width: 0;
   font-size: var(--text-sm);
   color: var(--color-ink);
   white-space: nowrap;
@@ -297,13 +310,17 @@
   font-size: var(--text-2xs);
   color: var(--color-text-muted);
   font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 
 .reconcile-statement-edit {
-  padding: 0.25rem 0.3rem;
+  flex: 0 0 auto;
+  padding: var(--spacing-xs) var(--spacing-xs);
   font: inherit;
   font-size: var(--text-2xs);
-  color: var(--color-pine-hover);
+  color: var(--color-primary-hover);
   background: none;
   border: none;
   border-radius: var(--radius-sm);
@@ -325,9 +342,8 @@
   color: var(--color-text-muted);
 }
 
-/* Close controls: the completeness gate + the Close/Reopen action. Pinned as the card
-   footer below the scrolling body, so it carries its own padding (the card itself has
-   none) and a divider to sit apart from the rows above. */
+/* Close controls: the completeness gate + the Close/Reopen action. Pinned as
+   the card footer below the scrolling body. */
 .reconcile-close {
   padding: var(--spacing-md) var(--spacing-lg);
   border-top: 1px solid var(--color-border);
@@ -344,7 +360,7 @@
   align-items: baseline;
   gap: var(--spacing-xs);
   font-size: var(--text-sm);
-  padding: 0.1rem 0;
+  padding: var(--spacing-xs) 0;
 }
 
 .gate-mark {

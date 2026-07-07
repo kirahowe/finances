@@ -1,5 +1,5 @@
-/* Per-row actions: a quiet caret trigger that opens a small menu, so row actions
-   (split, match, …) live in one place instead of crowding the cells. */
+/* Per-row actions: a quiet caret trigger that opens a small menu, so row
+   actions live in one place instead of crowding the cells. */
 .row-actions {
   position: relative;
   display: inline-flex;
@@ -10,15 +10,16 @@
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  width: 1.75rem;
-  height: 1.75rem;
+  width: var(--control-square-sm);
+  height: var(--control-square-sm);
   padding: 0;
   background: none;
   border: none;
   border-radius: var(--radius-sm);
   color: var(--color-text-muted);
   cursor: pointer;
-  transition: color 0.15s var(--ease-out), background-color 0.15s var(--ease-out);
+  transition: color var(--duration-fast) var(--ease-out),
+    background-color var(--duration-fast) var(--ease-out);
 }
 
 .row-actions-trigger:hover,
@@ -53,7 +54,8 @@
   font-size: var(--text-sm);
   color: var(--color-text);
   cursor: pointer;
-  transition: background-color 0.12s var(--ease-out), color 0.12s var(--ease-out);
+  transition: background-color var(--duration-fast) var(--ease-out),
+    color var(--duration-fast) var(--ease-out);
 }
 
 .row-actions-item:hover,
@@ -68,9 +70,7 @@
   color: var(--color-error-text);
 }
 
-/* Trailing actions column: always-on chrome (not a hideable data column), narrow and
-   right-hugging. The <col> fixes its width under the table's fixed layout; the header is
-   intentionally blank. */
+/* Trailing actions column: always-on chrome, narrow and right-hugging. */
 .actions-col {
   width: 2.75rem;
 }
@@ -84,11 +84,10 @@
   padding: 0;
 }
 
-/* The caret is a quiet, always-present affordance (muted at rest, pine on row hover /
-   when its menu is open) — a row-end chevron that reads as "open me", like the before. */
+/* The caret is a quiet, always-present affordance. */
 .row-actions-trigger svg {
-  width: 1rem;
-  height: 1rem;
+  width: var(--spacing-md);
+  height: var(--spacing-md);
 }
 
 .table tbody tr:hover .row-actions-trigger {

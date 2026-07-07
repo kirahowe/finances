@@ -1,26 +1,40 @@
-/* Shared layout for the workspace's island-less form modals (statement balance,
-   add manual transaction). Builds on the base .modal-content + .form-* classes in
-   common.css; only the modal width, the intro hint, and the side-by-side field row
-   are feature-specific. All colors/spacing come from the design tokens, so dark mode
-   and WCAG-AA contrast follow automatically. */
+/* Shared layout for the workspace's form modals (statement balance,
+   add manual transaction). Builds on the base .modal-content + .form-*
+   classes; only the modal width, the intro hint, and the side-by-side
+   field row are feature-specific. */
 
 .form-modal-content {
-  max-width: 460px;
+  max-width: 28rem;
   width: 90vw;
 }
 
-.form-modal-hint {
-  margin: calc(-1 * var(--spacing-md)) 0 var(--spacing-lg);
-  font-size: var(--text-sm);
-  color: var(--color-text-muted);
+/* Tighten the h2's bottom margin inside a form modal so the hint sits
+   close to the title without a negative-margin hack. */
+.form-modal-content h2 {
+  margin-bottom: var(--spacing-sm);
 }
 
-/* Two fields sharing a row (e.g. Date + Balance) — collapses to one column when the
-   modal is too narrow. The nested .form-group keeps its own bottom margin. */
+.form-modal-hint {
+  margin: 0 0 var(--spacing-lg);
+  font-size: var(--text-sm);
+  color: var(--color-text-muted);
+  line-height: 1.5;
+}
+
+/* Two fields sharing a row (e.g. Date + Balance, Direction + Amount) —
+   collapses to one column when the modal is too narrow. The nested
+   .form-group keeps its own bottom margin. */
 .form-modal-row {
   display: grid;
   grid-template-columns: 1fr 1fr;
   gap: var(--spacing-md);
+}
+
+/* A row's form-groups don't need their own bottom margin — the row gap
+   handles vertical rhythm, and the row itself sits in the modal's stack
+   of form-groups (each with margin-bottom: spacing-md). */
+.form-modal-row > .form-group {
+  margin-bottom: 0;
 }
 
 @media (max-width: 380px) {

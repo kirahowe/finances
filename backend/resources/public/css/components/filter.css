@@ -1,6 +1,5 @@
-/* The command bar: a single rule carrying the month dateline, the work-queue
-   toggles, the search box, and the right-aligned actions. It used to sit below a
-   separate month row; folding both into one bar is what frees the screen for table. */
+/* The command bar: a single rule carrying the month dateline, the
+   work-queue toggles, the search box, and the right-aligned actions. */
 .toolbar {
   display: flex;
   align-items: center;
@@ -9,12 +8,11 @@
   flex-wrap: wrap;
 }
 
-/* Hairline between the period (dateline + month arrows) and the filter cluster, so
-   "where am I" reads as distinct from "what am I looking at" within the one bar. */
+/* Hairline between the period and the filter cluster. */
 .toolbar-divider {
   align-self: stretch;
   width: 1px;
-  min-height: 1.4rem;
+  min-height: var(--spacing-md);
   margin: 0 var(--spacing-xs);
   background: var(--color-border);
 }
@@ -35,10 +33,8 @@
   flex-wrap: wrap;
 }
 
-/* Review-scope segmented toggle (Needs review / All). Pinned to the shared control
-   height so the segmented pair lands on exactly the same line as every other toolbar
-   control; its buttons fill that height (height:100%) rather than each re-asserting it,
-   which would overflow the wrapper's border. */
+/* Review-scope segmented toggle (Needs review / All). Pinned to the shared
+   control height. */
 .scope-toggle {
   display: inline-flex;
   height: var(--toolbar-control-height);
@@ -61,7 +57,8 @@
   font-weight: 500;
   color: var(--color-ink-soft);
   white-space: nowrap;
-  transition: background-color 0.15s var(--ease-out), color 0.15s var(--ease-out);
+  transition: background-color var(--duration-fast) var(--ease-out),
+    color var(--duration-fast) var(--ease-out);
 }
 
 .scope-toggle-btn + .scope-toggle-btn {
@@ -78,8 +75,7 @@
   color: var(--color-on-accent);
 }
 
-/* Binary filter chips (uncategorized, hide transfers) — rectilinear to match the
-   rest of the bar; the design system uses tight corners (no pills). */
+/* Binary filter chips (uncategorized, hide transfers). */
 .count-chip {
   display: inline-flex;
   align-items: center;
@@ -94,8 +90,9 @@
   font-weight: 500;
   cursor: pointer;
   white-space: nowrap;
-  transition: background-color 0.15s var(--ease-out), color 0.15s var(--ease-out),
-    border-color 0.15s var(--ease-out);
+  transition: background-color var(--duration-fast) var(--ease-out),
+    color var(--duration-fast) var(--ease-out),
+    border-color var(--duration-fast) var(--ease-out);
 }
 
 .count-chip:hover {
@@ -109,28 +106,25 @@
   border-color: transparent;
 }
 
-/* One shared count badge for every filter control — the scope toggle, the binary
-   chips, and the selected-count on the dropdown buttons — so a number always reads
-   the same. */
+/* One shared count badge for every filter control. */
 .filter-count {
   font-family: var(--font-mono);
   font-variant-numeric: tabular-nums;
   font-size: var(--text-xs);
-  padding: 0 0.3rem;
+  padding: 0 var(--spacing-xs);
   border-radius: var(--radius-sm);
   background: var(--color-paper-deep);
   color: var(--color-text-muted);
 }
 
-/* Inverted when its control is active (solid pine fill). */
+/* Inverted when its control is active (solid accent fill). */
 .scope-toggle-btn.is-active .filter-count,
 .count-chip.is-active .filter-count {
   background: rgba(255, 255, 255, 0.22);
   color: var(--color-on-accent);
 }
 
-/* Dropdown-trigger button — the secondary button + arrow used by the ColumnPicker (and
-   any other menu trigger styled to match the rest of the toolbar). */
+/* Dropdown-trigger button container. */
 .filter-button-container {
   position: relative;
   display: inline-flex;
@@ -138,9 +132,8 @@
   align-items: center;
 }
 
-/* Secondary toolbar buttons (the Columns dropdown trigger, "Review transfers", and
-   "Add transaction") — pinned to the shared control height with the toolbar's --text-sm
-   so they match the chips/scope exactly instead of the taller base-.button footprint. */
+/* Secondary toolbar buttons — pinned to the shared control height with
+   the toolbar's --text-sm so they match the chips/scope exactly. */
 .filter-button,
 .add-transaction-button {
   display: inline-flex;
@@ -152,8 +145,7 @@
   white-space: nowrap;
 }
 
-/* The dropdown caret is the app's shared stroke chevron (points down when closed,
-   flips up when the menu is open), flex-centred so it sits on the button's midline. */
+/* The dropdown caret — shared stroke chevron. */
 .filter-button-arrow {
   display: inline-flex;
   align-items: center;
@@ -161,9 +153,9 @@
 }
 
 .filter-button-arrow svg {
-  width: 0.85rem;
-  height: 0.85rem;
-  transition: transform 0.15s var(--ease-out);
+  width: var(--spacing-md);
+  height: var(--spacing-md);
+  transition: transform var(--duration) var(--ease-out);
 }
 
 .filter-button[aria-expanded="true"] .filter-button-arrow svg {
@@ -173,15 +165,15 @@
 /* Filter Dropdown */
 .filter-dropdown {
   position: absolute;
-  top: calc(100% + 6px);
+  top: calc(100% + var(--spacing-xs));
   left: 0;
   z-index: 1000;
   background: var(--color-surface);
   border: 1px solid var(--color-border);
   border-radius: var(--border-radius);
   box-shadow: var(--shadow-lg);
-  min-width: 280px;
-  max-width: 400px;
+  min-width: 18rem;
+  max-width: 26rem;
   overflow: hidden;
 }
 
@@ -192,7 +184,7 @@
 
 .filter-dropdown-search {
   width: 100%;
-  padding: var(--control-pad-y-sm) 0.6rem;
+  padding: var(--control-pad-y-sm) var(--spacing-sm);
   border: 1px solid var(--color-border-strong);
   border-radius: var(--border-radius);
   font-size: var(--text-sm);
@@ -210,7 +202,7 @@
   list-style: none;
   padding: var(--spacing-xs);
   margin: 0;
-  max-height: 300px;
+  max-height: 18rem;
   overflow-y: auto;
 }
 
@@ -219,7 +211,7 @@
   margin: 0;
   cursor: pointer;
   border-radius: var(--radius-sm);
-  transition: background-color 0.12s var(--ease-out);
+  transition: background-color var(--duration-fast) var(--ease-out);
 }
 
 .filter-dropdown-item:hover,
@@ -241,7 +233,7 @@
   display: flex;
   align-items: center;
   gap: var(--spacing-sm);
-  padding: 0.4rem 0.6rem;
+  padding: var(--spacing-xs) var(--spacing-sm);
   width: 100%;
   font-size: var(--text-sm);
 }
@@ -278,15 +270,14 @@
   padding: var(--control-pad-y-sm) var(--control-pad-x-sm);
 }
 
-/* The "View" dropdown stacks a Display group above the column-visibility list. A hairline
-   and a small caps label separate the two groups so the one menu reads as two sections. */
+/* The "View" dropdown stacks a Display group above the column-visibility list. */
 .view-menu-section + .view-menu-section {
   border-top: 1px solid var(--color-border);
 }
 
 .view-menu-group-label {
   margin: 0;
-  padding: var(--spacing-sm) 0.6rem 0.1rem;
+  padding: var(--spacing-sm) var(--spacing-sm) var(--spacing-xs);
   font-size: var(--text-2xs);
   font-weight: 600;
   text-transform: uppercase;
@@ -294,16 +285,15 @@
   color: var(--color-text-muted);
 }
 
-/* When the dropdown is rendered inside the portaled header-filter popover, the wrapper
-   owns placement, so drop the dropdown's own absolute positioning. */
+/* When the dropdown is rendered inside the portaled header-filter popover,
+   the wrapper owns placement. */
 .filter-dropdown--bare {
   position: static;
   top: auto;
   left: auto;
 }
 
-/* The portaled container for an in-header column filter. Only top/left are set inline
-   (runtime rect coordinates); the dropdown inside keeps its own border/shadow/box. */
+/* The portaled container for an in-header column filter. */
 .header-filter-popover {
   position: fixed;
   z-index: 1000;
@@ -315,19 +305,19 @@
 .th-filter-btn {
   display: inline-flex;
   align-items: center;
-  gap: 0.15rem;
+  gap: var(--spacing-xs);
   margin-left: var(--spacing-xs);
-  padding: 0.1rem 0.2rem;
+  padding: var(--spacing-xs);
   border: none;
   background: none;
   color: var(--color-text-muted);
   cursor: pointer;
   border-radius: var(--radius-sm);
   vertical-align: middle;
-  /* Quiet until the column is hovered or the filter is active, so the header stays clean. */
   opacity: 0.4;
-  transition: opacity 0.12s var(--ease-out), color 0.12s var(--ease-out),
-    background-color 0.12s var(--ease-out);
+  transition: opacity var(--duration-fast) var(--ease-out),
+    color var(--duration-fast) var(--ease-out),
+    background-color var(--duration-fast) var(--ease-out);
 }
 
 .table th:hover .th-filter-btn {
@@ -339,8 +329,6 @@
   background: var(--color-hover-neutral);
 }
 
-/* Keyboard focus must surface the funnel even without a hover (it's otherwise quiet at
-   0.4 opacity), so tabbing across headers lands on a visible control. */
 .th-filter-btn:focus-visible {
   opacity: 1;
 }
@@ -368,7 +356,7 @@
   align-items: center;
   gap: var(--spacing-xs);
   height: var(--toolbar-control-height);
-  padding: 0 0.5rem;
+  padding: 0 var(--spacing-sm);
   border: 1px solid var(--color-border-strong);
   border-radius: var(--border-radius);
   background: var(--color-surface);
@@ -382,8 +370,8 @@
 
 .table-search-icon {
   flex-shrink: 0;
-  width: 0.95rem;
-  height: 0.95rem;
+  width: var(--spacing-sm);
+  height: var(--spacing-sm);
   color: var(--color-text-muted);
 }
 
@@ -393,7 +381,7 @@
   padding: var(--control-pad-y-sm) 0;
   font-size: var(--text-sm);
   color: var(--color-ink);
-  min-width: 13rem;
+  min-width: 12rem;
 }
 
 .table-search-input:focus {
@@ -408,8 +396,6 @@
   align-items: center;
   flex-wrap: wrap;
   gap: var(--spacing-xs);
-  /* Pull up under the filter bar (which carries a large bottom margin) and sit close to
-     the table it narrows. */
   margin-top: calc(-1 * var(--spacing-sm));
   margin-bottom: var(--spacing-md);
 }
@@ -418,7 +404,7 @@
   display: inline-flex;
   align-items: center;
   gap: var(--spacing-xs);
-  padding: 0.15rem 0.2rem 0.15rem 0.5rem;
+  padding: var(--spacing-xs) var(--spacing-xs) var(--spacing-xs) var(--spacing-sm);
   border: 1px solid var(--color-border-strong);
   border-radius: var(--border-radius);
   background: var(--color-surface);
@@ -443,8 +429,8 @@
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  width: 1.15rem;
-  height: 1.15rem;
+  width: var(--spacing-md);
+  height: var(--spacing-md);
   border: none;
   background: none;
   color: var(--color-text-muted);

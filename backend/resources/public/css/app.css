@@ -1,8 +1,7 @@
-/* Entry stylesheet for the server-rendered (Replicant + Datastar) frontend.
-   Composes the carried-over "Ledger" design system: base tokens first, then
-   shared components, layouts, and page styles. Dark mode is driven by
-   prefers-color-scheme only (no toggle). @import rules must precede all other
-   rules. */
+/* Entry stylesheet for the server-rendered (Datastar) frontend.
+   Composes the design system: base tokens first, then shared components,
+   layouts, and page styles. Dark mode is driven by prefers-color-scheme
+   only (no toggle). @import rules must precede all other rules. */
 
 /* Base */
 @import "base/variables.css";

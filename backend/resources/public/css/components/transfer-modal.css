@@ -1,6 +1,6 @@
 /* ── Review / match modal ───────────────────────────────────────────────────── */
 .transfer-modal-content {
-  max-width: 620px;
+  max-width: 38rem;
   width: 90vw;
 }
 
@@ -66,7 +66,7 @@
 .transfer-suggestion-meta {
   font-size: var(--text-xs);
   color: var(--color-text-muted);
-  margin-top: 0.1rem;
+  margin-top: var(--spacing-xs);
 }
 
 .transfer-suggestion-amount {
@@ -84,15 +84,16 @@
   font-weight: 600;
   text-transform: uppercase;
   letter-spacing: 0.06em;
-  padding: 0.2rem 0.35rem;
+  padding: var(--spacing-xs) var(--spacing-xs);
   border-radius: var(--radius-sm);
   white-space: nowrap;
-  transition: background-color 0.15s var(--ease-out), color 0.15s var(--ease-out);
+  transition: background-color var(--duration-fast) var(--ease-out),
+    color var(--duration-fast) var(--ease-out);
 }
 
 .transfer-reject-button:hover {
   color: var(--color-negative);
-  background-color: var(--color-accent-soft);
+  background-color: var(--color-error-bg);
 }
 
 /* A candidate row in the manual-match modal is a full-width clickable button. */
@@ -109,12 +110,13 @@
   background: none;
   cursor: pointer;
   font-family: inherit;
-  transition: background-color 0.15s var(--ease-out), border-color 0.15s var(--ease-out);
+  transition: background-color var(--duration-fast) var(--ease-out),
+    border-color var(--duration-fast) var(--ease-out);
 }
 
 .transfer-candidate:hover:not(:disabled) {
   background-color: var(--color-accent-soft);
-  border-color: var(--color-pine-soft-border);
+  border-color: var(--color-accent-soft-border);
 }
 
 .transfer-candidate:disabled {
@@ -123,7 +125,7 @@
 }
 
 /* A read-only counterpart row (the matched-transfer view): same frame as a
-   clickable candidate, but inert — no hover affordance or pointer. */
+   clickable candidate, but inert. */
 .transfer-candidate.is-static {
   cursor: default;
 }
@@ -141,9 +143,9 @@
   margin-top: var(--spacing-lg);
 }
 
-/* Compact Confirm action in a suggestion row (it shares the row with the route + amount). */
+/* Compact Confirm action in a suggestion row. */
 .transfer-confirm-button {
-  padding: 0.3rem 0.7rem;
+  padding: var(--spacing-xs) var(--spacing-sm);
   font-size: var(--text-sm);
   white-space: nowrap;
 }
@@ -161,8 +163,8 @@
 
 /* ── Transfer status (in the transactions table category cell) ───────────────── */
 
-/* The category cell lays the category out beside its transfer marker (transfer rows
-   only) on a single line, so transfer rows stay as dense as every other row. */
+/* The category cell lays the category out beside its transfer marker
+   (transfer rows only) on a single line. */
 .category-cell-row {
   display: flex;
   align-items: center;
@@ -171,29 +173,29 @@
   width: 100%;
 }
 
-/* Content-width (not stretched) so the marker tucks in right after the category text
-   rather than floating to the cell's right edge; the button still wraps long names. */
+/* Content-width (not stretched) so the marker tucks in right after the
+   category text. */
 .category-cell-row .category-button {
   flex: 0 1 auto;
   width: auto;
   min-width: 0;
 }
 
-/* The transfer marker beside the category. Both states share the ⇄ glyph (one idea —
-   a link between two accounts) but diverge in weight: matched is a quiet pine glyph
-   (settled — detail in the tooltip); unmatched is an ochre to-do button. Both are
-   clickable and open the transfer modal (to view/unmatch, or to find a counterpart). */
+/* The transfer marker beside the category. Both states share the ⇄ glyph
+   but diverge in weight: matched is a quiet accent glyph; unmatched is a
+   warn to-do button. */
 .transfer-status {
   display: inline-flex;
   align-items: center;
-  gap: 0.25rem;
+  gap: var(--spacing-xs);
   flex-shrink: 0;
   font-family: inherit;
   border: 1px solid transparent;
   line-height: 1.3;
   cursor: pointer;
-  transition: background-color 0.15s var(--ease-out), color 0.15s var(--ease-out),
-    border-color 0.15s var(--ease-out);
+  transition: background-color var(--duration-fast) var(--ease-out),
+    color var(--duration-fast) var(--ease-out),
+    border-color var(--duration-fast) var(--ease-out);
 }
 
 .transfer-status:focus-visible {
@@ -207,10 +209,9 @@
   line-height: 1;
 }
 
-/* Matched — settled. An icon-only pine glyph that sits quietly next to the category;
-   a pine-soft chip on hover marks it as clickable. */
+/* Matched — settled. An icon-only accent glyph. */
 .transfer-status-matched {
-  padding: 0.1rem 0.25rem;
+  padding: var(--spacing-xs) var(--spacing-xs);
   border-radius: var(--radius-sm);
   background: none;
   color: var(--color-primary);
@@ -221,14 +222,13 @@
   background: var(--color-accent-soft);
 }
 
-/* Unmatched — pending. A soft ochre to-do button at the chip radius, so it joins the
-   rectilinear control family while staying the one transfer marker that draws the eye. */
+/* Unmatched — pending. A soft warn to-do button. */
 .transfer-status-unmatched {
-  padding: 0.1rem 0.4rem;
+  padding: var(--spacing-xs) var(--spacing-sm);
   border-radius: var(--border-radius);
-  background: var(--color-badge-manual-bg);
-  border-color: var(--color-badge-manual-border);
-  color: var(--color-badge-manual-text);
+  background: var(--color-pill-warn-bg);
+  border-color: var(--color-pill-warn-border);
+  color: var(--color-pill-warn-text);
   font-size: var(--text-xs);
   font-weight: 600;
   white-space: nowrap;
@@ -239,6 +239,6 @@
 }
 
 .transfer-status-unmatched:hover {
-  background: var(--color-badge-manual-border);
-  border-color: var(--color-badge-manual-text);
+  background: var(--color-pill-warn-border);
+  border-color: var(--color-pill-warn-text);
 }

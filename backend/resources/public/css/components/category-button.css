@@ -13,14 +13,15 @@
   width: 100%;
   white-space: normal;
   word-wrap: break-word;
-  transition: background-color 0.15s var(--ease-out),
-    color 0.15s var(--ease-out), border-color 0.15s var(--ease-out);
+  transition: background-color var(--duration-fast) var(--ease-out),
+    color var(--duration-fast) var(--ease-out),
+    border-color var(--duration-fast) var(--ease-out);
 }
 
 .category-button:hover {
-  color: var(--color-pine-hover);
+  color: var(--color-primary-hover);
   background-color: var(--color-accent-soft);
-  border-color: var(--color-pine-soft-border);
+  border-color: var(--color-accent-soft-border);
 }
 
 .category-button:disabled {
@@ -28,11 +29,12 @@
   cursor: default;
 }
 
-/* While the combobox floats over this button, the floating .category-dropdown-input
-   owns the field. Mute the button's own border/background (and any lingering :hover edge
-   from the click that opened it), and hide its TEXT (color:transparent) so it can't show
-   through the grid combobox's transparent input behind the input's own placeholder/value.
-   The island toggles `.combobox-open` for the lifetime of the open combobox (combobox.ts). */
+/* While the combobox floats over this button, the floating
+   .category-dropdown-input owns the field. Mute the button's own
+   border/background and hide its TEXT (color:transparent) so it can't show
+   through the grid combobox's transparent input behind the input's own
+   placeholder/value. The island toggles `.combobox-open` for the lifetime
+   of the open combobox. */
 .category-button.combobox-open,
 .category-button.combobox-open:hover {
   border-color: transparent;
