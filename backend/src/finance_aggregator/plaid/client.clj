@@ -295,6 +295,9 @@
    :account_id (.getAccountId txn)
    :amount (.getAmount txn)
    :date (str (.getDate txn))
+   ;; When the purchase was authorized (often a day or two before it posts).
+   ;; Plaid can omit it, so guard the null before stringifying.
+   :authorized_date (some-> (.getAuthorizedDate txn) str)
    :name (.getName txn)
    :merchant_name (.getMerchantName txn)
    :pending (.getPending txn)

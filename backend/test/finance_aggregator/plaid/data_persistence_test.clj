@@ -12,6 +12,7 @@
             [datalevin.core :as d]
             [finance-aggregator.data.schema :as schema]
             [finance-aggregator.plaid.data :as plaid-data]
+            [finance-aggregator.utils :as u]
             [finance-aggregator.db :as db])
   (:import [java.io File]
            [java.nio.file Files]
@@ -86,6 +87,7 @@
   [{:transaction_id "tx-plaid-001"
     :account_id "acc-plaid-123"
     :amount 100.50
+    :authorized_date "2024-01-13" ; purchase authorized two days before it posted
     :date "2024-01-15"
     :name "STARBUCKS"
     :merchant_name "Starbucks"
@@ -258,11 +260,13 @@
         (is (= (bigdec "-100.50") (:transaction/amount tx-001)))
         (is (= "STARBUCKS" (:transaction/description tx-001)))
         (is (= "Starbucks" (:transaction/payee tx-001)))
-        (is (some? (:transaction/posted-date tx-001))
-            "Transaction should have posted-date set")
         (is (instance? java.util.Date (:transaction/posted-date tx-001)))
-        (is (= (:transaction/date tx-001) (:transaction/posted-date tx-001))
-            "For Plaid, date and posted-date should be the same")))))
+        (is (= (u/string->date "2024-01-13") (:transaction/date tx-001))
+            "transaction date is the authorized_date, round-tripped through the DB")
+        (is (= (u/string->date "2024-01-15") (:transaction/posted-date tx-001))
+            "posted-date is Plaid's date, round-tripped through the DB")
+        (is (not= (:transaction/date tx-001) (:transaction/posted-date tx-001))
+            "authorized_date and posted date survive as distinct dates")))))
 
 (deftest test-plaid-account-institution-reference
   (testing "Plaid account correctly references institution via lookup ref"

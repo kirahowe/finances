@@ -3,7 +3,8 @@
    Tests follow SimpleFIN pattern for data transformation."
   (:require
    [clojure.test :refer [deftest is testing]]
-   [finance-aggregator.plaid.data :as data])
+   [finance-aggregator.plaid.data :as data]
+   [finance-aggregator.utils :as u])
   (:import
    [java.util Date]))
 
@@ -90,11 +91,12 @@
       (is (= :plaid (:account/provider result))))))
 
 (deftest test-parse-transaction
-  (testing "Transforms Plaid transaction with type conversions"
+  (testing "Transaction date comes from authorized_date, posted-date from Plaid's date"
     (let [txn {:transaction_id "tx-plaid-001"
               :account_id "acc-plaid-123"
               :amount 100.50
-              :date "2024-01-15"
+              :authorized_date "2024-01-15" ; when the purchase happened
+              :date "2024-01-17"            ; when it posted (a day or two later)
               :name "STARBUCKS"
               :merchant_name "Starbucks"
               :pending false}
@@ -103,16 +105,31 @@
       (is (= "tx-plaid-001" (:transaction/external-id result)))
       (is (= [:account/external-id "acc-plaid-123"] (:transaction/account result)))
       (is (= [:user/id "test-user"] (:transaction/user result)))
-      (is (instance? Date (:transaction/date result)))
-      (is (instance? Date (:transaction/posted-date result)))
-      (is (= (:transaction/date result) (:transaction/posted-date result))
-          "For Plaid, date and posted-date should be the same")
+      (is (= (u/string->date "2024-01-15") (:transaction/date result))
+          "transaction date is the authorized_date")
+      (is (= (u/string->date "2024-01-17") (:transaction/posted-date result))
+          "posted-date is Plaid's date")
+      (is (not= (:transaction/date result) (:transaction/posted-date result))
+          "the two dates differ when a purchase posts on a later day")
       (is (instance? java.math.BigDecimal (:transaction/amount result)))
       ;; Plaid is positive=money-out; canonical convention negates so outflows
       ;; are negative.
       (is (= (bigdec "-100.50") (:transaction/amount result)))
       (is (= "STARBUCKS" (:transaction/description result)))
-      (is (= "Starbucks" (:transaction/payee result))))))
+      (is (= "Starbucks" (:transaction/payee result)))))
+  (testing "Falls back to posted date when Plaid omits authorized_date"
+    (let [txn {:transaction_id "tx-plaid-002"
+              :account_id "acc-plaid-123"
+              :amount 10.0
+              :date "2024-01-20"
+              :authorized_date nil
+              :name "NO AUTH DATE"
+              :pending false}
+          result (data/parse-transaction txn "test-user")]
+      (is (instance? Date (:transaction/date result)))
+      (is (= (u/string->date "2024-01-20") (:transaction/date result)))
+      (is (= (:transaction/date result) (:transaction/posted-date result))
+          "with no authorized_date, transaction date falls back to the posted date"))))
 
 (deftest test-parse-transaction-skips-pending
   (testing "Returns nil for pending transactions"

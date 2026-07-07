@@ -85,8 +85,8 @@
 
    Returns: {:transaction/external-id string
             :transaction/account lookup-ref
-            :transaction/date instant
-            :transaction/posted-date instant (same as date for Plaid)
+            :transaction/date instant (when the purchase happened)
+            :transaction/posted-date instant (when it cleared the account)
             :transaction/amount bigdec (NEGATED: canonical inflows+/outflows-)
             :transaction/payee string
             :transaction/description string
@@ -94,12 +94,18 @@
 
    Returns nil if transaction is pending.
 
-   Note: Plaid's 'date' field is the posted date, so we set both
-   :transaction/date and :transaction/posted-date to the same value."
+   Dates: Plaid's 'authorized_date' is when the purchase happened; 'date' is when
+   it posted (often a day or two later). We map authorized_date -> :transaction/date
+   (the date we display, matching a statement's transaction-date column) and date ->
+   :transaction/posted-date (what reconciliation buckets by). authorized_date can be
+   absent, so it falls back to the posted date."
   [txn user-id]
   (when-not (:pending txn)
     (let [payee (or (:merchant_name txn) (:name txn))
-          posted-date (u/string->date (:date txn))]
+          posted-date (u/string->date (:date txn))
+          txn-date (if (seq (:authorized_date txn))
+                     (u/string->date (:authorized_date txn))
+                     posted-date)]
       (-> txn
           (select-keys [:transaction_id :account_id :amount :name])
           (set/rename-keys {:transaction_id :transaction/external-id
@@ -112,8 +118,9 @@
           (assoc :transaction/user [:user/id user-id]
                  :transaction/payee payee
                  :transaction/provider :plaid)
-          ;; Set both date and posted-date (Plaid only provides one date)
-          (assoc :transaction/date posted-date
+          ;; Transaction date = authorized_date (when it happened); posted-date =
+          ;; Plaid's `date` (when it cleared). See the docstring.
+          (assoc :transaction/date txn-date
                  :transaction/posted-date posted-date)
           ;; Type conversion + sign flip to the canonical convention.
           ;; Plaid is positive=money-out; we standardize on inflows-positive,
