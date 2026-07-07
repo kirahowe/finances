@@ -10,16 +10,20 @@
          :task (shell {:dir "islands"} "npm" "run" "build")}
 
   ;; ── Run ──────────────────────────────────────────────────────────────
-  dev {:doc "Run the app for local development: rebuild islands on change + start the backend"
+  dev {:doc "Run the app for local development: rebuild islands on change + start the backend (SSR app + nREPL in ONE JVM)"
        :depends [build]
        :requires ([babashka.process :as p])
        :task (let [watcher (p/process {:dir "islands" :inherit true} "npm" "run" "watch")]
                ;; The backend (clojure -M:dev) serves the SSR pages plus the built
-               ;; islands/Datastar from resources/public. The watcher keeps the
-               ;; island bundles fresh; kill it when the dev server exits.
+               ;; islands/Datastar from resources/public, AND hosts an nREPL in the
+               ;; same JVM (finance-aggregator.dev.main) so your editor's REPL shares
+               ;; the one process — and the one Datalevin connection. A separate REPL
+               ;; JVM would deadlock on the DB's single-writer lock. Connect your
+               ;; editor to backend/.nrepl-port. The watcher keeps the island bundles
+               ;; fresh; kill it when the dev server exits.
                (.addShutdownHook (Runtime/getRuntime)
                                  (Thread. (fn [] (p/destroy-tree watcher))))
-               (shell {:dir "backend"} "clojure" "-M:dev" "-m" "finance-aggregator.main"))}
+               (shell {:dir "backend"} "clojure" "-M:dev" "-m" "finance-aggregator.dev.main"))}
 
   resync {:doc "Run one resilient sync pass over all connections, then exit (JVM: Datalevin + Plaid SDK)"
           :task (shell {:dir "backend"} "clojure" "-M:resync")}

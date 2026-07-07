@@ -63,10 +63,12 @@
 ;; Configure Integrant
 ;;
 
+;; Same config the app server loads: base-system.edn + the env's config.edn
+;; (resolved from the classpath — env/dev/resources/config.edn under the :dev/:repl
+;; alias). The old ["system/base-system.edn" "system/dev.edn"] pointed at a file that
+;; doesn't exist, so (go) threw before it could even open the DB.
 (integrant.repl/set-prep!
- #(sys/prep-config
-   (sys/load-configs ["system/base-system.edn"
-                      "system/dev.edn"])))
+ #(sys/prep-config (sys/load-configs sys/default-config-files)))
 
 ;;
 ;; Convenience Aliases
