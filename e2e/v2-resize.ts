@@ -92,8 +92,8 @@ const fitChanged = Object.entries(COLS)
 check('double-click fit is LOCAL — every other column byte-identical', fitChanged.length === 0,
   fitChanged.map(([id]) => `${id} ${beforeFit[id]}→${afterFit[id]}`).join(', ') || 'all unchanged');
 
-// Hide a column via the picker → its <col> is display:none (fixed layout stays aligned).
-await page.getByRole('button', { name: 'Columns' }).click();
+// Hide a column via the View menu → its <col> is display:none (fixed layout stays aligned).
+await page.getByRole('button', { name: 'View', exact: true }).click();
 await page.locator('.column-picker .filter-dropdown-item', { hasText: 'Amount' }).locator('input').uncheck();
 await page.waitForFunction(() => {
   const c = document.querySelectorAll('colgroup col')[5];

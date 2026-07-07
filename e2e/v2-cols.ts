@@ -24,8 +24,8 @@ await page.waitForTimeout(300);
 check('no page errors', !logs.length, logs.join('; '));
 check('Institution column visible initially', await instHeader().isVisible());
 
-// Open the column picker and hide Institution.
-await page.getByRole('button', { name: 'Columns' }).click();
+// Open the View menu and hide Institution.
+await page.getByRole('button', { name: 'View', exact: true }).click();
 await page.locator('.column-picker .filter-dropdown-item', { hasText: 'Institution' }).locator('input').uncheck();
 await page.waitForFunction(() => {
   const t = document.querySelector('table.table');
@@ -35,10 +35,24 @@ check('hiding toggles hide-institution (CSS, no round-trip)', !(await instHeader
 check('URL reflects hidecols=institution',
   new URL(page.url()).searchParams.get('hidecols') === 'institution', page.url());
 
+// Same menu, Display group: toggling "Posted dates" off flips hide-posted (pure CSS) and the
+// url island persists the exception as posted=0 — structural, so it doesn't rely on seed data
+// happening to carry a transaction/posted-date split.
+await page.locator('.column-picker .filter-dropdown-item', { hasText: 'Posted dates' }).locator('input').uncheck();
+await page.waitForFunction(() => {
+  const t = document.querySelector('table.table');
+  return t && t.classList.contains('hide-posted');
+}, null, { timeout: 3000 }).catch(() => {});
+check('hiding posted dates toggles hide-posted (CSS, no round-trip)',
+  await page.evaluate(() => !!document.querySelector('table.table')?.classList.contains('hide-posted')));
+check('URL reflects posted=0', new URL(page.url()).searchParams.get('posted') === '0', page.url());
+
 // Reload → the hidden column is restored from the URL (server seeds the signal).
 await page.reload({ waitUntil: 'networkidle' });
 await page.waitForTimeout(300);
 check('reload keeps Institution hidden', !(await instHeader().isVisible()));
+check('reload keeps posted dates hidden (server seeds showPosted=false)',
+  await page.evaluate(() => !!document.querySelector('table.table')?.classList.contains('hide-posted')));
 
 // A filter also persists: search then reload restores it.
 await page.locator('.table-search-input').fill('Superstore');

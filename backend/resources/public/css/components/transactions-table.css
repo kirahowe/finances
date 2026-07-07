@@ -104,6 +104,13 @@
   margin: 0 0.35em;
 }
 
+/* "Posted dates" display toggle (View menu → Display): drop the inline posted-date hint
+   entirely when the user turns it off. Pure CSS off the $showPosted signal, mirroring the
+   per-column hide-<id> classes; the hint is still rendered so re-showing needs no reload. */
+.table.hide-posted .date-cell .posted-hint {
+  display: none;
+}
+
 .table.table-resizable th {
   position: relative;
   user-select: none;

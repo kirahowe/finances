@@ -184,6 +184,9 @@
   [vs month-str result qp]
   (assoc (vs->signals vs month-str result)
          :cols (parse-cols qp)
+         ;; Display option (View menu): the inline posted-date hint shows by default; the URL
+         ;; carries the exception (`posted=0` = hidden), like `hidecols` for column visibility.
+         :showPosted (not= "0" (get qp "posted"))
          :filter {:account (csv-param qp "fa")
                   :institution (csv-param qp "fi")
                   :category (csv-param qp "fc")}

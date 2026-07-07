@@ -162,6 +162,25 @@
       (is (re-find #"Jan 20" h))
       (is (not (re-find #"posted" h))))))
 
+(deftest view-menu-carries-posted-toggle-and-columns
+  (let [h (html (tv/column-picker))]
+    (testing "the toolbar button reads View and opens a Display group"
+      (is (re-find #">View<" h) "button label renamed from Columns to View")
+      (is (re-find #"Display" h))
+      (is (re-find #"Posted dates" h)))
+    (testing "the posted-dates toggle binds $showPosted; the column list still binds cols.<id>"
+      (is (re-find #"data-bind=\"showPosted\"" h))
+      (is (re-find #"data-bind=\"cols.date\"" h)))
+    (testing "Columns group + Reset widths footer remain"
+      (is (re-find #"Columns" h))
+      (is (re-find #"Reset widths" h)))))
+
+(deftest table-hide-class-includes-posted
+  (testing "the table's data-class flips hide-posted off !$showPosted alongside the column classes"
+    (let [cls (tv/table-hide-class)]
+      (is (re-find #"'hide-posted': !\$showPosted" cls))
+      (is (re-find #"'hide-date': !\$cols.date" cls) "per-column classes still present"))))
+
 (deftest period-label-month-vs-narrowed-span
   (is (= "January 2025" (tv/period-label {:year 2025 :month 1}))
       "no narrowing → the whole month, with the year for reference")

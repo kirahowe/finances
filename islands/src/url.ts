@@ -19,6 +19,7 @@ interface ViewState {
   page?: number;
   pageSize?: number;
   cols?: Record<string, boolean>;
+  showPosted?: boolean;
   fa?: unknown[];
   fi?: unknown[];
   fc?: unknown[];
@@ -46,6 +47,8 @@ const csv = (a: unknown[] | undefined): string => (a ?? []).filter(Boolean).join
     .filter(([, visible]) => !visible)
     .map(([id]) => id);
   set('hidecols', hidden.join(','));
+  // Posted-date hint shows by default → persist only the hidden exception (posted=0).
+  set('posted', s.showPosted === false ? '0' : '');
   // Header funnels.
   set('fa', csv(s.fa));
   set('fi', csv(s.fi));

@@ -278,6 +278,22 @@
   padding: var(--control-pad-y-sm) var(--control-pad-x-sm);
 }
 
+/* The "View" dropdown stacks a Display group above the column-visibility list. A hairline
+   and a small caps label separate the two groups so the one menu reads as two sections. */
+.view-menu-section + .view-menu-section {
+  border-top: 1px solid var(--color-border);
+}
+
+.view-menu-group-label {
+  margin: 0;
+  padding: var(--spacing-sm) 0.6rem 0.1rem;
+  font-size: var(--text-2xs);
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: var(--color-text-muted);
+}
+
 /* When the dropdown is rendered inside the portaled header-filter popover, the wrapper
    owns placement, so drop the dropdown's own absolute positioning. */
 .filter-dropdown--bare {

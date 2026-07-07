@@ -18,10 +18,15 @@
 ;; The column config + view-state codec live in web.view-state (pure, tested). This page
 ;; consumes `vs/columns` (render order/widths/headers) and `vs/hideable-columns` (the picker).
 
-(defn cols-hide-class []
-  ;; Static Datastar attribute value — toggles `hide-<id>` classes from the `cols.<id>`
-  ;; signals (no data manipulation; the column ids are render-time literals).
-  (str "{" (str/join ", " (map (fn [[id _]] (str "'hide-" id "': !$cols." id)) vs/hideable-columns)) "}"))
+(defn table-hide-class []
+  ;; Static Datastar value for the table's `data-class`: flips the per-column `hide-<id>`
+  ;; classes off the `cols.<id>` signals, plus `hide-posted` off `$showPosted` (the inline
+  ;; posted-date hint — a display option living in the same View menu). No data manipulation;
+  ;; the ids/signals are render-time literals.
+  (str "{"
+       (str/join ", " (conj (mapv (fn [[id _]] (str "'hide-" id "': !$cols." id)) vs/hideable-columns)
+                            "'hide-posted': !$showPosted"))
+       "}"))
 
 (declare undo-redo-controls column-picker) ; defined later, used by the toolbar/table
 
@@ -327,7 +332,7 @@
   ;; .table-resizable = fixed layout; the <colgroup> widths are authoritative and the resize
   ;; island refines them (auto-fit on load + drag handles). Density/sticky come with the class.
   [:div.transactions-table-scroll {:tabindex "0"}
-   [:table.table.table-resizable {:role "grid" "data-class" (cols-hide-class)}
+   [:table.table.table-resizable {:role "grid" "data-class" (table-hide-class)}
     [:colgroup
      (concat (for [{:keys [w]} vs/columns] [:col {:style (str "width:" w "px")}])
              [[:col.actions-col {:aria-hidden "true"}]])]
@@ -471,12 +476,22 @@
               (not redo-label) (assoc :disabled true))
     (redo-icon)]])
 
+(defn- view-menu-checkbox
+  "One display/column toggle row: a checkbox bound to `signal` (checked = shown), labelled
+   `label`. Reuses the filter-dropdown item styling so Display and Columns read as one list."
+  [signal label]
+  [:li.filter-dropdown-item
+   [:label.filter-dropdown-checkbox-label
+    [:input.filter-dropdown-checkbox {:type "checkbox" "data-bind" signal}]
+    [:span.filter-dropdown-label-text label]]])
+
 (defn column-picker
-  "Toolbar dropdown toggling which columns show. The `cols.<id>` checkboxes flip the table's
-   `hide-<id>` class via data-class (pure CSS, no round-trip); the URL reflector persists them.
-   The footer's \"Reset widths\" hands every column back to auto-fit via the resize island's
-   window hook (it clears the user-dragged widths and re-measures). `__stop` so the open-click
-   isn't also seen as a click-outside."
+  "Toolbar \"View\" dropdown: table display options. A Display group — the inline posted-date
+   hint (`$showPosted` flips the table's `hide-posted` class) — sits above the column-visibility
+   list (each `cols.<id>` checkbox flips a `hide-<id>` class). Both are pure CSS (no round-trip)
+   and the URL reflector persists them. The footer's \"Reset widths\" hands every column back to
+   auto-fit via the resize island's window hook. `__stop` so the open-click isn't also seen as a
+   click-outside. (Kept the `column-picker` fn/class name — the resize + e2e hooks key off it.)"
   []
   [:div.filter-button-container.column-picker
    [:button.button.button-secondary.filter-button
@@ -485,16 +500,19 @@
      ;; String 'true'/'false' (not a bare boolean): Datastar drops a false-valued attr,
      ;; which would strip aria-expanded and the [aria-expanded="true"] caret flip.
      "data-attr" "{'aria-expanded': $_colsOpen ? 'true' : 'false'}"}
-    "Columns"
+    "View"
     [:span.filter-button-arrow (chevron-down)]]
-   [:div.filter-dropdown
+   [:div.filter-dropdown.view-menu
     {"data-show" "$_colsOpen" "data-on:click__outside" "$_colsOpen = false"}
-    [:ul.filter-dropdown-list
-     (for [[id label] vs/hideable-columns]
-       [:li.filter-dropdown-item
-        [:label.filter-dropdown-checkbox-label
-         [:input.filter-dropdown-checkbox {:type "checkbox" "data-bind" (str "cols." id)}]
-         [:span.filter-dropdown-label-text label]]])]
+    [:div.view-menu-section
+     [:p.view-menu-group-label "Display"]
+     [:ul.filter-dropdown-list
+      (view-menu-checkbox "showPosted" "Posted dates")]]
+    [:div.view-menu-section
+     [:p.view-menu-group-label "Columns"]
+     [:ul.filter-dropdown-list
+      (for [[id label] vs/hideable-columns]
+        (view-menu-checkbox (str "cols." id) label))]]
     [:div.filter-dropdown-footer
      [:button.button.button-secondary.filter-dropdown-clear
       {:type "button" "data-on:click" "window.__resetWidths && window.__resetWidths()"}
@@ -541,11 +559,11 @@
   []
   [:div {:hidden true
          "data-on-signal-patch-filter"
-         "{include: /^(search|scope|hideTransfers|uncat|sortCol|sortDir|page|pageSize)$|^(cols|filter)\\./}"
+         "{include: /^(search|scope|hideTransfers|uncat|showPosted|sortCol|sortDir|page|pageSize)$|^(cols|filter)\\./}"
          "data-on-signal-patch"
          (str "window.__syncUrl && window.__syncUrl({q: $search, scope: $scope,"
               " ht: $hideTransfers, uncat: $uncat, sortCol: $sortCol, sortDir: $sortDir,"
-              " page: $page, pageSize: $pageSize, cols: $cols,"
+              " page: $page, pageSize: $pageSize, cols: $cols, showPosted: $showPosted,"
               " fa: $filter.account, fi: $filter.institution, fc: $filter.category})")}])
 
 (defn funnel-list

@@ -143,6 +143,14 @@
       (is (true? (:date cols)))
       (is (true? (:amount cols))))))
 
+(deftest posted-hint-display-signal
+  (testing "showPosted defaults true (hint shown), flips false only when posted=0 is in the URL"
+    (let [seed (fn [qp] (:showPosted (vs/client-signals (vs/query->view-state qp)
+                                                        "2025-03" {:page 0 :page-size 25} qp)))]
+      (is (true? (seed {})) "no param → shown")
+      (is (false? (seed {"posted" "0"})) "posted=0 → hidden")
+      (is (true? (seed {"posted" "1"})) "any other value → shown (0 is the only hide token)"))))
+
 ;; --- full client-signals seed -----------------------------------------------
 
 (deftest client-signals-shape
@@ -152,6 +160,7 @@
           s      (vs/client-signals v "2025-03" {:page 0 :page-size 25} qp)]
       (is (= "2025-03" (:month s)) "carries the vs->signals base")
       (is (false? (get-in s [:cols :payee])) "column visibility folded in")
+      (is (true? (:showPosted s)) "posted-date hint shows by default (no posted param)")
       (is (= ["100"] (get-in s [:filter :account])) "filter arrays are raw csv tokens")
       (is (= [] (get-in s [:filter :institution])))
       (is (= ["10" "11"] (get-in s [:filter :category])))
