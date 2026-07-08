@@ -4,13 +4,17 @@
   (:require
    [clojure.java.io :as io]
    [datalevin.core :as d]
-   [finance-aggregator.data.schema :as schema]))
+   [finance-aggregator.data.schema :as schema]
+   [finance-aggregator.db.migrations :as migrations]))
 
 (defn start-db!
-  "Open a Datalevin connection with the application schema.
-   Returns the connection."
+  "Open a Datalevin connection with the application schema, then run every pending
+   idempotent data migration (db.migrations) so every entry point opens onto an
+   up-to-date database. Returns the connection."
   [db-path]
-  (d/get-conn db-path schema/schema))
+  (let [conn (d/get-conn db-path schema/schema)]
+    (migrations/migrate-splits! conn)
+    conn))
 
 (defn stop-db!
   "Close a Datalevin connection gracefully.

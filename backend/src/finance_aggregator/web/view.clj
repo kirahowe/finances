@@ -236,20 +236,23 @@
 ;; --- Split editor seed ------------------------------------------------------
 
 (defn split-editor-seed
-  "Seed rows for the split-editor island: each existing split part rendered as
-   {:amount <magnitude, 2-dp string> :category-id <id|nil> :memo <string|nil>
-    :seed-cents <signed integer cents>}, ordered by :split/order. [] when the transaction
-   is unsplit (the island opens with blank rows). seed-cents carries the stored signed value
-   so a mixed-sign part survives a round-trip until its magnitude is edited (matching the
+  "Seed rows for the split-editor island: each existing split part (a first-class
+   :transaction/* row linked via :transaction/split-parent) rendered as
+   {:id <part db/id> :amount <magnitude, 2-dp string> :category-id <id|nil>
+    :memo <string|nil> :seed-cents <signed integer cents>}, ordered by
+   :transaction/split-order. [] when the transaction is unsplit (the island opens
+   with blank rows). seed-cents carries the stored signed value so a mixed-sign part
+   survives a round-trip until its magnitude is edited (matching the
    islands/lib/splitMath rowSignedCents contract)."
   [tx]
-  (->> (:transaction/splits tx)
-       (sort-by :split/order)
-       (mapv (fn [{:split/keys [amount category memo]}]
+  (->> (:transaction/_split-parent tx)
+       (sort-by :transaction/split-order)
+       (mapv (fn [{:transaction/keys [amount description] :as part}]
                (let [scaled (.setScale (bigdec amount) 2 java.math.RoundingMode/HALF_UP)]
-                 {:amount      (.toPlainString (.abs scaled))
-                  :category-id (:db/id category)
-                  :memo        memo
+                 {:id          (:db/id part)
+                  :amount      (.toPlainString (.abs scaled))
+                  :category-id (get-in part [:transaction/category :db/id])
+                  :memo        description
                   :seed-cents  (.longValueExact (.movePointRight scaled 2))})))))
 
 ;; --- Category rollup --------------------------------------------------------

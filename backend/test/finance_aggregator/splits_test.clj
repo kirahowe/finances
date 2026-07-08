@@ -32,9 +32,8 @@
     (is (= "Split amounts must be non-zero"
            (splits/validate-splits -100.00M [(part "0.00" 1) (part "-100.00" 2)]))))
 
-  (testing "a missing category is rejected"
-    (is (= "Every split needs a category"
-           (splits/validate-splits -100.00M [(part "-60.00" nil) (part "-40.00" 2)]))))
+  (testing "a missing category is allowed (the Uncategorized chip owns those parts)"
+    (is (nil? (splits/validate-splits -100.00M [(part "-60.00" nil) (part "-40.00" 2)]))))
 
   (testing "mixed-sign parts that sum to the parent are valid"
     (is (nil? (splits/validate-splits -100.00M [(part "-120.00" 1) (part "20.00" 2)]))))

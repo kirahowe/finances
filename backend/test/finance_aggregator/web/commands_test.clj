@@ -26,7 +26,8 @@
   (ffirst (d/q '[:find ?c :in $ ?n :where [?c :category/name ?n]] (d/db setup/*test-conn*) name)))
 
 (defn- split-count [tx-id]
-  (count (:transaction/splits (d/pull (d/db setup/*test-conn*) '[{:transaction/splits [:db/id]}] tx-id))))
+  (count (d/q '[:find [?p ...] :in $ ?tx :where [?p :transaction/split-parent ?tx]]
+              (d/db setup/*test-conn*) tx-id)))
 
 (defn- partner [tx-id]
   (get-in (d/pull (d/db setup/*test-conn*) '[{:transaction/transfer-pair [:db/id]}] tx-id)

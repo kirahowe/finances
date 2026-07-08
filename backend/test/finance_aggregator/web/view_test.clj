@@ -440,25 +440,29 @@
 ;; --- Split editor seed ------------------------------------------------------
 
 (deftest split-editor-seed-rows
-  (testing "parts seed in :split/order; magnitude string + signed seed-cents + category/memo"
+  (testing "parts (pulled via :transaction/_split-parent) seed in :transaction/split-order;
+            magnitude string + signed seed-cents + category/memo/id"
     (let [seed (view/split-editor-seed
-                {:transaction/splits
-                 [{:split/order 1 :split/amount -8.00M :split/memo "household"
-                   :split/category {:db/id 11 :category/name "Groceries"}}
-                  {:split/order 0 :split/amount -42.00M :split/memo nil
-                   :split/category nil}]})]
+                {:transaction/_split-parent
+                 [{:db/id 101 :transaction/split-order 1 :transaction/amount -8.00M
+                   :transaction/description "household"
+                   :transaction/category {:db/id 11 :category/name "Groceries"}}
+                  {:db/id 100 :transaction/split-order 0 :transaction/amount -42.00M
+                   :transaction/description nil
+                   :transaction/category nil}]})]
       (is (= 2 (count seed)))
-      (is (= {:amount "42.00" :category-id nil :memo nil :seed-cents -4200} (first seed))
+      (is (= {:id 100 :amount "42.00" :category-id nil :memo nil :seed-cents -4200} (first seed))
           "order 0 leads; outflow magnitude positive, seed-cents signed")
-      (is (= {:amount "8.00" :category-id 11 :memo "household" :seed-cents -800} (second seed)))))
+      (is (= {:id 101 :amount "8.00" :category-id 11 :memo "household" :seed-cents -800} (second seed)))))
   (testing "a positive (inflow) split keeps its sign in seed-cents but shows magnitude"
-    (is (= {:amount "15.50" :category-id 7 :memo nil :seed-cents 1550}
+    (is (= {:id 7 :amount "15.50" :category-id 7 :memo nil :seed-cents 1550}
            (first (view/split-editor-seed
-                   {:transaction/splits [{:split/order 0 :split/amount 15.50M
-                                          :split/category {:db/id 7}}]}))))))
+                   {:transaction/_split-parent
+                    [{:db/id 7 :transaction/split-order 0 :transaction/amount 15.50M
+                      :transaction/category {:db/id 7}}]}))))))
 
 (deftest split-editor-seed-empty-when-unsplit
-  (is (= [] (view/split-editor-seed {:transaction/splits []})))
+  (is (= [] (view/split-editor-seed {:transaction/_split-parent []})))
   (is (= [] (view/split-editor-seed {}))))
 
 ;; --- Category rollup (ported from frontend categoryRollup.test.ts) -----------

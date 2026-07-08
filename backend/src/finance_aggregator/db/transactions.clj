@@ -19,11 +19,23 @@
    shapes never drift. The wildcard `*` returns a ref attribute as a bare {:db/id},
    so :transaction/transfer-pair is expanded explicitly: the server-side hide rule
    (db-transfers/with-transfer-hidden) reads the partner's category type, and the UI
-   renders the partner's amount and posted date."
+   renders the partner's amount and posted date.
+
+   :transaction/split-parent (present only on a PART) pulls its parent plus every
+   sibling's amount — enough to compute :transaction/split-drift (with-split-drift)
+   without a second query. :transaction/_split-parent (present only on a PARENT with
+   live parts, e.g. via by-id for the editor) is the reverse pull of those parts.
+   :transaction/splits/split-pull is the OLD sub-entity model, retired by the
+   migration — kept here until it's deleted in Phase 4."
   ['* {:transaction/category [:db/id :category/name :category/type]
        :transaction/account [:db/id :account/external-name
                              {:account/institution [:db/id :institution/name]}]
        :transaction/splits split-pull
+       :transaction/split-parent [:db/id :transaction/amount :transaction/payee
+                                  {:transaction/_split-parent [:db/id :transaction/amount]}]
+       :transaction/_split-parent [:db/id :transaction/amount :transaction/split-order
+                                   :transaction/description :transaction/reviewed
+                                   {:transaction/category [:db/id :category/name]}]
        :transaction/transfer-pair [:db/id :transaction/amount :transaction/posted-date
                                    {:transaction/category [:db/id :category/name :category/type]}
                                    {:transaction/account [:db/id :account/external-name]}]}])
@@ -60,21 +72,40 @@
          (or (not-empty (:transaction/user-description tx))
              (:transaction/description tx))))
 
+(defn with-split-drift
+  "Annotate a pulled PART transaction (one with :transaction/split-parent) with
+   :transaction/split-drift true when the parts' amounts — pulled via the nested
+   :transaction/split-parent -> :transaction/_split-parent join, so this needs no
+   extra query — no longer sum to the parent's amount (bigdec-exact, via
+   splits/reconciled?). This is how a re-sync that changes the parent's imported
+   amount after the split was made surfaces, instead of silently drifting. Absent
+   on a non-part transaction, or when the parts still reconcile. Replaces the old
+   parent-level :transaction/splits-balanced flag for the new split-part model."
+  [tx]
+  (if-let [parent (:transaction/split-parent tx)]
+    (let [amounts (map :transaction/amount (:transaction/_split-parent parent))]
+      (cond-> tx
+        (not (splits/reconciled? (:transaction/amount parent) amounts))
+        (assoc :transaction/split-drift true)))
+    tx))
+
 (defn with-derived-fields
   "Annotate a pulled transaction with the server-computed fields the API contract
    promises: :transaction/splits-balanced, :transaction/reviewed (effective),
-   :transaction/effective-description and :transaction/transfer-hidden. Applied
-   uniformly by the list endpoint and the single-transaction mutation endpoints so
-   the response shape never drifts."
+   :transaction/effective-description, :transaction/split-drift and
+   :transaction/transfer-hidden. Applied uniformly by the list endpoint and the
+   single-transaction mutation endpoints so the response shape never drifts."
   [tx]
-  (-> tx with-split-balance with-reviewed with-effective-description db-transfers/with-transfer-hidden))
+  (-> tx with-split-balance with-reviewed with-effective-description with-split-drift
+      db-transfers/with-transfer-hidden))
 
 (defn list-for-month
   "All transactions whose posted-date falls in `month` (a YYYY-MM string), pulled
-   with the canonical pattern and annotated with the derived API fields. Shared by
-   the JSON list endpoint and the server-rendered transactions page. Datalevin
-   can't combine >= and < on a date in one query, so we bound by end-date and
-   post-filter by start-date."
+   with the canonical pattern and annotated with the derived API fields. Excludes any
+   transaction that has split parts — the parts replace it at the row grain (see
+   doc/plans/splits-as-transactions.md). Shared by the JSON list endpoint and the
+   server-rendered transactions page. Datalevin can't combine >= and < on a date in
+   one query, so we bound by end-date and post-filter by start-date."
   [conn month]
   (let [{:keys [start-date end-date]} (utils/month-date-range month)
         raw (d/q '[:find [(pull ?e pattern) ...]
@@ -82,7 +113,8 @@
                    :where
                    [?e :transaction/external-id _]
                    [?e :transaction/posted-date ?date]
-                   [(< ?date ?end)]]
+                   [(< ?date ?end)]
+                   (not [?p :transaction/split-parent ?e])]
                  (d/db conn) transaction-pull-pattern end-date)]
     (mapv with-derived-fields
           (filter #(not (.before (:transaction/posted-date %) start-date)) raw))))
@@ -91,9 +123,10 @@
   "`account-eid`'s transactions in the reconcile span (from, to] — after `from` (the period's
    start date, whose balance already reflects that day's activity) up to and including `to`
    (the period's end date). `from`/`to` are Dates (UTC day granularity). Pulled + annotated,
-   posted-date ascending. Used to reconcile + display a statement period, which may cross a
-   calendar-month boundary. Datalevin can't combine two date predicates, so we bound the upper
-   end in the query (end-of-`to` day) and post-filter the lower end."
+   posted-date ascending, excluding any transaction that has split parts (see list-for-month).
+   Used to reconcile + display a statement period, which may cross a calendar-month boundary.
+   Datalevin can't combine two date predicates, so we bound the upper end in the query
+   (end-of-`to` day) and post-filter the lower end."
   [conn account-eid ^Date from ^Date to]
   (let [to-exclusive (Date. (+ (.getTime to) 86400000))   ; include txns dated on `to`
         raw (d/q '[:find [(pull ?e pattern) ...]
@@ -101,7 +134,8 @@
                    :where
                    [?e :transaction/account ?acct]
                    [?e :transaction/posted-date ?date]
-                   [(< ?date ?to-excl)]]
+                   [(< ?date ?to-excl)]
+                   (not [?p :transaction/split-parent ?e])]
                  (d/db conn) transaction-pull-pattern account-eid to-exclusive)]
     (->> raw
          (filter #(.after ^Date (:transaction/posted-date %) from))
@@ -109,12 +143,15 @@
          (mapv with-derived-fields))))
 
 (defn list-all
-  "All transactions, pulled + annotated with the derived API fields."
+  "All transactions, pulled + annotated with the derived API fields, excluding any
+   transaction that has split parts (see list-for-month)."
   [conn]
   (mapv with-derived-fields
         (d/q '[:find [(pull ?e pattern) ...]
                :in $ pattern
-               :where [?e :transaction/external-id _]]
+               :where
+               [?e :transaction/external-id _]
+               (not [?p :transaction/split-parent ?e])]
              (d/db conn) transaction-pull-pattern)))
 
 (defn by-id
@@ -137,18 +174,25 @@
   [conn tx-id]
   (get-in (d/pull (d/db conn) [{:transaction/category [:db/id]}] tx-id) [:transaction/category :db/id]))
 
+(def ^:private current-splits-pull
+  [{:transaction/_split-parent
+    [:db/id :transaction/amount :transaction/split-order :transaction/description
+     {:transaction/category [:db/id]}]}])
+
 (defn current-splits
-  "The transaction's current splits in set-splits! input shape
-   ({:amount string :category-id long :memo string?}), ordered by :split/order, or [] when
-   unsplit — for capturing the before-value of a split command so undo restores the prior
-   parts (re-applying [] un-splits)."
+  "The transaction's current live parts in set-splits! input shape
+   ({:id long :amount string :category-id long? :memo string?}), ordered by
+   :transaction/split-order, or [] when unsplit — for capturing the before-value of a
+   split command so undo restores the prior parts (re-applying [] un-splits, and a
+   part removed-and-undone comes back as a fresh entity via the stale-id create path)."
   [conn tx-id]
-  (->> (:transaction/splits (d/pull (d/db conn) [{:transaction/splits split-pull}] tx-id))
-       (sort-by :split/order)
-       (mapv (fn [{:split/keys [amount category memo]}]
-               (cond-> {:amount (.toPlainString (bigdec amount))
+  (->> (:transaction/_split-parent (d/pull (d/db conn) current-splits-pull tx-id))
+       (sort-by :transaction/split-order)
+       (mapv (fn [{:keys [db/id] :transaction/keys [amount description category]}]
+               (cond-> {:id id
+                        :amount (.toPlainString (bigdec amount))
                         :category-id (:db/id category)}
-                 memo (assoc :memo memo))))))
+                 description (assoc :memo description))))))
 
 (defn- set-reviewed-datom!
   "Assert (true) or clear (false) the boolean reviewed flag `attr` on entity `eid`.
@@ -165,16 +209,6 @@
   (set-reviewed-datom! conn tx-id :transaction/reviewed reviewed?)
   (with-derived-fields (d/pull (d/db conn) transaction-pull-pattern tx-id)))
 
-(defn set-split-reviewed!
-  "Mark a single split part reviewed (true) or clear it (false), independently of the
-   parent and its siblings. Returns the parent transaction (tx-id) pulled with its
-   parts and the derived API fields, so the caller can refresh the whole row —
-   including the parent's now-recomputed effective reviewed roll-up.
-   Conn is a datalevin connection (not an atom)."
-  [conn tx-id split-id reviewed?]
-  (set-reviewed-datom! conn split-id :split/reviewed reviewed?)
-  (with-derived-fields (d/pull (d/db conn) transaction-pull-pattern tx-id)))
-
 (defn set-user-description!
   "Set (or clear) a transaction's user description — an additive overlay over the
    imported :transaction/description, which is never mutated. The value is trimmed; a
@@ -187,19 +221,6 @@
     (d/transact! conn (if trimmed
                         [{:db/id tx-id :transaction/user-description trimmed}]
                         [[:db/retract tx-id :transaction/user-description]])))
-  (with-derived-fields (d/pull (d/db conn) transaction-pull-pattern tx-id)))
-
-(defn set-split-memo!
-  "Set (or clear) one split part's memo (its description), independently of the parent
-   and its siblings. The value is trimmed; a blank/whitespace-only/nil memo retracts it.
-   Returns the parent transaction (tx-id) refreshed with its parts and the derived API
-   fields, so the caller can refresh the whole row.
-   Conn is a datalevin connection (not an atom)."
-  [conn tx-id split-id memo]
-  (let [trimmed (some-> memo str/trim not-empty)]
-    (d/transact! conn (if trimmed
-                        [{:db/id split-id :split/memo trimmed}]
-                        [[:db/retract split-id :split/memo]])))
   (with-derived-fields (d/pull (d/db conn) transaction-pull-pattern tx-id)))
 
 (defn update-category!
@@ -222,62 +243,120 @@
               :where [?c :category/name _]]
             db ids)))
 
-(defn set-splits!
-  "Replace a transaction's splits atomically (full-replace).
-   `splits` is a vector of {:amount string :category-id long :memo string?} in
-   display order; an empty vector clears the splits (un-split).
-
-   The original transaction's own datoms are never touched. Validates that the
-   parts reconcile exactly to the parent amount (bigdec) and that every category
-   exists before writing; throws ex-info with :type :bad-request or :not-found
-   otherwise.
-
-   Conn is a datalevin connection (not an atom).
-   Returns the updated transaction pulled with its parts and the derived API fields
-   (see with-derived-fields)."
-  [conn tx-id splits]
-  (let [db (d/db conn)
-        parent (d/pull db '[:db/id :transaction/amount] tx-id)]
+(defn- assert-splittable!
+  "Validate that `tx-id` can accept `splits` against a freshly-read `db`: it exists,
+   it isn't itself a split part (depth is 1 — edit the original transaction instead),
+   it isn't an already-matched transfer when `splits` is non-empty (unmatch first, or
+   a matched leg would be hidden from every list), and the amounts reconcile exactly
+   to the parent's live amount. Throws ex-info (:type :not-found / :bad-request);
+   returns nil. Called twice by set-splits! — once before the category check, once
+   again immediately before writing — to narrow the read-modify-write window."
+  [db tx-id splits]
+  (let [parent (d/pull db '[:db/id :transaction/amount
+                            {:transaction/split-parent [:db/id]}
+                            {:transaction/transfer-pair [:db/id]}]
+                       tx-id)]
     (when-not (:transaction/amount parent)
       (throw (ex-info "Transaction not found" {:type :not-found})))
+    (when (:transaction/split-parent parent)
+      (throw (ex-info "This row is part of a split — edit the split on the original transaction"
+                      {:type :bad-request})))
+    (when (and (seq splits) (:transaction/transfer-pair parent))
+      (throw (ex-info "Unmatch this transfer before splitting" {:type :bad-request})))
     (when-let [err (splits/validate-splits (:transaction/amount parent) splits)]
-      (throw (ex-info err {:type :bad-request})))
-    (let [cat-ids (map :category-id splits)]
-      (when (and (seq cat-ids)
-                 (not (every? (existing-category-ids db cat-ids) cat-ids)))
-        (throw (ex-info "Every split must reference an existing category"
-                        {:type :bad-request}))))
-    ;; Re-read immediately before writing to narrow the read-modify-write window.
-    ;; (Single-user app, so full serializability isn't worth a transaction fn.)
-    ;; Confirm the transaction still exists and its parts still reconcile to the
-    ;; live amount before we touch anything.
-    (let [db (d/db conn)
-          fresh-amount (:transaction/amount (d/pull db '[:transaction/amount] tx-id))]
-      (when-not fresh-amount
-        (throw (ex-info "Transaction not found" {:type :not-found})))
-      (when-let [err (splits/validate-splits fresh-amount splits)]
-        (throw (ex-info err {:type :bad-request})))
-      (let [old-eids (d/q '[:find [?s ...] :in $ ?tx
-                            :where [?tx :transaction/splits ?s]]
+      (throw (ex-info err {:type :bad-request})))))
+
+(defn- new-part-tx-data
+  "The transact! map for a brand-new split part (a row with no :id, or a stale :id
+   that doesn't name a live part of this parent): the identity fields inherited from
+   the parent (splits/inherited-fields, the same recipe the migration uses) plus this
+   row's own amount/category/memo and its display order `i`."
+  [parent i {:keys [amount category-id memo]}]
+  (merge (splits/inherited-fields parent)
+         (cond-> {:transaction/external-id (str "split-" (UUID/randomUUID))
+                  :transaction/split-parent (:db/id parent)
+                  :transaction/split-order i
+                  :transaction/provider :split
+                  :transaction/amount (bigdec amount)}
+           category-id              (assoc :transaction/category category-id)
+           (not (str/blank? memo))  (assoc :transaction/description memo))))
+
+(defn- update-part-ops
+  "Tx-data to update an existing live part in place: amount, display order `i`, category
+   (nil clears it) and memo (blank/nil clears it). The part's reviewed flag,
+   transfer-pair, and external-id are never mentioned here, so an editor edit can't
+   clobber per-part state set elsewhere."
+  [i {:keys [id amount category-id memo]}]
+  (into [(cond-> {:db/id id
+                  :transaction/amount (bigdec amount)
+                  :transaction/split-order i}
+           category-id              (assoc :transaction/category category-id)
+           (not (str/blank? memo))  (assoc :transaction/description memo))]
+        (cond-> []
+          (nil? category-id)      (conj [:db/retract id :transaction/category])
+          (str/blank? memo)       (conj [:db/retract id :transaction/description]))))
+
+(defn- retract-part-ops
+  "Tx-data to retract one live split part: unlink a transfer pair first — mirroring
+   delete-manual!'s cascade — so retractEntity doesn't leave the partner's
+   :transaction/transfer-pair dangling, then retract the part entity itself."
+  [part]
+  (let [id (:db/id part)
+        partner (get-in part [:transaction/transfer-pair :db/id])]
+    (cond-> []
+      partner (conj [:db/retract partner :transaction/transfer-pair id])
+      true    (conj [:db/retractEntity id]))))
+
+(defn set-splits!
+  "Diff a transaction's splits against its current live parts and write only the
+   delta, instead of full-replace. `splits` is a vector of {:amount string
+   :category-id long? :memo string? :id long?} in display order; [] clears the
+   splits (un-split).
+
+   A row's :id, when it names a LIVE part of this parent, updates that part in place
+   (amount/category/memo/order) — preserving its reviewed flag, transfer-pair link,
+   and external-id. Any other row (no id, or a stale id — e.g. after undo re-creates
+   a part that was previously retracted) creates a fresh part. A live part not named
+   by any row is retracted, unlinking any transfer pair first.
+
+   Always retracts the parent's own :transaction/reviewed overlay: a split row has no
+   checkbox of its own once split (review happens per-part), so the flag can't
+   resurface on a later un-split — the user re-reviews.
+
+   See assert-splittable! for the :not-found / :bad-request guards (missing
+   transaction, editing a part instead of its parent, an already-matched transfer,
+   non-reconciling amounts, a category id that doesn't exist).
+
+   Conn is a datalevin connection (not an atom). Returns the updated parent pulled
+   with its parts and the derived API fields (see with-derived-fields)."
+  [conn tx-id splits]
+  (let [db1 (d/db conn)]
+    (assert-splittable! db1 tx-id splits)
+    (let [cat-ids (keep :category-id splits)]
+      (when (and (seq cat-ids) (not (every? (existing-category-ids db1 cat-ids) cat-ids)))
+        (throw (ex-info "Every split must reference an existing category" {:type :bad-request})))))
+  ;; Re-read immediately before writing to narrow the read-modify-write window.
+  ;; (Single-user app, so full serializability isn't worth a transaction fn.)
+  (let [db (d/db conn)]
+    (assert-splittable! db tx-id splits)
+    (let [full-parent (d/pull db '[:db/id :transaction/account :transaction/user :transaction/date
+                                   :transaction/posted-date :transaction/payee] tx-id)
+          live-parts (d/q '[:find [(pull ?p [:db/id {:transaction/transfer-pair [:db/id]}]) ...]
+                            :in $ ?tx :where [?p :transaction/split-parent ?tx]]
                           db tx-id)
-            ;; Component re-assert does NOT auto-retract prior parts; retract each explicitly.
-            retract-ops (mapv (fn [eid] [:db/retractEntity eid]) old-eids)
-            assert-ops (when (seq splits)
-                         [{:db/id tx-id
-                           :transaction/splits
-                           (vec (map-indexed
-                                 (fn [i s]
-                                   (cond-> {:split/amount (bigdec (:amount s))
-                                            :split/category (:category-id s)
-                                            :split/order i}
-                                     (:memo s) (assoc :split/memo (:memo s))))
-                                 splits))}])
-            ;; The parent has no reviewed checkbox of its own once split (each part
-            ;; owns its review), so drop any stored parent flag — otherwise it would
-            ;; resurface if the splits are later cleared.
-            reviewed-retract [[:db/retract tx-id :transaction/reviewed]]]
-        (d/transact! conn (into reviewed-retract (into retract-ops (or assert-ops []))))
-        (with-derived-fields (d/pull (d/db conn) transaction-pull-pattern tx-id))))))
+          live-ids (into #{} (map :db/id) live-parts)
+          matched-ids (into #{} (filter live-ids) (keep :id splits))
+          indexed (map-indexed vector splits)
+          update-ops (mapcat (fn [[i row]] (when (live-ids (:id row)) (update-part-ops i row))) indexed)
+          create-ops (keep (fn [[i row]] (when-not (live-ids (:id row)) (new-part-tx-data full-parent i row)))
+                           indexed)
+          retract-ops (mapcat retract-part-ops (remove #(matched-ids (:db/id %)) live-parts))
+          ;; The parent has no reviewed checkbox of its own once split (each part
+          ;; owns its review), so drop any stored parent flag — otherwise it would
+          ;; resurface if the splits are later cleared.
+          reviewed-retract [[:db/retract tx-id :transaction/reviewed]]]
+      (d/transact! conn (vec (concat reviewed-retract update-ops create-ops retract-ops)))
+      (with-derived-fields (d/pull (d/db conn) transaction-pull-pattern tx-id)))))
 
 ;; --- Manual transactions ---------------------------------------------------
 ;; A user-entered transaction is a first-class :transaction/* row (provider :manual),

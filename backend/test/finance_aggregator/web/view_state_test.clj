@@ -42,6 +42,11 @@
         "categoryId → :category-id (long); memo kept only when present")
     (is (instance? Long (:category-id (first (vs/parse-splits-value "[{\"amount\":\"-1.00\",\"categoryId\":5}]"))))
         "category-id is a long"))
+  (testing "an existing part's id passes through as a long; absent when not sent (a fresh row)"
+    (is (= {:amount "-60.00" :category-id 5 :id 42}
+           (first (vs/parse-splits-value "[{\"amount\":\"-60.00\",\"categoryId\":5,\"id\":42}]"))))
+    (is (instance? Long (:id (first (vs/parse-splits-value "[{\"amount\":\"-60.00\",\"categoryId\":5,\"id\":42}]")))))
+    (is (not (contains? (first (vs/parse-splits-value "[{\"amount\":\"-60.00\",\"categoryId\":5}]")) :id))))
   (testing "blank / nil / empty array → [] (un-split)"
     (is (= [] (vs/parse-splits-value "")))
     (is (= [] (vs/parse-splits-value nil)))

@@ -72,16 +72,19 @@
         :else nil))
 
 (defn parse-splits-value
-  "Coerce the `$splitValue` courier (a JSON string of [{amount, categoryId, memo?}] the
-   split-editor island serializes) into the db.transactions/set-splits! input shape
-   [{:amount string :category-id long :memo string?}]. Blank / nil / \"[]\" → [] (un-split)."
+  "Coerce the `$splitValue` courier (a JSON string of [{amount, categoryId, memo?, id?}]
+   the split-editor island serializes) into the db.transactions/set-splits! input shape
+   [{:amount string :category-id long? :memo string? :id long?}]. :id, when present,
+   names an existing live part to update in place (absent = a fresh row to create).
+   Blank / nil / \"[]\" → [] (un-split)."
   [raw]
   (if (str/blank? raw)
     []
     (->> (json/read-json raw :key-fn keyword)
-         (mapv (fn [{:keys [amount categoryId memo]}]
+         (mapv (fn [{:keys [amount categoryId memo id]}]
                  (cond-> {:amount (str amount) :category-id (some-> categoryId long)}
-                   (not (str/blank? memo)) (assoc :memo (str/trim memo))))))))
+                   (not (str/blank? memo)) (assoc :memo (str/trim memo))
+                   id (assoc :id (long id))))))))
 
 ;; ---------------------------------------------------------------------------
 ;; View-state assembly (the web.view input map)
