@@ -240,6 +240,19 @@
       (is (= 0M (:expected f)))
       (is (= :reconciled (:status f)) "0 change explained by 0 activity → reconciled"))))
 
+(deftest reconcile-statement-uses-statement-balance-polarity
+  (let [statement {:id 7 :start-balance 44.02M :end-balance -90.15M}
+        span [{:transaction/amount 44.02M}
+              {:transaction/amount -31.92M}
+              {:transaction/amount -4.56M}
+              {:transaction/amount 36.48M}
+              {:transaction/amount 90.15M}]
+        r (view/reconcile-statement statement span)]
+    (is (= :reconciled (:status r)))
+    (is (= 134.17M (:computed r)))
+    (is (= 134.17M (:reported r)))
+    (is (= 0.00M (:difference r)))))
+
 ;; --- Lingering --------------------------------------------------------------
 ;; A row edited out of the active filter should stay visible *in its original position*
 ;; (de-emphasised) until the next pure view change, instead of vanishing or jumping to the

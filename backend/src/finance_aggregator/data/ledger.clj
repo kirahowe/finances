@@ -22,6 +22,19 @@
 
 (defn- amount [tx] (or (:transaction/amount tx) 0M))
 
+(defn- computed-total [txs]
+  (reduce (fn [acc tx] (+ acc (amount tx))) 0M txs))
+
+(defn- verdict [reported computed tolerance]
+  (let [difference (when (some? reported) (- reported computed))]
+    {:reported   reported
+     :computed   computed
+     :difference difference
+     :status     (cond
+                   (nil? reported)                :no-snapshot
+                   (<= (abs difference) tolerance) :reconciled
+                   :else                           :drift)}))
+
 (defn account-computed-deltas
   "Σ signed :transaction/amount grouped by account, over `txs` (one month's pulled
    transactions). Splits never change an account's total — they only re-attribute
@@ -40,24 +53,33 @@
    txs))
 
 (defn reconcile-period
-  "Reconcile one period — a month-boundary period or a statement — against the account's
-   transactions in its span. `start-balance`/`end-balance` are bigdecs (nil = not yet
-   entered); `span-txns` the account's transactions in (start, end]. Returns
+  "Reconcile one strict balance-delta period — currently used for month-boundary
+   snapshots — against the account's transactions in its span. `start-balance`/
+   `end-balance` are bigdecs (nil = not yet entered); `span-txns` the account's
+   transactions in (start, end]. Returns
    {:reported :computed :difference :status}: :reported = end − start (nil if a balance is
    missing), :computed = Σ signed amounts, :difference = reported − computed, and :status is
-   :no-snapshot / :reconciled / :drift — the same period-delta verdict, over an arbitrary span.
+   :no-snapshot / :reconciled / :drift — the same period-delta verdict.
    Pure."
   [start-balance end-balance span-txns & {:keys [tolerance] :or {tolerance default-tolerance}}]
-  (let [computed   (reduce (fn [acc tx] (+ acc (amount tx))) 0M span-txns)
-        reported   (when (and (some? start-balance) (some? end-balance)) (- end-balance start-balance))
-        difference (when (some? reported) (- reported computed))]
-    {:reported   reported
-     :computed   computed
-     :difference difference
-     :status     (cond
-                   (nil? reported)                :no-snapshot
-                   (<= (abs difference) tolerance) :reconciled
-                   :else                           :drift)}))
+  (let [computed (computed-total span-txns)
+        reported (when (and (some? start-balance) (some? end-balance)) (- end-balance start-balance))]
+    (verdict reported computed tolerance)))
+
+(defn reconcile-statement-period
+  "Reconcile a user-entered statement against transactions in its span. Unlike synced
+   month-boundary snapshots, statement balances are typed from institution statements whose
+   sign convention can be opposite the app's signed transaction convention. Compare both
+   possible balance deltas and keep the one closest to the tracked activity, so either
+   `end − start` or `start − end` statement polarity can tie out without false drift."
+  [start-balance end-balance span-txns & {:keys [tolerance] :or {tolerance default-tolerance}}]
+  (let [computed (computed-total span-txns)]
+    (if (and (some? start-balance) (some? end-balance))
+      (let [forward  (- end-balance start-balance)
+            reversed (- start-balance end-balance)
+            reported (min-key #(abs (- % computed)) forward reversed)]
+        (verdict reported computed tolerance))
+      (verdict nil computed tolerance))))
 
 (defn reconcile-row
   "Combine one account's computed delta with its reported delta (nil when a

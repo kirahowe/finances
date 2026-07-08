@@ -417,10 +417,13 @@
 (defn reconcile-statement
   "A statement (db.statements display shape: :id :start-date :start-balance :end-date
    :end-balance …) annotated with its period-delta verdict over `span-txns` (the account's
-   transactions in the statement's span). Adds :reported :computed :difference :status. Pure."
+   transactions in the statement's span). Statement balance polarity can differ from synced
+   month-boundary snapshots, so the statement-specific ledger path chooses the balance delta
+   direction that ties closest to tracked activity. Adds :reported :computed :difference
+   :status. Pure."
   [statement span-txns]
   (merge statement
-         (ledger/reconcile-period (:start-balance statement) (:end-balance statement) span-txns)))
+         (ledger/reconcile-statement-period (:start-balance statement) (:end-balance statement) span-txns)))
 
 ;; --- Presenter: the response view-model -------------------------------------
 ;; The single transformation entry point a handler routes a month's transactions through to get

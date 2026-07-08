@@ -9,7 +9,7 @@
     splits (assoc :transaction/splits splits)))
 
 (deftest reconcile-period-verdict
-  ;; A statement/period: does end − start match Σ of the span's transactions?
+  ;; A strict balance-delta period: does end − start match Σ of the span's transactions?
   (let [span [{:transaction/amount 40M} {:transaction/amount 100M}]]   ; Σ = 140
     (testing "reconciled when end − start = Σ (within tolerance)"
       (is (= :reconciled (:status (ledger/reconcile-period 500M 640M span)))))
@@ -25,6 +25,23 @@
     (testing "an empty span sums to zero"
       (is (= :reconciled (:status (ledger/reconcile-period 500M 500M []))))
       (is (= :drift (:status (ledger/reconcile-period 500M 510M [])))))))
+
+(deftest reconcile-statement-period-verdict
+  (testing "accepts statement balances whose polarity is opposite tracked activity"
+    (let [span [{:transaction/amount 44.02M}
+                {:transaction/amount -31.92M}
+                {:transaction/amount -4.56M}
+                {:transaction/amount 36.48M}
+                {:transaction/amount 90.15M}]
+          r (ledger/reconcile-statement-period 44.02M -90.15M span)]
+      (is (= :reconciled (:status r)))
+      (is (= 134.17M (:computed r)))
+      (is (= 134.17M (:reported r)))
+      (is (= 0.00M (:difference r)))))
+  (testing "keeps the synced-balance direction when that is the matching polarity"
+    (let [r (ledger/reconcile-statement-period 0M -85M [{:transaction/amount -85M}])]
+      (is (= :reconciled (:status r)))
+      (is (= -85M (:reported r))))))
 
 (deftest account-computed-deltas-sums-signed-amounts-per-account
   (testing "groups by account and sums signed amounts (inflows +, outflows -)"
