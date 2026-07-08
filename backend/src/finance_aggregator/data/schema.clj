@@ -55,6 +55,8 @@
    :transaction/splits        {:db/valueType   :db.type/ref
                                :db/cardinality :db.cardinality/many
                                :db/isComponent true}  ; user-authored parts; parent owns them, cascades on retractEntity
+   :transaction/split-parent  {:db/valueType :db.type/ref}   ; ref to originating transaction; presence marks this row as a split part
+   :transaction/split-order   {:db/valueType :db.type/long}  ; stable editor/display order among sibling parts
 
    ;; Transaction split parts (sub-entities of a transaction; never imported/deduped)
    :split/amount   {:db/valueType :db.type/bigdec}   ; signed, same convention as :transaction/amount

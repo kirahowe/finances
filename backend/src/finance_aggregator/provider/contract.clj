@@ -19,6 +19,8 @@
     :transaction/reviewed
     :transaction/category
     :transaction/splits
+    :transaction/split-parent
+    :transaction/split-order
     :transaction/transfer-pair
     :transaction/transfer-rejected})
 

@@ -29,3 +29,15 @@
     (catch clojure.lang.ExceptionInfo e
       (is (= [:transaction/reviewed] (:overlay-keys (ex-data e))))
       (is (= "tx-1" (:transaction/external-id (ex-data e)))))))
+
+(deftest rejects-split-parent-key
+  (testing "A provider transaction carrying :transaction/split-parent is rejected"
+    (is (thrown? clojure.lang.ExceptionInfo
+                 (contract/assert-no-overlay-keys!
+                  [(assoc imported :transaction/split-parent [:transaction/external-id "tx-0"])])))))
+
+(deftest rejects-split-order-key
+  (testing "A provider transaction carrying :transaction/split-order is rejected"
+    (is (thrown? clojure.lang.ExceptionInfo
+                 (contract/assert-no-overlay-keys!
+                  [(assoc imported :transaction/split-order 1)])))))
