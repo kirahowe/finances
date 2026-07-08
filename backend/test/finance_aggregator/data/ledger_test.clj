@@ -97,3 +97,56 @@
   (is (true? (ledger/all-reconciled? [{:status :reconciled} {:status :reconciled}])))
   (is (false? (ledger/all-reconciled? [{:status :reconciled} {:status :drift}])))
   (is (false? (ledger/all-reconciled? [{:status :no-snapshot}]))))
+
+;; --- Coverage-strict closing -------------------------------------------------
+
+(defn- txn [posted-date] {:transaction/posted-date posted-date})
+
+(deftest covered?-half-open-boundaries
+  (let [span {:start #inst "2025-05-01" :end #inst "2025-05-31"}]
+    (testing "d == start is NOT covered (start is exclusive)"
+      (is (false? (ledger/covered? #inst "2025-05-01" [span]))))
+    (testing "d == end IS covered (end is inclusive)"
+      (is (true? (ledger/covered? #inst "2025-05-31" [span]))))
+    (testing "d strictly inside is covered"
+      (is (true? (ledger/covered? #inst "2025-05-15" [span]))))
+    (testing "d outside any span is not covered"
+      (is (false? (ledger/covered? #inst "2025-06-01" [span]))))))
+
+(deftest month-coverage-single-span-covers-all
+  (let [txs [(txn #inst "2025-05-05") (txn #inst "2025-05-20")]
+        spans [{:start #inst "2025-04-30" :end #inst "2025-05-31"}]]
+    (is (= {:status :reconciled :uncovered 0 :first-uncovered nil}
+           (ledger/month-coverage txs spans true)))))
+
+(deftest month-coverage-partial-with-a-gap
+  (let [txs [(txn #inst "2025-05-05") (txn #inst "2025-05-20") (txn #inst "2025-05-25")]
+        ;; Covers only the first txn; the other two fall outside.
+        spans [{:start #inst "2025-04-30" :end #inst "2025-05-10"}]
+        cov (ledger/month-coverage txs spans true)]
+    (is (= :partial (:status cov)))
+    (is (= 2 (:uncovered cov)))
+    (is (= #inst "2025-05-20" (:first-uncovered cov)) "earliest of the uncovered dates")))
+
+(deftest month-coverage-two-adjacent-statements-cover-the-month
+  (let [txs [(txn #inst "2025-04-20") (txn #inst "2025-05-01") (txn #inst "2025-05-16") (txn #inst "2025-05-31")]
+        spans [{:start #inst "2025-04-16" :end #inst "2025-05-16"}
+               {:start #inst "2025-05-16" :end #inst "2025-06-16"}]]
+    (is (= {:status :reconciled :uncovered 0 :first-uncovered nil}
+           (ledger/month-coverage txs spans true)))))
+
+(deftest month-coverage-no-snapshot-when-nothing-on-file
+  (let [txs [(txn #inst "2025-05-05")]]
+    (is (= :no-snapshot (:status (ledger/month-coverage txs [] false))))))
+
+(deftest month-coverage-partial-when-any-periods-but-no-reconciled-spans
+  (testing "drift with txns present: periods exist (any-periods? true) but none reconciled"
+    (let [txs [(txn #inst "2025-05-05")]]
+      (is (= :partial (:status (ledger/month-coverage txs [] true))))
+      (is (= 1 (:uncovered (ledger/month-coverage txs [] true))))))
+  (testing "drift with zero txns: still partial, since a period on file didn't reconcile"
+    (is (= :partial (:status (ledger/month-coverage [] [] true))))))
+
+(deftest month-coverage-reconciled-when-zero-txns-and-a-reconciled-span
+  (is (= {:status :reconciled :uncovered 0 :first-uncovered nil}
+         (ledger/month-coverage [] [{:start #inst "2025-04-30" :end #inst "2025-05-31"}] true))))

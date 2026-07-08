@@ -121,18 +121,34 @@
                        :end-iso   (str (u/date->local-date (:end-date s))))))
           (db-statements/list-overlapping db-conn account-eid start-date end-date))))
 
+(defn- statements-by-account
+  "{account-eid [statement…]} for every account in `account-eids` that has at least one
+   statement overlapping `month` — the shape reconcile-month folds into its per-account
+   coverage check. Accounts with no statements are simply absent (not an empty vector), so
+   `(seq statements)`/`(get … eid [])` downstream reads as 'no statements' either way."
+  [db-conn account-eids month]
+  (into {} (for [eid account-eids
+                 :let [ss (statement-models db-conn eid month)]
+                 :when (seq ss)]
+             [eid ss])))
+
 (defn- close-model-for
   "Rebuild the monthly-close panel model for `month` from current db state (the month's txs,
-   reported deltas, rollup net, and the persisted close event). When the table is filtered to
-   a single account (`view-st`), attach the :focus card — that account's month-boundary
-   opening/closing card (period-delta verdict from the snapshot history) plus its statements
-   overlapping the month (each with its own verdict); otherwise the overview."
+   reported deltas, rollup net, and the persisted close event). Coverage-strict: an account's
+   overview status folds in BOTH its month-boundary balance and its statements, so a credit
+   card whose statements all tie out reconciles even without month-end balances entered. When
+   the table is filtered to a single account (`view-st`), attach the :focus card — that
+   account's month-boundary opening/closing card (period-delta verdict from the snapshot
+   history) plus its statements overlapping the month (each with its own verdict), and the
+   same coverage headline as the overview, scoped to the one account."
   [db-conn month view-st]
   (let [txs (db-transactions/list-for-month db-conn month)
         categories (db-categories/list-all db-conn)
         account-eids (distinct (keep #(get-in % [:transaction/account :db/id]) txs))
         reported (db-snapshots/reported-deltas db-conn account-eids month)
-        base (view/month-close txs {:reconciliation (view/reconcile-month txs reported)
+        month-span {:start (db-snapshots/opening-date month) :end (db-snapshots/month-end-date month)}
+        stmts (statements-by-account db-conn account-eids month)
+        base (view/month-close txs {:reconciliation (view/reconcile-month txs reported month-span stmts)
                                     :close (db-reconciliations/get-close db-conn month)
                                     :net-now (:grand-total (view/category-rollup txs categories))})
         focus-eid (focus-account-eid view-st)]
@@ -140,20 +156,29 @@
       focus-eid
       (assoc :focus
              (let [{:keys [opening closing]} (db-snapshots/boundary-balances db-conn focus-eid month)]
-               (-> (view/focus-close txs {:account-eid  focus-eid
-                                          :opening      opening
-                                          :closing      closing
-                                          :opening-date (db-snapshots/opening-date month)
-                                          :closing-date (db-snapshots/month-end-date month)})
-                   (assoc :statements (statement-models db-conn focus-eid month))))))))
+               (view/focus-close txs {:account-eid  focus-eid
+                                      :opening      opening
+                                      :closing      closing
+                                      :opening-date (db-snapshots/opening-date month)
+                                      :closing-date (db-snapshots/month-end-date month)
+                                      :statements   (get stmts focus-eid [])}))))))
 
 (defn- recon-signals
   "The focused card's opening/closing prefill signals for a panel `model` (blank in overview
-   mode). Seeded whenever the panel is entered/saved, so a drill shows the balances on file."
+   mode), plus the month-end disclosure's default open state (`:_reconMonthOpen`). Seeded
+   whenever the panel is entered/saved, so a drill shows the balances on file. The disclosure
+   collapses ONLY when the account is already fully reconciled by statements alone (no
+   month-boundary balances on file needed) — otherwise it opens, since that's where the
+   account still needs attention."
   [model]
   (let [f (:focus model)
-        s #(if (some? %) (str %) "")]
-    {:reconOpen (s (:opening f)) :reconClose (s (:closing f))}))
+        s #(if (some? %) (str %) "")
+        covered-by-statements? (and f
+                                    (= :reconciled (get-in f [:coverage :status]))
+                                    (seq (filter #(= :reconciled (:status %)) (:statements f)))
+                                    (nil? (:opening f)) (nil? (:closing f)))]
+    {:reconOpen (s (:opening f)) :reconClose (s (:closing f))
+     :_reconMonthOpen (not covered-by-statements?)}))
 
 (defn- reconcile-range
   "The active reconcile span {:account :from :to} narrowing the table to a statement — both

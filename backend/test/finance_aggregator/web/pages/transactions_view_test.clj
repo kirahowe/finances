@@ -11,9 +11,13 @@
 (defn- html [hiccup] (str (r/render hiccup)))
 
 (def ^:private mixed-rows
-  [{:account-id 1 :name "Chequing" :status :reconciled  :difference 0M}
-   {:account-id 2 :name "Visa"     :status :drift        :difference (bigdec "5.00")}
-   {:account-id 3 :name "Savings"  :status :no-snapshot  :difference nil}])
+  ;; :status is the coverage-strict verdict (data.ledger/month-coverage via
+  ;; web.view/reconcile-month): Visa is :partial with a :difference — the single-number case
+  ;; (a month-boundary balance entered, no statements at all) — which reads exactly like the
+  ;; old :drift wording ("off by $X").
+  [{:account-id 1 :name "Chequing" :status :reconciled :difference nil}
+   {:account-id 2 :name "Visa"     :status :partial    :difference (bigdec "5.00")}
+   {:account-id 3 :name "Savings"  :status :no-snapshot :difference nil}])
 
 (deftest close-panel-overview-drills-per-account
   (let [h (html (tv/close-panel
@@ -77,44 +81,54 @@
                           :opening (bigdec "1190.00") :closing (bigdec "1240.00")
                           :opening-date #inst "2026-04-30" :closing-date #inst "2026-05-31"
                           :expected (bigdec "50.00") :tracked (bigdec "45.00")
-                          :difference (bigdec "5.00") :status :drift}}))]
+                          :boundary-status :drift :boundary-difference (bigdec "5.00")
+                          :coverage {:status :partial :uncovered 1 :first-uncovered #inst "2026-05-20"}
+                          :statements []}}))]
     (testing "the focused account's card renders, not the overview list or gate"
       (is (re-find #"reconcile-focus" h))
       (is (re-find #"Visa" h))
       (is (not (re-find #"reconcile-rows" h)) "the overview list is replaced by the focused card")
       (is (not (re-find #"Close month" h)) "the month gate/Close live in the overview only"))
+    (testing "the coverage headline leads the card with the account-level verdict"
+      (is (re-find #"not yet covered" h)))
     (testing "opening/closing fields carry their app-owned end-of-day dates + prefilled values"
       (is (re-find #"Opening" h))
       (is (re-find #"Closing" h))
       (is (re-find #"end of Apr 30, 2026" h))
       (is (re-find #"end of May 31, 2026" h))
       (is (re-find #"1190.00" h) "opening prefill seeded as the raw input value"))
-    (testing "the verdict + readout render (drift → off by, with a nudge to fix)"
+    (testing "the month-end section's own period verdict + readout render (drift → off by)"
       (is (re-find #"Expected change" h))
       (is (re-find #"Tracked activity" h))
-      (is (re-find #"off by" h))
-      (is (re-find #"fix the transactions" h)))
+      (is (re-find #"Off by" h) "the boundary period's own verdict, scoped to that one span"))
     (testing "Back returns to the overview by clearing the account filter"
       (is (re-find #"reconcile-back" h))
       (is (re-find #"filter\.account = \[\]" h)))
     (testing "Save posts the balances"
-      (is (re-find #"reconcile-save" h))
+      (is (re-find #"Save balances" h))
       (is (re-find #"/transactions/reconcile" h)))))
 
 (deftest close-panel-focused-card-verdicts
-  (testing "a reconciled focus reads 'checks out'; a no-snapshot focus asks for balances"
+  (testing "a reconciled account: the coverage headline reads Reconciled, the period verdict matches"
     (let [ok (html (tv/close-panel
                     {:rows [] :gate {}
                      :focus {:account-id 1 :name "Chequing" :opening 0M :closing 2000M
                              :opening-date #inst "2026-04-30" :closing-date #inst "2026-05-31"
-                             :expected 2000M :tracked 2000M :difference 0M :status :reconciled}}))
+                             :expected 2000M :tracked 2000M
+                             :boundary-status :reconciled :boundary-difference 0M
+                             :coverage {:status :reconciled :uncovered 0 :first-uncovered nil}
+                             :statements []}}))
           none (html (tv/close-panel
                       {:rows [] :gate {}
                        :focus {:account-id 1 :name "Chequing" :opening nil :closing nil
                                :opening-date #inst "2026-04-30" :closing-date #inst "2026-05-31"
-                               :expected nil :tracked 2000M :difference nil :status :no-snapshot}}))]
-      (is (re-find #"checks out" ok))
-      (is (re-find #"Enter the opening and closing" none)))))
+                               :expected nil :tracked 2000M
+                               :boundary-status :no-snapshot :boundary-difference nil
+                               :coverage {:status :no-snapshot :uncovered 0 :first-uncovered nil}
+                               :statements []}}))]
+      (is (re-find #"Reconciled" ok))
+      (is (re-find #"This period matches" ok))
+      (is (re-find #"Not checked yet" none)))))
 
 (deftest close-panel-focused-card-lists-statements
   (let [h (html (tv/close-panel
@@ -122,7 +136,9 @@
                   :focus {:account-id 2 :name "Visa"
                           :opening nil :closing nil
                           :opening-date #inst "2026-04-30" :closing-date #inst "2026-05-31"
-                          :expected nil :tracked 45M :difference nil :status :no-snapshot
+                          :expected nil :tracked 45M
+                          :boundary-status :no-snapshot :boundary-difference nil
+                          :coverage {:status :partial :uncovered 1 :first-uncovered #inst "2026-05-20"}
                           :statements [{:id 7 :start-date #inst "2026-04-16" :end-date #inst "2026-05-16"
                                         :start-iso "2026-04-16" :end-iso "2026-05-16"
                                         :start-balance 500M :end-balance 640M

@@ -882,7 +882,15 @@
     title
     (chevron-down)]])
 
-(defn- reconcile-status-span [status difference]
+(defn- reconcile-status-span
+  "The status chip shared by an overview account row and a statement row. `status` is
+   :reconciled / :drift / :partial / :no-snapshot: :drift is a statement's own period verdict
+   (reconcile-statement-period); :partial is the coverage-strict account verdict
+   (data.ledger/month-coverage) — when it carries a `difference` (the single-number case: a
+   month-boundary balance entered with no statements at all) it reads exactly like :drift
+   ('off by $X'), since that IS the number to blame; without one (a gap in coverage, or
+   multiple periods with no single figure) it reads as a plain 'partly covered' note instead."
+  [status difference]
   (cond
     (= :reconciled status)
     [:span.reconcile-status.reconcile-status--ok
@@ -892,6 +900,13 @@
     [:span.reconcile-status.reconcile-status--drift
      {:title "Computed change differs from the bank's reported change"}
      "off by " (fmt/amount difference)]
+    (= :partial status)
+    (if (some? difference)
+      [:span.reconcile-status.reconcile-status--drift
+       {:title "Computed change differs from the bank's reported change"}
+       "off by " (fmt/amount difference)]
+      [:span.reconcile-status.reconcile-status--muted
+       [:span {:aria-hidden "true"} "○ "] "partly covered"])
     :else
     [:span.reconcile-status.reconcile-status--muted "needs balances"]))
 
@@ -912,19 +927,32 @@
    [:span.reconcile-readout-label label]
    [:span.reconcile-readout-amt.numeric (if (some? value) (fmt/amount value) "—")]])
 
-(defn- focus-status-line
-  "The focused card's verdict, spelled out for the one account being cleaned up."
-  [status difference]
+(defn- focus-coverage-headline
+  "The focused card's top-of-card headline: the ACCOUNT-LEVEL coverage-strict verdict
+   (data.ledger/month-coverage via web.view/focus-close's :coverage) — whether EVERY
+   transaction this month is inside a reconciled period (month-boundary and/or statement),
+   not just the single month-boundary period's own verdict (that lives further down, in
+   focus-month-section). This is the headline because it's the actual close-gate question for
+   this account; the month-end balances are just one of the ways to answer it."
+  [{:keys [status uncovered first-uncovered]}]
   (cond
     (= :reconciled status)
-    [:p.reconcile-focus-status.reconcile-status--ok
-     [:span.reconcile-tick {:aria-hidden "true"} "✓ "] "matches — this account checks out"]
-    (= :drift status)
-    [:p.reconcile-focus-status.reconcile-status--drift
-     "off by " (fmt/amount difference) " — fix the transactions below until it ties out"]
+    [:div.reconcile-coverage.reconcile-coverage--ok
+     [:p.reconcile-coverage-line [:span.reconcile-tick {:aria-hidden "true"} "✓ "] "Reconciled"]
+     [:p.reconcile-coverage-note "Every transaction this month is inside a matching period."]]
+    (= :partial status)
+    [:div.reconcile-coverage.reconcile-coverage--partial
+     [:p.reconcile-coverage-line
+      [:span.gate-mark {:aria-hidden "true"} "○ "]
+      (str uncovered " transaction" (when (not= 1 uncovered) "s") " not yet covered")]
+     [:p.reconcile-coverage-note
+      (str "Add a period that covers "
+           (if first-uncovered (str "activity from " (fmt/date first-uncovered)) "the remaining activity")
+           ".")]]
     :else
-    [:p.reconcile-focus-status.reconcile-status--muted
-     "Enter the opening and closing balances to check this account."]))
+    [:div.reconcile-coverage.reconcile-coverage--muted
+     [:p.reconcile-coverage-line "○ Not checked yet"]
+     [:p.reconcile-coverage-note "Enter month-end balances or add a statement to check this account."]]))
 
 (defn- balance-field
   "A labelled balance input for the focused card. The note spells out the app-owned
@@ -984,13 +1012,58 @@
      [:p.reconcile-statements-empty
       "None yet — add one to reconcile an arbitrary date range (e.g. a credit-card statement)."])])
 
+(defn- month-period-verdict
+  "The month-end section's own per-period verdict — just this one boundary span, not the
+   account-level coverage headline (focus-coverage-headline, further up the card). nil for
+   :no-snapshot (nothing to say yet; the fields above are the prompt)."
+  [status difference]
+  (cond
+    (= :reconciled status)
+    [:p.reconcile-month-verdict.reconcile-status--ok "✓ This period matches"]
+    (= :drift status)
+    [:p.reconcile-month-verdict.reconcile-status--drift (str "Off by " (fmt/amount difference) " for this period")]
+    :else nil))
+
+(defn- focus-month-section
+  "The collapsible 'Month-end balances' disclosure: opening/closing entry (app-owned end-of-day
+   dates), Save, and the expected-vs-tracked readout ending in this period's own verdict. Optional
+   by design — a credit card reconciled entirely by statements never needs it — so it's collapsible
+   and its default open/closed state is decided server-side (recon-signals: collapsed only when
+   the account already reconciles by statements alone), driven by the ephemeral $_reconMonthOpen
+   signal (mirrors the summary-card collapse pattern, scoped to this one sub-section)."
+  [opening closing opening-date closing-date expected tracked boundary-status boundary-difference]
+  [:div.reconcile-month {"data-class" "{'is-collapsed': !$_reconMonthOpen}"}
+   [:button.reconcile-month-toggle
+    {:type "button" "data-on:click" "$_reconMonthOpen = !$_reconMonthOpen"
+     "data-attr" "{'aria-expanded': $_reconMonthOpen ? 'true' : 'false'}"}
+    [:span.reconcile-subhead "Month-end balances"]
+    [:span.reconcile-month-opt "optional"]
+    (chevron-down)]
+   [:div.reconcile-month-body
+    [:div.reconcile-month-fields
+     (balance-field "recon-open"  "reconOpen"  "Opening" opening-date opening)
+     (balance-field "recon-close" "reconClose" "Closing" closing-date closing)]
+    [:div.form-actions
+     [:button.button.button-primary
+      {:type "button"
+       "data-attr" "{disabled: $reconOpen === '' && $reconClose === ''}"
+       "data-on:click" "@post('/transactions/reconcile')"}
+      "Save balances"]]
+    [:div.reconcile-month-readout
+     (reconcile-readout-line "Expected change" expected)
+     (reconcile-readout-line "Tracked activity" tracked)
+     (month-period-verdict boundary-status boundary-difference)]]])
+
 (defn- focus-card
-  "The focused single-account reconcile view: a Back action, then the account's reconcile
-   periods — the MONTH-END balance card (web.view/focus-close: opening/closing entry, app-owned
-   end-of-day dates, Save, expected-vs-tracked verdict) and the STATEMENTS list (arbitrary-span
-   periods). Both are always offered; an account you only reconcile at month-end simply leaves
-   the statements list empty, a credit card lives in it."
-  [{:keys [opening closing opening-date closing-date expected tracked difference status statements]
+  "The focused single-account reconcile view: a Back action, the COVERAGE HEADLINE (the
+   account-level coverage-strict verdict — every txn this month covered by SOME reconciled
+   period), the STATEMENTS list (arbitrary-span periods), then the collapsible MONTH-END
+   BALANCES section (the single month-boundary period: opening/closing entry, Save, its own
+   expected-vs-tracked verdict). The headline answers the actual close-gate question up front;
+   the two period-entry sections below are simply the two ways to answer it — a credit card
+   reconciled purely by statements can leave the month-end section collapsed."
+  [{:keys [opening closing opening-date closing-date expected tracked
+           boundary-status boundary-difference coverage statements]
     acct-name :name}]
   [:div.reconcile-focus
    [:div.reconcile-focus-head
@@ -999,21 +1072,10 @@
       "data-on:click" "$filter.account = []; $reconFrom = ''; $reconTo = ''; $page = 0; @get('/transactions/rows')"}
      "← Back"]
     [:span.reconcile-focus-title {:title acct-name} acct-name]]
-   [:div.reconcile-focus-month
-    [:p.reconcile-subhead "Month-end balances"]
-    [:div.reconcile-focus-fields
-     (balance-field "recon-open"  "reconOpen"  "Opening" opening-date opening)
-     (balance-field "recon-close" "reconClose" "Closing" closing-date closing)]
-    [:button.button.button-primary.reconcile-save
-     {:type "button"
-      "data-attr" "{disabled: $reconOpen === '' && $reconClose === ''}"
-      "data-on:click" "@post('/transactions/reconcile')"}
-     "Save balances"]
-    [:div.reconcile-focus-readout
-     (reconcile-readout-line "Expected change" expected)
-     (reconcile-readout-line "Tracked activity" tracked)
-     (focus-status-line status difference)]]
-   (focus-statements-section statements)])
+   (focus-coverage-headline coverage)
+   (focus-statements-section statements)
+   (focus-month-section opening closing opening-date closing-date expected tracked
+                        boundary-status boundary-difference)])
 
 (defn- account-select
   "A .form-select over all accounts, bound to `signal`, preselecting `selected` eid.

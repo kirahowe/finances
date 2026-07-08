@@ -339,17 +339,53 @@
      :grand-total (+ income-signed expense-signed)}))
 
 ;; --- Monthly close: per-account reconciliation ------------------------------
-;; The period-delta confidence check (data.ledger): does each account's tracked
-;; activity for the month match the bank's balance change? `reported` is a map of
-;; account-eid -> reported-delta (bigdec) read from the snapshot history; an account
-;; with activity but no entry surfaces as :no-snapshot.
+;; Coverage-strict closing: does EVERY one of an account's month transactions fall inside a
+;; reconciled period? A month-boundary snapshot reconciling is one way to cover the whole
+;; month (its span IS the calendar month); a credit card's statements tying out is another —
+;; and two adjacent statements can jointly cover a month even though neither alone spans it.
+;; See data.ledger/month-coverage for the coverage math this folds through.
 
 (defn reconcile-month
-  "Per-account reconciliation for the month's `txs` given `reported` deltas. Returns
-   {:rows [reconcile-row…] :all-reconciled? bool} — the per-account confidence
-   readout the close panel renders. Pure."
-  [txs reported]
-  (let [rows (ledger/reconcile (ledger/account-computed-deltas txs) reported)]
+  "Coverage-strict per-account reconciliation for the month's `txs`. `reported` = {account-eid
+   reported-delta} from the snapshot history (the month-boundary balances' delta);
+   `month-span` = {:start opening-date :end month-end-date} (Dates, the same calendar span for
+   every account); `statements-by-account` = {account-eid [statement…]}, each statement already
+   annotated with its own period-delta verdict (reconcile-statement).
+
+   Returns {:rows [row…] :all-reconciled? bool} where a row is
+   {:account-id :name :computed-delta :reported-delta :status :uncovered :first-uncovered
+    :difference} — the per-account confidence readout the close panel renders. :status is
+   :reconciled/:partial/:no-snapshot (coverage-strict — reconciled needs EVERY month txn
+   covered, not just the month-boundary check). :difference (the overview's 'off by $X'
+   wording) is populated ONLY for the single-number case — a :partial account whose
+   month-boundary balance is entered and which has no statements at all — since a
+   statement-covered or multi-period account has no one figure to blame. Pure."
+  [txs reported month-span statements-by-account]
+  (let [deltas (ledger/account-computed-deltas txs)
+        txs-by-account (group-by #(get-in % [:transaction/account :db/id]) txs)
+        rows (for [[account-id {:keys [name computed-delta]}] deltas
+                   :let [rdelta (get reported account-id)
+                         acct-txs (get txs-by-account account-id [])
+                         statements (get statements-by-account account-id [])
+                         boundary-reconciled? (and (some? rdelta)
+                                                    (<= (abs (- rdelta computed-delta)) ledger/default-tolerance))
+                         statement-spans (->> statements
+                                              (filter #(= :reconciled (:status %)))
+                                              (map (fn [s] {:start (:start-date s) :end (:end-date s)})))
+                         spans (cond-> statement-spans boundary-reconciled? (conj month-span))
+                         any-periods? (or (some? rdelta) (seq statements))
+                         cov (ledger/month-coverage acct-txs spans any-periods?)
+                         difference (when (and (= :partial (:status cov)) (some? rdelta) (empty? statements))
+                                      (- rdelta computed-delta))]]
+               {:account-id      account-id
+                :name            name
+                :computed-delta  computed-delta
+                :reported-delta  rdelta
+                :status          (:status cov)
+                :uncovered       (:uncovered cov)
+                :first-uncovered (:first-uncovered cov)
+                :difference      difference})
+        rows (vec (sort-by :name rows))]
     {:rows rows :all-reconciled? (ledger/all-reconciled? rows)}))
 
 (defn month-close
@@ -389,30 +425,44 @@
 (defn focus-close
   "The focused single-account reconcile card model. Pure. Given the month's `txs`, the
    drilled-into `account-eid`, the opening/closing bank balances currently on file (bigdec
-   or nil when not yet entered) and their app-owned boundary dates, returns
-     {:account-id :name :opening :closing :opening-date :closing-date
-      :expected :tracked :difference :status}
-   where :expected is the reported change (closing − opening, nil if either missing),
-   :tracked is Σ the account's month transactions, and :status is
-   :reconciled / :drift / :no-snapshot — the same period-delta verdict the overview uses,
-   scoped to one account. `name-fallback` names the account when it has no activity."
-  [txs {:keys [account-eid name-fallback opening closing opening-date closing-date]}]
-  (let [row      (get (ledger/account-computed-deltas txs) account-eid)
-        tracked  (or (:computed-delta row) 0M)
-        nm       (or (:name row) name-fallback "Account")
-        expected (when (and opening closing) (- closing opening))
-        verdict  (ledger/reconcile-row {:account-id account-eid :name nm :computed-delta tracked}
-                                       expected ledger/default-tolerance)]
-    {:account-id   account-eid
-     :name         nm
-     :opening      opening
-     :closing      closing
-     :opening-date opening-date
-     :closing-date closing-date
-     :expected     expected
-     :tracked      tracked
-     :difference   (:difference verdict)
-     :status       (:status verdict)}))
+   or nil when not yet entered), their app-owned boundary dates, and the account's `statements`
+   (already annotated with their own period-delta verdicts — reconcile-statement), returns
+     {:account-id :name :opening :closing :opening-date :closing-date :expected :tracked
+      :boundary-status :boundary-difference :coverage :statements}
+   `:expected` is the reported change (closing − opening, nil if either missing) and `:tracked`
+   is Σ the account's month transactions. `:boundary-status`/`:boundary-difference` are the
+   month-boundary PERIOD's own verdict (reconcile-period) — the month-end section's per-period
+   readout ('this period matches' / 'off by $X'). `:coverage` (data.ledger/month-coverage) is
+   the ACCOUNT-LEVEL headline: whether EVERY month transaction is covered by a reconciled
+   period — the boundary span (when it reconciles) and/or a reconciled statement — the
+   coverage-strict close check scoped to this one account. `name-fallback` names the account
+   when it has no activity."
+  [txs {:keys [account-eid name-fallback opening closing opening-date closing-date statements]}]
+  (let [row          (get (ledger/account-computed-deltas txs) account-eid)
+        tracked      (or (:computed-delta row) 0M)
+        nm           (or (:name row) name-fallback "Account")
+        acct-txs     (filter #(= account-eid (get-in % [:transaction/account :db/id])) txs)
+        expected     (when (and opening closing) (- closing opening))
+        boundary     (ledger/reconcile-period opening closing acct-txs)
+        statement-spans (->> statements
+                             (filter #(= :reconciled (:status %)))
+                             (map (fn [s] {:start (:start-date s) :end (:end-date s)})))
+        spans        (cond-> statement-spans
+                       (= :reconciled (:status boundary)) (conj {:start opening-date :end closing-date}))
+        any-periods? (or (some? expected) (seq statements))
+        coverage     (ledger/month-coverage acct-txs spans any-periods?)]
+    {:account-id          account-eid
+     :name                nm
+     :opening             opening
+     :closing             closing
+     :opening-date        opening-date
+     :closing-date        closing-date
+     :expected            expected
+     :tracked             tracked
+     :boundary-status     (:status boundary)
+     :boundary-difference (:difference boundary)
+     :coverage            coverage
+     :statements          statements}))
 
 (defn reconcile-statement
   "A statement (db.statements display shape: :id :start-date :start-balance :end-date

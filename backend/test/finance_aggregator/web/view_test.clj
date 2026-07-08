@@ -167,6 +167,50 @@
       (is (not (contains? (view/present txs vs {:categories []}) :close))))))
 
 ;; --- Monthly close ----------------------------------------------------------
+;; Coverage-strict reconciliation: Chequing (eid 100) has t1 (+4000, 2025-01-01) and t3
+;; (-2000, 2025-01-15) — net 2000; Visa (eid 101) has t2 (-85, 2025-01-05), t4 (-50,
+;; 2025-01-12), t5 (-200, 2025-01-20) — net -335. `month-span` is the calendar month's own
+;; (open, close] span, wide enough to cover every January date the fixture uses.
+
+(def ^:private month-span {:start #inst "2024-12-31" :end #inst "2025-01-31"})
+
+(deftest reconcile-month-boundary-only-still-works
+  (testing "a reconciled month-boundary balance → :reconciled, no :difference (nothing to blame)"
+    (let [m (view/reconcile-month txs {100 2000M} month-span {})
+          row (first (filter #(= 100 (:account-id %)) (:rows m)))]
+      (is (= :reconciled (:status row)))
+      (is (zero? (:uncovered row)))
+      (is (nil? (:difference row)) "no single number to blame once it reconciles")))
+  (testing "a drifting month-boundary balance with no statements → :partial, :difference set"
+    (let [m (view/reconcile-month txs {100 2500M} month-span {})
+          row (first (filter #(= 100 (:account-id %)) (:rows m)))]
+      (is (= :partial (:status row)))
+      (is (= 500M (:difference row)) "reported − computed = 2500 − 2000"))))
+
+(deftest reconcile-month-statement-covered-account-reconciles
+  (testing "two adjacent statements jointly covering the month → :reconciled even with no boundary balance"
+    (let [stmts {101 [{:start-date #inst "2024-12-31" :end-date #inst "2025-01-12" :status :reconciled}
+                      {:start-date #inst "2025-01-12" :end-date #inst "2025-01-31" :status :reconciled}]}
+          m (view/reconcile-month txs {} month-span stmts)
+          visa (first (filter #(= 101 (:account-id %)) (:rows m)))]
+      (is (= :reconciled (:status visa)))
+      (is (zero? (:uncovered visa)))
+      (is (nil? (:difference visa)) "statement-covered accounts have no single boundary number")))
+  (testing "the whole month reconciles when every account is covered (boundary or statements)"
+    (let [stmts {101 [{:start-date #inst "2024-12-31" :end-date #inst "2025-01-12" :status :reconciled}
+                      {:start-date #inst "2025-01-12" :end-date #inst "2025-01-31" :status :reconciled}]}
+          m (view/reconcile-month txs {100 2000M} month-span stmts)]
+      (is (true? (:all-reconciled? m))))))
+
+(deftest reconcile-month-partial-coverage-account
+  (testing "a single statement covering only part of the month → :partial with the right :uncovered count"
+    (let [stmts {101 [{:start-date #inst "2024-12-31" :end-date #inst "2025-01-12" :status :reconciled}]}
+          m (view/reconcile-month txs {} month-span stmts)
+          visa (first (filter #(= 101 (:account-id %)) (:rows m)))]
+      (is (= :partial (:status visa)))
+      (is (= 1 (:uncovered visa)) "only t5 (2025-01-20) falls outside the one statement")
+      (is (= #inst "2025-01-20" (:first-uncovered visa)))
+      (is (false? (:all-reconciled? m)) "one uncovered account blocks the whole month"))))
 
 (deftest month-close-gate
   (testing "everything reviewed + categorized + balanced → ready to close"
@@ -209,36 +253,58 @@
         (is (= #inst "2026-03-01" (:closed-at m)))))))
 
 ;; --- Focused single-account reconcile card ----------------------------------
-;; The drill-in card: one account's opening/closing balances vs its tracked activity, the
-;; same period-delta verdict as the overview, scoped to one account. Chequing (eid 100):
-;; +4000 -2000 = 2000; Visa (eid 101): -85 -50 -200 = -335.
+;; The drill-in card: one account's opening/closing balances vs its tracked activity.
+;; Chequing (eid 100): +4000 -2000 = 2000; Visa (eid 101): -85 -50 -200 = -335. Opening/closing
+;; dates below bound the calendar month (Dec 31 open, Jan 31 close) so the coverage headline —
+;; not just the boundary period's own verdict — can be checked against the fixture's dates.
 
 (deftest focus-close-single-account-verdict
-  (testing "matches when opening + tracked = closing (the period-delta ties out)"
+  (testing "matches when opening + tracked = closing (the period-delta ties out), coverage follows"
     (let [f (view/focus-close txs {:account-eid 100 :opening 500M :closing 2500M
-                                   :opening-date #inst "2025-01-31" :closing-date #inst "2025-02-28"})]
+                                   :opening-date #inst "2024-12-31" :closing-date #inst "2025-01-31"})]
       (is (= "Chequing" (:name f)) "name comes from the account's activity")
       (is (= 2000M (:tracked f)))
       (is (= 2000M (:expected f)) "closing − opening")
-      (is (= :reconciled (:status f)))
-      (is (= #inst "2025-01-31" (:opening-date f)) "boundary dates pass through for the labels")))
-  (testing "off by the difference when they don't tie out (drift)"
+      (is (= :reconciled (:boundary-status f)))
+      (is (= #inst "2024-12-31" (:opening-date f)) "boundary dates pass through for the labels")
+      (is (= :reconciled (:status (:coverage f)))
+          "the boundary span covers every Chequing txn this month")
+      (is (zero? (:uncovered (:coverage f))))))
+  (testing "off by the difference when they don't tie out (drift) → coverage is :partial"
     (let [f (view/focus-close txs {:account-eid 100 :opening 0M :closing 2500M})]
       (is (= 2500M (:expected f)))
-      (is (= 500M (:difference f)) "expected − tracked = 2500 − 2000")
-      (is (= :drift (:status f)))))
-  (testing "no verdict until both balances are entered (no-snapshot)"
+      (is (= 500M (:boundary-difference f)) "expected − tracked = 2500 − 2000")
+      (is (= :drift (:boundary-status f)))
+      (is (= :partial (:status (:coverage f)))
+          "a non-reconciling boundary contributes no coverage span")))
+  (testing "no verdict until both balances are entered (no-snapshot), coverage follows"
     (let [f (view/focus-close txs {:account-eid 101 :opening nil :closing -335M})]
       (is (= "Visa" (:name f)))
       (is (= -335M (:tracked f)))
       (is (nil? (:expected f)))
-      (is (= :no-snapshot (:status f)))))
+      (is (= :no-snapshot (:boundary-status f)))
+      (is (= :no-snapshot (:status (:coverage f))))))
   (testing "an account with no activity this month tracks 0 and uses the name fallback"
     (let [f (view/focus-close txs {:account-eid 999 :name-fallback "Savings" :opening 10M :closing 10M})]
       (is (= "Savings" (:name f)))
       (is (= 0M (:tracked f)))
       (is (= 0M (:expected f)))
-      (is (= :reconciled (:status f)) "0 change explained by 0 activity → reconciled"))))
+      (is (= :reconciled (:boundary-status f)) "0 change explained by 0 activity → reconciled")
+      (is (= :reconciled (:status (:coverage f))))))
+  (testing "a statement covering the whole span reconciles the account even with no boundary balance"
+    (let [stmt {:start-date #inst "2024-12-31" :end-date #inst "2025-01-31" :status :reconciled}
+          f (view/focus-close txs {:account-eid 101 :opening nil :closing nil :statements [stmt]})]
+      (is (= :no-snapshot (:boundary-status f)) "no boundary balances on file")
+      (is (= :reconciled (:status (:coverage f)))
+          "the statement alone covers every Visa txn this month")
+      (is (= [stmt] (:statements f)))))
+  (testing "a statement covering only part of the span leaves coverage :partial"
+    (let [stmt {:start-date #inst "2024-12-31" :end-date #inst "2025-01-12" :status :reconciled}
+          f (view/focus-close txs {:account-eid 101 :opening nil :closing nil :statements [stmt]})
+          cov (:coverage f)]
+      (is (= :partial (:status cov)))
+      (is (= 1 (:uncovered cov)) "only t5 (2025-01-20) falls outside the statement")
+      (is (= #inst "2025-01-20" (:first-uncovered cov))))))
 
 (deftest reconcile-statement-uses-statement-balance-polarity
   (let [statement {:id 7 :start-balance 44.02M :end-balance -90.15M}

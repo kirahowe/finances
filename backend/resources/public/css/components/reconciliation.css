@@ -74,6 +74,13 @@
   color: var(--color-text-muted);
 }
 
+/* The coverage-strict :partial verdict shares the muted look — a mid-state, not a
+   failure — whether it's an overview row's "partly covered" chip or (via the same
+   .reconcile-status class list) any other partial rendering. */
+.reconcile-status--partial {
+  color: var(--color-text-muted);
+}
+
 .reconcile-tick {
   font-weight: 700;
 }
@@ -128,10 +135,32 @@
   color: var(--color-ink);
 }
 
-.reconcile-focus-fields {
-  display: flex;
-  flex-direction: column;
-  gap: var(--spacing-sm);
+/* --- Coverage headline ----------------------------------------------------
+   The account-level coverage-strict verdict (data.ledger/month-coverage) that leads the
+   focused card: whether EVERY transaction this month sits inside a reconciled period, not
+   just the single month-boundary span. Replaces the old .reconcile-focus-status line. */
+.reconcile-coverage-line {
+  margin: 0;
+  font-size: var(--text-md);
+  font-weight: 600;
+}
+
+.reconcile-coverage-note {
+  margin: var(--spacing-xs) 0 0;
+  font-size: var(--text-sm);
+  color: var(--color-text-muted);
+}
+
+.reconcile-coverage--ok .reconcile-coverage-line {
+  color: var(--color-success);
+}
+
+.reconcile-coverage--partial .reconcile-coverage-line {
+  color: var(--color-ink);
+}
+
+.reconcile-coverage--muted .reconcile-coverage-line {
+  color: var(--color-text-muted);
 }
 
 .reconcile-field {
@@ -156,16 +185,6 @@
   white-space: nowrap;
 }
 
-.reconcile-save {
-  align-self: flex-end;
-}
-
-/* The verdict: expected change vs tracked activity, then the match / off-by line. */
-.reconcile-focus-readout {
-  padding-top: var(--spacing-sm);
-  border-top: 1px solid var(--color-border);
-}
-
 .reconcile-readout-line {
   display: flex;
   align-items: baseline;
@@ -185,13 +204,7 @@
   color: var(--color-ink);
 }
 
-.reconcile-focus-status {
-  margin: var(--spacing-xs) 0 0;
-  font-size: var(--text-sm);
-  font-weight: 600;
-}
-
-/* A small section label above the month card and the statements list. */
+/* A small section label above the month-end section and the statements list. */
 .reconcile-subhead {
   margin: 0 0 var(--spacing-xs);
   font-size: var(--text-2xs);
@@ -199,6 +212,98 @@
   text-transform: uppercase;
   letter-spacing: 0.1em;
   color: var(--color-text-muted);
+}
+
+/* --- Month-end balances (collapsible) --------------------------------------
+   Optional by design — a credit card reconciled entirely by statements never needs it — so
+   it's a disclosure, not a fixed section. Mirrors .summary-toggle's chevron behavior (see
+   summary-card.css), scoped to this one sub-section instead of the whole panel. */
+.reconcile-month {
+  border-top: 1px solid var(--color-border);
+  margin-top: var(--spacing-md);
+  padding-top: var(--spacing-sm);
+}
+
+.reconcile-month-toggle {
+  display: flex;
+  align-items: baseline;
+  gap: var(--spacing-sm);
+  width: 100%;
+  padding: var(--spacing-xs) 0;
+  font: inherit;
+  text-align: left;
+  color: inherit;
+  background: none;
+  border: none;
+  cursor: pointer;
+}
+
+.reconcile-month-toggle:focus-visible {
+  outline: none;
+  border-radius: var(--radius-sm);
+  box-shadow: var(--focus-ring);
+}
+
+/* The eyebrow keeps its own bottom margin in isolation (.reconcile-subhead); zero it here
+   so it sits on the same baseline as the "optional" tag and chevron. */
+.reconcile-month-toggle .reconcile-subhead {
+  margin: 0;
+}
+
+.reconcile-month-opt {
+  font-size: var(--text-2xs);
+  color: var(--color-text-muted);
+  text-transform: none;
+  letter-spacing: normal;
+}
+
+.reconcile-month-toggle svg {
+  flex: none;
+  width: var(--spacing-md);
+  height: var(--spacing-md);
+  margin-left: auto;
+  color: var(--color-medium-gray);
+  transition: transform var(--duration) var(--ease-out);
+}
+
+.reconcile-month.is-collapsed .reconcile-month-toggle svg {
+  transform: rotate(-90deg);
+}
+
+.reconcile-month.is-collapsed .reconcile-month-body {
+  display: none;
+}
+
+.reconcile-month-body {
+  display: flex;
+  flex-direction: column;
+  gap: var(--spacing-sm);
+  padding-top: var(--spacing-sm);
+}
+
+.reconcile-month-fields {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: var(--spacing-sm);
+}
+
+/* Stack label over date-note over input in the half-width columns — the label's usual
+   space-between layout collides when there's this little horizontal room. */
+.reconcile-month-fields .reconcile-field-label {
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 2px;
+}
+
+.reconcile-month-readout {
+  padding-top: var(--spacing-sm);
+  border-top: 1px solid var(--color-border);
+}
+
+.reconcile-month-verdict {
+  margin: var(--spacing-xs) 0 0;
+  font-size: var(--text-sm);
+  font-weight: 600;
 }
 
 /* --- Statements list (arbitrary-span periods) ----------------------------

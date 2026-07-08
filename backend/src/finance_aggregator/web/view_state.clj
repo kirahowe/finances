@@ -195,6 +195,11 @@
          ;; SSE morphs of #reconciliation/#category-rollup, resets on a full reload).
          :_reconcileOpen true
          :_rollupOpen true
+         ;; The focused card's month-end-balances disclosure defaults open (there's nothing
+         ;; drilled into yet at a full-page load, so no reason to collapse it); a drill re-seeds
+         ;; the real value via recon-signals (transactions.clj), which may collapse it when the
+         ;; account already reconciles by statements alone.
+         :_reconMonthOpen true
          :_openFunnel ""
          :_funnelX 0
          :_funnelY 0

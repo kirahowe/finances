@@ -29,10 +29,13 @@ const rowBy = (name: string) =>
   page.locator('.reconcile-row', { has: page.locator('.reconcile-account', { hasText: name }) });
 const gateText = () => page.locator('.reconcile-gate').innerText();
 const focus = page.locator('.reconcile-focus');
+// The coverage-strict account headline (web.view/focus-close's :coverage, rendered by
+// focus-coverage-headline) — the ACCOUNT-LEVEL verdict now shown at the top of the focused
+// card, replacing the old single month-boundary .reconcile-focus-status line.
 const focusReconciled = () =>
   page.waitForFunction(
     () =>
-      document.querySelector('.reconcile-focus-status')?.classList.contains('reconcile-status--ok'),
+      document.querySelector('.reconcile-coverage')?.classList.contains('reconcile-coverage--ok'),
     undefined,
     { timeout: 5000 },
   );
@@ -77,15 +80,23 @@ check('opening field labels its app-owned end-of-day date',
 check('closing field labels the month-end date',
   /end of Jan 31, 2025/.test(await focus.innerText()));
 
-// 6. Enter the Jan closing balance and Save → the verdict flips to "matches" (–98000 vs the
-//    –100000 opening + 2000 of activity = a –98000 change, which the tracked activity explains).
+// 5b. The month-end balances section is open by default (Mortgage already has a Dec opening
+//     balance on file but no Jan closing yet, so it isn't "covered by statements alone").
+check('the month-end balances disclosure starts open (Save is reachable)',
+  (await page.locator('.reconcile-month-body .button-primary').count()) === 1);
+
+// 6. Enter the Jan closing balance and Save → the coverage headline flips to "Reconciled"
+//    (–98000 vs the –100000 opening + 2000 of activity = a –98000 change, which the tracked
+//    activity explains), and the month-end section's own period verdict follows suit.
 await page.locator('#recon-close').fill('-98000');
-await page.locator('.reconcile-save').click();
+await page.locator('.reconcile-month-body .button-primary').click();
 await focusReconciled().catch(() => {});
 check('focused card reconciles after entering the closing balance',
-  (await page.locator('.reconcile-focus-status').getAttribute('class'))?.includes('reconcile-status--ok'));
+  (await page.locator('.reconcile-coverage').getAttribute('class'))?.includes('reconcile-coverage--ok'));
 check('the readout shows the tracked vs expected change',
   /Expected change/i.test(await focus.innerText()) && /Tracked activity/i.test(await focus.innerText()));
+check('the month-end period verdict also reads matches',
+  /This period matches/i.test(await focus.innerText()));
 
 // 7. Back returns to the overview by clearing the account filter; Mortgage now matches and
 //    the balance half of the gate flips to "match".
@@ -111,11 +122,19 @@ check('Close still blocked by unreviewed transactions',
   await page.locator('.reconcile-close-btn').isDisabled());
 check('gate still lists review work', /to review/i.test(await gateText()));
 
-// 9. Statements (arbitrary-span reconciliation) on Visa — a credit card. The seed gives Visa a
-//    -85 groceries txn on Jan 5, so a statement Jan 4 → Jan 6 with balances 0 → -85 reconciles.
+// 9. Statements (arbitrary-span reconciliation) on Visa — a credit card. Visa's own snapshots
+//    already tie out (-500 -> -285 = 215, matching its Jan groceries + payment), so it already
+//    reads "matches" in the overview — the coverage-strict check folds a reconciled
+//    month-boundary span in as one way (of possibly several) to cover the month.
+check('Visa already reconciles via its month-boundary snapshots',
+  (await rowBy('Visa').getAttribute('class'))?.includes('reconcile-row--reconciled'));
+//    The seed gives Visa a -85 groceries txn on Jan 5, so a statement Jan 4 → Jan 6 with
+//    balances 0 → -85 also reconciles (an account can have more than one tied-out period).
 await rowBy('Visa').locator('.reconcile-drill').click();
 await focus.waitFor({ state: 'visible', timeout: 5000 });
 await focus.locator('.reconcile-add-statement').waitFor({ state: 'visible', timeout: 5000 });
+check('Visa\'s coverage headline already reads Reconciled (its boundary balances tie out)',
+  (await page.locator('.reconcile-coverage').getAttribute('class'))?.includes('reconcile-coverage--ok'));
 check('Visa focused card shows a Statements section', (await focus.locator('.reconcile-statements').count()) === 1);
 check('the statements list starts empty', (await focus.locator('.reconcile-statement').count()) === 0);
 check("Visa's month view shows the Jan 12 payment", /Payment Received/.test(await page.locator('#tx-tbody').innerText()));

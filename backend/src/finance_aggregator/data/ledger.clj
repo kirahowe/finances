@@ -13,7 +13,9 @@
    needed: only the change over the period is compared.
 
    No I/O here — the caller supplies pulled transactions and the reported deltas
-   (read from the snapshot history); this namespace only sums and compares.")
+   (read from the snapshot history); this namespace only sums and compares."
+  (:import
+   [java.util Date]))
 
 (def default-tolerance
   "Half-a-cent of slack on the computed-vs-reported comparison, to absorb rounding
@@ -116,3 +118,44 @@
    set of rows is vacuously reconciled; any :drift or :no-snapshot row blocks."
   [rows]
   (every? #(= :reconciled (:status %)) rows))
+
+;; --- Coverage-strict closing -------------------------------------------------
+;; A month-boundary snapshot reconciling is only ONE way an account's activity can be fully
+;; explained — a credit card whose statements each tie out never gets a month-boundary balance
+;; at all. Coverage-strict closing generalizes: an account is done for the month when EVERY
+;; transaction in it falls inside SOME reconciled period (month-boundary or statement), not
+;; only when the single month-boundary period reconciles.
+
+(defn covered?
+  "True when posted-date `d` (java.util.Date) falls inside any reconciled span in `spans`.
+   Each span is {:start Date :end Date}; membership is the ledger's half-open (start, end]
+   convention (d > start AND d <= end), matching db.transactions/list-for-account-range so a
+   txn is 'covered' by exactly the periods that would have summed it. Only RECONCILED periods
+   are passed in spans — a drifting or blank period contributes no coverage."
+  [^Date d spans]
+  (boolean
+   (some (fn [{:keys [^Date start ^Date end]}]
+           (and (.after d start)
+                (.before d (Date. (+ (.getTime end) 86400000)))))
+         spans)))
+
+(defn month-coverage
+  "Coverage-strict account status for a month. `txs` = the account's month transactions (each
+   with :transaction/posted-date); `spans` = the reconciled spans (see `covered?`) established by
+   the month-boundary period and/or statements that tied out; `any-periods?` = whether the account
+   has ANY period on file (month-boundary balances entered OR at least one statement), even if it
+   doesn't reconcile. Returns
+     {:status :reconciled|:partial|:no-snapshot :uncovered n :first-uncovered Date-or-nil}
+   :no-snapshot — nothing on file to check against.
+   :reconciled  — every month txn is inside a reconciled span (needs at least one reconciled span).
+   :partial     — periods exist but the month isn't fully covered (uncovered txns, or an entered
+                  period that doesn't reconcile)."
+  [txs spans any-periods?]
+  (let [uncovered (remove #(covered? (:transaction/posted-date %) spans) txs)
+        n (count uncovered)]
+    {:status (cond
+               (and (empty? spans) (not any-periods?)) :no-snapshot
+               (and (zero? n) (seq spans))             :reconciled
+               :else                                    :partial)
+     :uncovered n
+     :first-uncovered (some->> (seq uncovered) (map :transaction/posted-date) (sort compare) first)}))
