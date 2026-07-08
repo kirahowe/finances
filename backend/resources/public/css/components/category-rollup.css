@@ -21,6 +21,11 @@
    rollup card. */
 .rollup-column {
   flex: 0 0 300px;
+  /* Hold the 300px basis: without this a flex item's automatic minimum (min-width: auto)
+     lets non-shrinkable content — a statement row's dates/balances — push the whole column
+     wider than its basis. min-width:0 clamps it so the card stays put and inner content
+     ellipsises instead (the reconcile card's children already carry min-width:0). */
+  min-width: 0;
   align-self: flex-start;
   position: sticky;
   top: var(--rollup-sticky-top);
