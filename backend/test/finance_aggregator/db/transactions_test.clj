@@ -127,6 +127,121 @@
               "the parent is excluded once it has parts")
           (is (= 2 (count rows)) "both parts show up instead"))))))
 
+(deftest with-derived-fields-effective-posted-date-test
+  (testing "annotates :transaction/effective-posted-date, falling back through the chain"
+    (let [tx-id (make-tx! "tx-eff-1" {:transaction/posted-date (range-date 2026 3 10)})
+          tx (transactions/by-id setup/*test-conn* tx-id)]
+      (is (= (range-date 2026 3 10) (:transaction/effective-posted-date tx))
+          "no override — falls back to the imported posted-date")))
+
+  (testing "an override wins over the imported posted-date"
+    (let [tx-id (make-tx! "tx-eff-2" {:transaction/posted-date (range-date 2026 3 10)})]
+      (d/transact! setup/*test-conn* [{:db/id tx-id :transaction/user-posted-date (range-date 2026 4 1)}])
+      (let [tx (transactions/by-id setup/*test-conn* tx-id)]
+        (is (= (range-date 2026 4 1) (:transaction/effective-posted-date tx)))
+        (is (= (range-date 2026 3 10) (:transaction/posted-date tx))
+            "the imported posted-date is never mutated")))))
+
+(deftest list-for-month-override-moves-row-across-boundary-test
+  (testing "a manual override moves a row OUT of the month it was imported into and INTO
+            the month the override names — boundary-exact on both months' edges"
+    (let [tx-id (make-tx! "tx-move-1" {:transaction/posted-date (range-date 2026 3 15)})]
+      (is (= ["tx-move-1"] (map :transaction/external-id
+                                (transactions/list-for-month setup/*test-conn* "2026-03")))
+          "initially in March, by the imported posted-date")
+      (is (= [] (transactions/list-for-month setup/*test-conn* "2026-04")))
+
+      ;; Override to April 1st 00:00 UTC — the exact inclusive start of April / exclusive
+      ;; end of March.
+      (transactions/set-user-posted-date! setup/*test-conn* tx-id (range-date 2026 4 1))
+      (is (= [] (transactions/list-for-month setup/*test-conn* "2026-03"))
+          "moved OUT of March")
+      (is (= ["tx-move-1"] (map :transaction/external-id
+                                (transactions/list-for-month setup/*test-conn* "2026-04")))
+          "moved INTO April, at the exact boundary instant")
+
+      ;; Clearing the override falls back to the imported posted-date, reverting the move.
+      (transactions/set-user-posted-date! setup/*test-conn* tx-id nil)
+      (is (= ["tx-move-1"] (map :transaction/external-id
+                                (transactions/list-for-month setup/*test-conn* "2026-03")))
+          "clearing the override reverts to March")
+      (is (= [] (transactions/list-for-month setup/*test-conn* "2026-04"))))))
+
+(deftest list-for-account-range-override-moves-row-across-statement-boundary-test
+  (testing "a manual override moves a row across a statement-span boundary; results stay
+            sorted by the effective date"
+    (d/transact! setup/*test-conn* [{:account/external-id "acct-stmt-move" :account/external-name "Visa"}])
+    (let [acct (d/q '[:find ?a . :in $ ?e :where [?a :account/external-id ?e]]
+                    (d/db setup/*test-conn*) "acct-stmt-move")]
+      (d/transact! setup/*test-conn*
+                   [{:transaction/external-id "sm-1" :transaction/account acct
+                     :transaction/amount 10M :transaction/posted-date (range-date 2026 4 20)}
+                    {:transaction/external-id "sm-2" :transaction/account acct
+                     :transaction/amount 20M :transaction/posted-date (range-date 2026 5 20)}])
+      (let [tx-id (:db/id (d/pull (d/db setup/*test-conn*) '[:db/id] [:transaction/external-id "sm-1"]))
+            span1 [(range-date 2026 4 16) (range-date 2026 5 16)]
+            span2 [(range-date 2026 5 16) (range-date 2026 6 16)]]
+        (is (= ["sm-1"] (map :transaction/external-id
+                             (apply transactions/list-for-account-range setup/*test-conn* acct span1)))
+            "sm-1 starts in span1 (April 20)")
+        (is (= ["sm-2"] (map :transaction/external-id
+                             (apply transactions/list-for-account-range setup/*test-conn* acct span2)))
+            "sm-2 already sits in span2 (May 20)")
+
+        ;; Override sm-1's posted-date into span2.
+        (transactions/set-user-posted-date! setup/*test-conn* tx-id (range-date 2026 5 25))
+        (is (= [] (apply transactions/list-for-account-range setup/*test-conn* acct span1))
+            "moved OUT of span1")
+        (let [rows (apply transactions/list-for-account-range setup/*test-conn* acct span2)]
+          (is (= ["sm-2" "sm-1"] (map :transaction/external-id rows))
+              "moved INTO span2, sorted by effective date ascending (sm-2's May 20 before sm-1's overridden May 25)")
+          (is (= [(range-date 2026 5 20) (range-date 2026 5 25)]
+                 (map :transaction/effective-posted-date rows))))))))
+
+(deftest set-user-posted-date-test
+  (testing "sets and clears the override on a plain (unsplit) transaction"
+    (let [tx-id (make-tx! "tx-upd-1" {:transaction/posted-date (range-date 2026 3 10)})
+          set-result (transactions/set-user-posted-date! setup/*test-conn* tx-id (range-date 2026 4 1))]
+      (is (= (range-date 2026 4 1) (:transaction/user-posted-date set-result)))
+      (is (= (range-date 2026 4 1) (:transaction/effective-posted-date set-result)))
+      (is (= (range-date 2026 3 10) (:transaction/posted-date set-result))
+          "the imported posted-date is never mutated")
+      (is (= (range-date 2026 4 1) (transactions/user-posted-date setup/*test-conn* tx-id))
+          "the reader returns the current override")
+
+      (let [cleared (transactions/set-user-posted-date! setup/*test-conn* tx-id nil)]
+        (is (nil? (:transaction/user-posted-date cleared)))
+        (is (= (range-date 2026 3 10) (:transaction/effective-posted-date cleared))
+            "falls back to the imported posted-date")
+        (is (nil? (transactions/user-posted-date setup/*test-conn* tx-id))))))
+
+  (testing "setting the override on a split PART writes the ROOT and every live part uniformly"
+    (let [tx-id (make-tx! "tx-upd-2" {:transaction/amount -100.00M
+                                      :transaction/posted-date (range-date 2026 3 10)})]
+      (transactions/set-splits! setup/*test-conn* tx-id [{:amount "-60.00"} {:amount "-40.00"}])
+      (let [[p1 p2] (live-parts tx-id)
+            override (range-date 2026 4 15)]
+        (transactions/set-user-posted-date! setup/*test-conn* (:db/id p1) override)
+        (is (= override (:transaction/user-posted-date
+                         (d/pull (d/db setup/*test-conn*) '[:transaction/user-posted-date] tx-id)))
+            "the root got the override too")
+        (doseq [p [p1 p2]]
+          (is (= override (:transaction/user-posted-date
+                           (d/pull (d/db setup/*test-conn*) '[:transaction/user-posted-date] (:db/id p))))
+              "every live part carries the same override"))
+        (is (= override (transactions/user-posted-date setup/*test-conn* (:db/id p1)))
+            "reader resolves a part to the root's value")
+        (is (= override (transactions/user-posted-date setup/*test-conn* tx-id))
+            "reader on the root itself agrees")
+
+        ;; Clearing via a different part still clears everywhere.
+        (transactions/set-user-posted-date! setup/*test-conn* (:db/id p2) nil)
+        (is (nil? (:transaction/user-posted-date
+                   (d/pull (d/db setup/*test-conn*) '[:transaction/user-posted-date] tx-id))))
+        (doseq [p [p1 p2]]
+          (is (nil? (:transaction/user-posted-date
+                     (d/pull (d/db setup/*test-conn*) '[:transaction/user-posted-date] (:db/id p))))))))))
+
 (deftest list-for-month-excludes-split-parents-test
   (testing "a parent with live parts is excluded from the month list; its parts show up,
             inheriting its posted-date"

@@ -149,3 +149,41 @@
 (deftest month-coverage-reconciled-when-zero-txns-and-a-reconciled-span
   (is (= {:status :reconciled :uncovered 0 :first-uncovered nil}
          (ledger/month-coverage [] [{:start #inst "2025-04-30" :end #inst "2025-05-31"}] true))))
+
+;; --- effective-posted-date ---------------------------------------------------
+
+(deftest effective-posted-date-chain
+  (testing "override wins when present"
+    (is (= #inst "2025-05-10"
+           (ledger/effective-posted-date {:transaction/user-posted-date #inst "2025-05-10"
+                                          :transaction/posted-date #inst "2025-05-01"
+                                          :transaction/date #inst "2025-04-01"}))))
+  (testing "falls back to posted-date when there's no override"
+    (is (= #inst "2025-05-01"
+           (ledger/effective-posted-date {:transaction/posted-date #inst "2025-05-01"
+                                          :transaction/date #inst "2025-04-01"}))))
+  (testing "falls back to the plain transaction date when neither override nor posted-date exist"
+    (is (= #inst "2025-04-01"
+           (ledger/effective-posted-date {:transaction/date #inst "2025-04-01"}))))
+  (testing "nil when nothing at all is present"
+    (is (nil? (ledger/effective-posted-date {})))))
+
+(deftest month-coverage-honors-manual-override
+  (testing "an override moves an otherwise-uncovered txn inside a reconciled span"
+    (let [;; Imported posted-date (2025-06-25) falls outside May's span; the user's
+          ;; override corrects it back into May.
+          overridden (assoc (txn #inst "2025-06-25") :transaction/user-posted-date #inst "2025-05-20")
+          txs [(txn #inst "2025-05-05") overridden]
+          spans [{:start #inst "2025-04-30" :end #inst "2025-05-31"}]]
+      (is (= {:status :reconciled :uncovered 0 :first-uncovered nil}
+             (ledger/month-coverage txs spans true)))))
+
+  (testing ":first-uncovered reports the EFFECTIVE date, not the raw posted-date"
+    (let [overridden (assoc (txn #inst "2025-05-05") :transaction/user-posted-date #inst "2025-06-15")
+          txs [overridden (txn #inst "2025-05-20")]
+          spans [{:start #inst "2025-04-30" :end #inst "2025-05-31"}]
+          cov (ledger/month-coverage txs spans true)]
+      (is (= :partial (:status cov)))
+      (is (= 1 (:uncovered cov)))
+      (is (= #inst "2025-06-15" (:first-uncovered cov))
+          "the override's effective date, not the imported 2025-05-05 posted-date"))))

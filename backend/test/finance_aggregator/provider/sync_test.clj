@@ -209,7 +209,8 @@
     (let [eid (d/q '[:find ?e . :where [?e :transaction/external-id "tx-1"]] (d/db conn))]
       (d/transact! conn [{:db/id eid
                           :transaction/reviewed true
-                          :transaction/user-description "My label"}]))
+                          :transaction/user-description "My label"
+                          :transaction/user-posted-date (Date. 1700000000000)}]))
     ;; Re-import the same transaction with bank-changed fields.
     (sync/persist-transactions! conn [(assoc (canonical-txn "tx-1")
                                              :transaction/description "Bank renamed"
@@ -220,7 +221,33 @@
         (is (= (bigdec "12.00") (:transaction/amount t))))
       (testing "user overlays preserved"
         (is (= true (:transaction/reviewed t)))
-        (is (= "My label" (:transaction/user-description t)))))))
+        (is (= "My label" (:transaction/user-description t)))
+        (is (= (Date. 1700000000000) (:transaction/user-posted-date t)))))))
+
+(deftest modified-upsert-preserves-manual-posted-date-override
+  ;; Same load-bearing invariant, exercised through the real setter (db.transactions/
+  ;; set-user-posted-date!) and read back through the effective-date chain — a provider
+  ;; re-sync must never be able to undo a user's manual posted-date correction.
+  (let [conn setup/*test-conn*]
+    (seed-user! conn)
+    (d/transact! conn [{:account/external-id "test-acc-1" :account/provider :test
+                        :account/user [:user/id "test-user"]}])
+    (sync/persist-transactions! conn [(assoc (canonical-txn "tx-ov")
+                                             :transaction/posted-date (Date. 1690000000000))])
+    (let [eid (eid-for conn "tx-ov")
+          override (Date. 1700000000000)]
+      (transactions/set-user-posted-date! conn eid override)
+      ;; Re-import the same transaction — the bank's own posted-date guess changes, but
+      ;; the contract forbids a provider from ever writing :transaction/user-posted-date.
+      (sync/persist-transactions! conn [(assoc (canonical-txn "tx-ov")
+                                               :transaction/posted-date (Date. 1695000000000))])
+      (let [t (d/pull (d/db conn) '[*] [:transaction/external-id "tx-ov"])]
+        (testing "the re-imported posted-date guess did land"
+          (is (= (Date. 1695000000000) (:transaction/posted-date t))))
+        (testing "the override survives the re-import untouched"
+          (is (= override (:transaction/user-posted-date t))))
+        (testing "the effective date still resolves to the override, not the new guess"
+          (is (= override (:transaction/effective-posted-date (transactions/by-id conn eid)))))))))
 
 (deftest persist-transactions-rejects-overlay-keys
   (let [conn setup/*test-conn*]

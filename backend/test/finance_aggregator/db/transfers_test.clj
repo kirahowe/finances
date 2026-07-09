@@ -325,6 +325,31 @@
       (transfers/reject-match! setup/*test-conn* out in)
       (is (= [in] (map :db/id (transfers/match-candidates setup/*test-conn* out)))))))
 
+(deftest suggest-matches-honors-manual-posted-date-override-test
+  (testing "day-matching windows on the EFFECTIVE posted date — a manual override can pull
+            a pair that the raw imported posted-date would place outside the window"
+    (let [checking (make-account! "cov" "Checking")
+          savings (make-account! "sov" "Savings")
+          out (make-tx! "out-ov" checking -100.00M 10)
+          ;; Imported far outside the default suggestion window; the user's override
+          ;; corrects it to line up with `out`.
+          in (make-tx! "in-ov" savings 100.00M 90)]
+      (d/transact! setup/*test-conn* [{:db/id in :transaction/user-posted-date (day 11)}])
+      (let [result (transfers/suggest-matches setup/*test-conn*)]
+        (is (= #{[out in]} (pair-ids result))
+            "the override — not the raw imported posted-date — decides the day-diff")))))
+
+(deftest match-candidates-honors-manual-posted-date-override-test
+  (testing "match-candidates windows the SELF transaction's day on its effective posted date too"
+    (let [checking (make-account! "cmov" "Checking")
+          savings (make-account! "smov" "Savings")
+          self (make-tx! "self-ov" checking -100.00M 90)
+          candidate (make-tx! "cand-ov" savings 100.00M 11)]
+      (d/transact! setup/*test-conn* [{:db/id self :transaction/user-posted-date (day 10)}])
+      (is (= [candidate] (map :db/id (transfers/match-candidates setup/*test-conn* self {:window-days 5})))
+          "with the override, self's effective day (10) is within 5 days of the candidate's (11);
+           the raw imported day (90) would have excluded it"))))
+
 (deftest suggest-matches-tolerates-missing-date-test
   (testing "a transfer-eligible leg with no posted-date doesn't crash suggestions"
     (let [a (make-account! "amd" "A")

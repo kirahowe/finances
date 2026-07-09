@@ -127,12 +127,30 @@
 ;; transaction in it falls inside SOME reconciled period (month-boundary or statement), not
 ;; only when the single month-boundary period reconciles.
 
+(defn effective-posted-date
+  "THE date bucketing/coverage/transfer-matching goes by for a transaction: the user's
+   manual override when present, else the provider's posted-date guess, else the plain
+   transaction date. Only Plaid supplies a genuinely independent posted date — lunchflow,
+   CSV and manual imports hand `parse-transaction` a single date, which copies it into
+   :transaction/posted-date as a guess (see doc/plans/manual-posted-dates.md). When that
+   guess crosses a statement boundary the user corrects it via
+   db.transactions/set-user-posted-date!, which writes :transaction/user-posted-date as
+   an additive overlay — the imported :transaction/posted-date is never mutated, so this
+   chain (not the raw posted-date) is the one true read path every caller must use.
+   `tx` is a pulled transaction map carrying some subset of :transaction/user-posted-date,
+   :transaction/posted-date, :transaction/date. Pure."
+  ^Date [tx]
+  (or (:transaction/user-posted-date tx)
+      (:transaction/posted-date tx)
+      (:transaction/date tx)))
+
 (defn covered?
-  "True when posted-date `d` (java.util.Date) falls inside any reconciled span in `spans`.
-   Each span is {:start Date :end Date}; membership is the ledger's half-open (start, end]
-   convention (d > start AND d <= end), matching db.transactions/list-for-account-range so a
-   txn is 'covered' by exactly the periods that would have summed it. Only RECONCILED periods
-   are passed in spans — a drifting or blank period contributes no coverage."
+  "True when effective posted date `d` (java.util.Date — see effective-posted-date) falls
+   inside any reconciled span in `spans`. Each span is {:start Date :end Date}; membership
+   is the ledger's half-open (start, end] convention (d > start AND d <= end), matching
+   db.transactions/list-for-account-range so a txn is 'covered' by exactly the periods
+   that would have summed it. Only RECONCILED periods are passed in spans — a drifting or
+   blank period contributes no coverage."
   [^Date d spans]
   (boolean
    (some (fn [{:keys [^Date start ^Date end]}]
@@ -141,22 +159,25 @@
          spans)))
 
 (defn month-coverage
-  "Coverage-strict account status for a month. `txs` = the account's month transactions (each
-   with :transaction/posted-date); `spans` = the reconciled spans (see `covered?`) established by
-   the month-boundary period and/or statements that tied out; `any-periods?` = whether the account
-   has ANY period on file (month-boundary balances entered OR at least one statement), even if it
-   doesn't reconcile. Returns
+  "Coverage-strict account status for a month. `txs` = the account's month transactions
+   (each resolvable to an effective posted date — see effective-posted-date); `spans` =
+   the reconciled spans (see `covered?`) established by the month-boundary period and/or
+   statements that tied out; `any-periods?` = whether the account has ANY period on file
+   (month-boundary balances entered OR at least one statement), even if it doesn't
+   reconcile. A manual posted-date override can move a txn into or out of coverage —
+   coverage is always computed on the effective date, never the raw imported posted-date.
+   Returns
      {:status :reconciled|:partial|:no-snapshot :uncovered n :first-uncovered Date-or-nil}
    :no-snapshot — nothing on file to check against.
    :reconciled  — every month txn is inside a reconciled span (needs at least one reconciled span).
    :partial     — periods exist but the month isn't fully covered (uncovered txns, or an entered
                   period that doesn't reconcile)."
   [txs spans any-periods?]
-  (let [uncovered (remove #(covered? (:transaction/posted-date %) spans) txs)
+  (let [uncovered (remove #(covered? (effective-posted-date %) spans) txs)
         n (count uncovered)]
     {:status (cond
                (and (empty? spans) (not any-periods?)) :no-snapshot
                (and (zero? n) (seq spans))             :reconciled
                :else                                    :partial)
      :uncovered n
-     :first-uncovered (some->> (seq uncovered) (map :transaction/posted-date) (sort compare) first)}))
+     :first-uncovered (some->> (seq uncovered) (map effective-posted-date) (sort compare) first)}))

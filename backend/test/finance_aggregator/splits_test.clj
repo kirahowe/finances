@@ -41,6 +41,17 @@
   (testing "fractional cents reconcile exactly with bigdec (would fail with doubles)"
     (is (nil? (splits/validate-splits -0.30M [(part "-0.10" 1) (part "-0.20" 2)])))))
 
+(deftest inherited-fields-copies-user-posted-date-override-test
+  (testing "a manual posted-date override on the parent is copied to a new part"
+    (let [parent {:transaction/date #inst "2026-03-01"
+                  :transaction/posted-date #inst "2026-03-01"
+                  :transaction/user-posted-date #inst "2026-04-01"}]
+      (is (= #inst "2026-04-01" (:transaction/user-posted-date (splits/inherited-fields parent))))))
+
+  (testing "absent on the parent means absent on the part (no override to inherit)"
+    (let [parent {:transaction/date #inst "2026-03-01" :transaction/posted-date #inst "2026-03-01"}]
+      (is (not (contains? (splits/inherited-fields parent) :transaction/user-posted-date))))))
+
 (deftest reconciled?-test
   (testing "exact sum reconciles regardless of scale"
     (is (true? (splits/reconciled? -100M [-60.00M -40.00M])))

@@ -42,6 +42,7 @@
    :transaction/payee         {:db/valueType :db.type/string}
    :transaction/description   {:db/valueType :db.type/string}
    :transaction/user-description {:db/valueType :db.type/string}  ; user-authored overlay over the imported description; absent = no override
+   :transaction/user-posted-date {:db/valueType :db.type/instant}  ; user-authored overlay over the imported posted-date; absent = no override
    :transaction/memo          {:db/valueType :db.type/string}
    :transaction/category      {:db/valueType :db.type/ref}     ; ref to category
    :transaction/provider      {:db/valueType :db.type/keyword}  ; :plaid, :lunchflow, :manual, ... (provenance)

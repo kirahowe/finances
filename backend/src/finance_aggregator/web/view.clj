@@ -5,11 +5,13 @@
    server owns which rows render (see doc/plans/datastar-server-authoritative-rewrite.md).
 
    Input transactions already carry the derived fields (db.transactions/with-derived-fields):
-   :transaction/effective-description, :transaction/split-drift and
-   :transaction/transfer-hidden. A split part is a first-class row here like any other
-   transaction — it filters, sorts, counts and attributes independently (no split
-   special-casing anywhere in this engine). Parts share their parent's posted-date (a
-   copied field), so a date sort clusters a family naturally; no leader/group bookkeeping.
+   :transaction/effective-description, :transaction/effective-posted-date,
+   :transaction/split-drift and :transaction/transfer-hidden. A split part is a first-class
+   row here like any other transaction — it filters, sorts, counts and attributes
+   independently (no split special-casing anywhere in this engine). Parts share their
+   parent's effective posted date (a copied field, kept converged by
+   splits/inherited-fields + propagate-inherited-fields! even across a manual override),
+   so a date sort clusters a family naturally; no leader/group bookkeeping.
 
    View-state shape (keyword map; the page parses it from query params):
      {:search \"text\"               ; case-insensitive substring over the haystack
@@ -87,7 +89,7 @@
 (def ^:private sort-key-fns
   ;; Numeric columns sort by value; string columns by lower-cased text
   ;; (localeCompare-on-lowercased-cell-text).
-  {:date        #(if-let [d (:transaction/posted-date %)] (.getTime ^java.util.Date d) 0)
+  {:date        #(if-let [d (:transaction/effective-posted-date %)] (.getTime ^java.util.Date d) 0)
    :amount      #(or (:transaction/amount %) 0)
    :account     #(str/lower-case (or (get-in % [:transaction/account :account/external-name]) ""))
    :institution #(str/lower-case (or (get-in % [:transaction/account :account/institution :institution/name]) ""))

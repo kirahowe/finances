@@ -20,14 +20,21 @@
    `parent` is a wildcard/bare-attribute-pulled transaction map, so its ref attributes
    are already {:db/id x} maps — the returned map assocs the bare eid, ready to nest
    into a part's transact! map. Shared by the migration and set-splits! so a part's
-   inherited fields never drift between the two places that create one."
+   inherited fields never drift between the two places that create one.
+
+   :transaction/user-posted-date rides along with the rest: a manual posted-date
+   override is family-uniform (db.transactions/set-user-posted-date! asserts it on the
+   root and every live part in one transact!), so a part created AFTER the override was
+   set — via set-splits! — is born already carrying it, instead of the family
+   momentarily diverging until the next propagate-inherited-fields! pass."
   [parent]
   (cond-> {}
     (:transaction/account parent)     (assoc :transaction/account (get-in parent [:transaction/account :db/id]))
     (:transaction/user parent)        (assoc :transaction/user (get-in parent [:transaction/user :db/id]))
     (:transaction/date parent)        (assoc :transaction/date (:transaction/date parent))
     (:transaction/posted-date parent) (assoc :transaction/posted-date (:transaction/posted-date parent))
-    (:transaction/payee parent)       (assoc :transaction/payee (:transaction/payee parent))))
+    (:transaction/payee parent)       (assoc :transaction/payee (:transaction/payee parent))
+    (:transaction/user-posted-date parent) (assoc :transaction/user-posted-date (:transaction/user-posted-date parent))))
 
 (defn validate-splits
   "Validate a full set of splits for a transaction. Pure.

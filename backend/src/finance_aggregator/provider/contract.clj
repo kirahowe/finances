@@ -16,6 +16,7 @@
    survive every re-import. (Provenance/imported fields - description, amount,
    payee, dates - are fair game for `modified` to update.)"
   #{:transaction/user-description
+    :transaction/user-posted-date
     :transaction/reviewed
     :transaction/category
     :transaction/splits

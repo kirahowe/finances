@@ -7,12 +7,17 @@
 
    Conn is a datalevin connection (not an atom)."
   (:require [datalevin.core :as d]
+            [finance-aggregator.data.ledger :as ledger]
             [finance-aggregator.transfers :as transfers]
             [finance-aggregator.utils :as utils]))
 
 (def ^:private suggest-pull
-  "Enough of each transaction to run the matcher and render the review UI."
-  '[:db/id :transaction/amount :transaction/posted-date :transaction/payee
+  "Enough of each transaction to run the matcher and render the review UI. Pulls
+   :transaction/date and :transaction/user-posted-date alongside :transaction/posted-date
+   so day-matching (normalize, match-candidates) can resolve the full effective-posted-date
+   chain (data.ledger/effective-posted-date) rather than the raw imported guess."
+  '[:db/id :transaction/amount :transaction/posted-date :transaction/date
+    :transaction/user-posted-date :transaction/payee
     {:transaction/account [:db/id :account/external-name
                            {:account/institution [:db/id :institution/name]}]}
     {:transaction/category [:db/id :category/name :category/type]}
@@ -35,7 +40,7 @@
 (defn- normalize [tx]
   {:id (:db/id tx)
    :amount (:transaction/amount tx)
-   :day (utils/date->epoch-day (:transaction/posted-date tx))
+   :day (utils/date->epoch-day (ledger/effective-posted-date tx))
    :account-id (get-in tx [:transaction/account :db/id])
    :real? (transfers/real-activity? (get-in tx [:transaction/category :category/type]))
    :paired? (some? (:transaction/transfer-pair tx))
@@ -170,13 +175,13 @@
      (when-not (:transaction/amount self)
        (throw (ex-info "Transaction not found" {:type :not-found})))
      (let [self-amt (:transaction/amount self)
-           self-day (utils/date->epoch-day (:transaction/posted-date self))
+           self-day (utils/date->epoch-day (ledger/effective-posted-date self))
            self-acct (get-in self [:transaction/account :db/id])]
        (if (zero? self-amt)
          []  ; a $0 transaction has no meaningful transfer counterpart
          (->> (all-transactions db)
               (keep (fn [t]
-                      (let [day (utils/date->epoch-day (:transaction/posted-date t))
+                      (let [day (utils/date->epoch-day (ledger/effective-posted-date t))
                             ;; a missing date can't be windowed; keep it rather than
                             ;; silently dropping, and sort it last.
                             day-diff (when (and self-day day) (abs (- day self-day)))]

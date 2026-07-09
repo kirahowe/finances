@@ -130,6 +130,19 @@
   (is (= [1 2 3 4 5 6] (ids (view/sort-txs txs {:col :unknown :dir :asc})))
       "unknown column = unchanged"))
 
+(deftest date-sort-uses-effective-posted-date
+  (testing "the :date column sorts on :transaction/effective-posted-date, not the raw
+            imported :transaction/posted-date — a manual override wins"
+    (let [overridden (assoc t3 :transaction/effective-posted-date #inst "2024-06-01") ; earlier than t1
+          plain (map #(assoc % :transaction/effective-posted-date (:transaction/posted-date %)) [t1 t2 t4 t5 t6])
+          rows (conj (vec plain) overridden)]
+      (is (= [3 1 2 4 5 6] (ids (view/sort-txs rows {:col :date :dir :asc})))
+          "t3's override (June 2024) sorts it before every posted-date-only row")))
+  (testing "a missing effective-posted-date falls back to epoch 0, same as the old posted-date fallback"
+    (let [no-date (dissoc t1 :transaction/effective-posted-date :transaction/posted-date)
+          dated (assoc t2 :transaction/effective-posted-date (:transaction/posted-date t2))]
+      (is (= [1 2] (ids (view/sort-txs [no-date dated] {:col :date :dir :asc})))))))
+
 ;; --- Pagination -------------------------------------------------------------
 
 (deftest pagination
