@@ -100,6 +100,16 @@
       (= partner id)
       (and (= type :set-match) (or (= before id) (= after id)))))
 
+(defn removed-split-part-ids
+  "The part ids present in `before` (a db.transactions/current-splits row vector) but
+   absent from `after` (a web.view-state/parse-splits-value payload row vector) — the
+   live parts a set-splits edit just retracted. Pure. Used by the set-splits handler to
+   forget! them from the undo/redo log: replaying a stale command against a retracted
+   part would throw and jam the stack, same as an unrelated deleted transaction."
+  [before after]
+  (let [after-ids (into #{} (keep :id) after)]
+    (into [] (remove after-ids) (map :id before))))
+
 (defn forget!
   "Drop every undo/redo command (and any linger pin) that references transaction `tx-id`.
    Called when a manual transaction is deleted: the row is gone, so replaying a command

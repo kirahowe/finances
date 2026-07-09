@@ -378,7 +378,9 @@
 (defn set-splits
   "PUT /transactions/:id/splits — record + apply a :set-splits command (the new parts ride in
    the $splitValue courier as JSON; [] un-splits), then re-render and close the modal. Captures
-   the prior parts as :before so undo restores them."
+   the prior parts as :before so undo restores them, and forgets any part the edit just
+   retracted (present in :before, absent from :after) — a stale command against a
+   retracted part would otherwise jam the undo/redo stack."
   [{:keys [db-conn]}]
   (fn [req]
     (handle-edit req
@@ -392,6 +394,7 @@
                            :label (cond (empty? after)  "Un-split"
                                         (seq before)     "Edited split"
                                         :else            "Split transaction")})
+         (run! (partial commands/forget! auth/user-id) (commands/removed-split-part-ids before after))
          (edit-response db-conn req signals :close-modal? true))))))
 
 (defn match-editor
@@ -723,11 +726,13 @@
   (fn [req]
     (handle-edit req
      (fn []
-       (let [tx-id   (path-id req :id)
-             signals (r/read-signals req)]
-         (db-transactions/delete-manual! db-conn tx-id)
-         ;; The row is gone — drop any undo/redo command that would replay against it
-         ;; (a matched/split manual row would otherwise jam the stack on undo).
+       (let [tx-id    (path-id req :id)
+             signals  (r/read-signals req)
+             part-ids (db-transactions/delete-manual! db-conn tx-id)]
+         ;; The row (and any cascaded split parts) is gone — drop any undo/redo command
+         ;; that would replay against them (a matched/split manual row would otherwise
+         ;; jam the stack on undo).
          (commands/forget! auth/user-id tx-id)
+         (run! (partial commands/forget! auth/user-id) part-ids)
          ;; edit-response re-patches #reconciliation (the removed row moves the tracked delta).
          (edit-response db-conn req signals :close-modal? true))))))

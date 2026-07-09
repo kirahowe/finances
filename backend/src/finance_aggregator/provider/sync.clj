@@ -12,6 +12,7 @@
    [finance-aggregator.db.accounts :as db-accounts]
    [finance-aggregator.db.connections :as connections]
    [finance-aggregator.db.snapshots :as snapshots]
+   [finance-aggregator.db.transactions :as db-transactions]
    [finance-aggregator.lib.log :as log]
    [finance-aggregator.provider :as provider]
    [finance-aggregator.provider.contract :as contract]
@@ -26,6 +27,13 @@
    are already persisted (sync-provider! inserts them first), so the inverted-id
    query sees them.
 
+   After the upsert, re-propagates any re-imported parent's inherited fields
+   (account/user/date/posted-date/payee) onto its live split parts where they differ
+   (db.transactions/propagate-inherited-fields!) — a Plaid `modified` can move a
+   parent's posted-date/payee/account, and parts carry copies of those, not
+   references. Explicit and idempotent: a no-op when nothing has live parts or nothing
+   differs. Amount is never propagated (see with-split-drift).
+
    The 3-arity takes a precomputed inverted-id set (so the paging loop queries it
    once, not per page); the 2-arity computes it - the one-shot path (CSV import)."
   ([db-conn transactions]
@@ -36,12 +44,17 @@
                 :transactions (-> transactions
                                   (normalize/normalize-amounts inverted-ids)
                                   contract/assert-no-overlay-keys!)}
-               db-conn)))
+               db-conn)
+   (db-transactions/propagate-inherited-fields! db-conn transactions)))
 
 (defn retract-removed!
   "Retract transactions whose canonical external-ids are in `external-ids`.
-   Resolves each external-id to an entity in a single db snapshot, then
-   retracts in one batch. No-op when nothing was removed."
+   Resolves each external-id to an entity in a single db snapshot, then retracts in one
+   batch — cascading any live split parts of a removed transaction along with it (the
+   bank says the money never happened, so its parts must go too): each part's transfer
+   pair is unlinked first (db.transactions/cascade-retract-parts-ops, mirroring
+   set-splits!'s retract path), then the part itself is retracted alongside its parent.
+   No-op when nothing was removed."
   [db-conn external-ids]
   (when (seq external-ids)
     (let [db (d/db db-conn)
@@ -50,7 +63,8 @@
                       :where [?e :transaction/external-id ?ext-id]]
                     db external-ids)]
       (when (seq eids)
-        (d/transact! db-conn (mapv (fn [eid] [:db/retractEntity eid]) eids))))))
+        (d/transact! db-conn (into (mapv (fn [eid] [:db/retractEntity eid]) eids)
+                                   (db-transactions/cascade-retract-parts-ops db eids)))))))
 
 (defn sync-provider!
   "Sync a single provider end-to-end. Returns the terminal sync status.

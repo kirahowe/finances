@@ -1,6 +1,6 @@
 (ns finance-aggregator.web.commands-test
   (:require
-   [clojure.test :refer [deftest is use-fixtures]]
+   [clojure.test :refer [deftest is testing use-fixtures]]
    [datalevin.core :as d]
    [finance-aggregator.web.commands :as commands]
    [finance-aggregator.test-utils.setup :as setup]))
@@ -139,6 +139,23 @@
     (is (= #{tx-id} (commands/linger user)))
     (commands/clear-linger! user)
     (is (= #{} (commands/linger user)) "a pure view change clears lingering pins")))
+
+(deftest removed-split-part-ids-test
+  (testing "ids in :before but missing from :after are the parts the edit just retracted"
+    (is (= [10 20] (commands/removed-split-part-ids
+                    [{:id 10 :amount "-1.00"} {:id 20 :amount "-2.00"} {:id 30 :amount "-3.00"}]
+                    [{:id 30 :amount "-3.00"} {:amount "-4.00"}]))))
+
+  (testing "nothing removed when every :before id survives in :after"
+    (is (= [] (commands/removed-split-part-ids
+               [{:id 1 :amount "-1.00"}] [{:id 1 :amount "-1.00"} {:amount "-2.00"}]))))
+
+  (testing "un-splitting (empty :after) removes every prior part id"
+    (is (= [1 2] (commands/removed-split-part-ids
+                  [{:id 1 :amount "-1.00"} {:id 2 :amount "-2.00"}] []))))
+
+  (testing "no prior split, nothing removed"
+    (is (= [] (commands/removed-split-part-ids [] [])))))
 
 (deftest forget-purges-commands-referencing-a-deleted-tx
   ;; A manual transaction that was matched (and reviewed) is deleted; forget! must drop

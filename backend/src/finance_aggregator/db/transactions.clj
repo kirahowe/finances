@@ -194,6 +194,46 @@
                         :category-id (:db/id category)}
                  description (assoc :memo description))))))
 
+(def ^:private inherited-fields-pull
+  "Pull pattern for propagate-inherited-fields!: a re-imported transaction's inherited-
+   field attrs (splits/inherited-fields' recipe — account/user/date/posted-date/payee)
+   plus its live parts pulled with the SAME attrs (+ :db/id, to write the update) — one
+   query gets both the new values and what to diff them against."
+  [:transaction/account :transaction/user :transaction/date :transaction/posted-date :transaction/payee
+   {:transaction/_split-parent [:db/id :transaction/account :transaction/user :transaction/date
+                                :transaction/posted-date :transaction/payee]}])
+
+(defn propagate-inherited-fields!
+  "Re-assert each re-imported transaction's inherited fields (account/user/date/
+   posted-date/payee — splits/inherited-fields' recipe, the same one set-splits! and
+   the migration use) onto its live split parts where they differ. A Plaid `modified`
+   can move a parent's posted-date/payee/account after a split was made; parts carry
+   COPIES, so a stale copy would bucket a part into the wrong month/statement span.
+   Amount is deliberately excluded — a changed parent amount surfaces as
+   :transaction/split-drift instead (with-split-drift), never silently propagated.
+
+   Only queries parts for the external-ids actually in `transactions` (a batch just
+   passed through persist-transactions!). Idempotent: a transaction with no live parts,
+   or whose parts already match, contributes no tx-data — a no-op transact! is skipped
+   entirely. Conn is a datalevin connection (not an atom)."
+  [conn transactions]
+  (when-let [ext-ids (seq (keep :transaction/external-id transactions))]
+    (let [db (d/db conn)
+          parents (d/q '[:find [(pull ?e pattern) ...]
+                         :in $ pattern [?ext ...]
+                         :where [?e :transaction/external-id ?ext]]
+                       db inherited-fields-pull ext-ids)
+          tx-data (into []
+                        (mapcat (fn [parent]
+                                 (let [inherited (splits/inherited-fields parent)]
+                                   (keep (fn [part]
+                                          (when (not= inherited (splits/inherited-fields part))
+                                            (merge {:db/id (:db/id part)} inherited)))
+                                        (:transaction/_split-parent parent)))))
+                        parents)]
+      (when (seq tx-data)
+        (d/transact! conn tx-data)))))
+
 (defn- set-reviewed-datom!
   "Assert (true) or clear (false) the boolean reviewed flag `attr` on entity `eid`.
    Clearing retracts the datom so its absence nil-puns to not-reviewed."
@@ -307,6 +347,26 @@
       partner (conj [:db/retract partner :transaction/transfer-pair id])
       true    (conj [:db/retractEntity id]))))
 
+(defn- split-parts-of
+  "Live split parts of `parent-eids` (a collection of entity ids), pulled with just
+   enough (:db/id + transfer-pair back-ref) to cascade-retract them via retract-part-ops."
+  [db parent-eids]
+  (d/q '[:find [(pull ?p [:db/id {:transaction/transfer-pair [:db/id]}]) ...]
+         :in $ [?parent ...]
+         :where [?p :transaction/split-parent ?parent]]
+       db parent-eids))
+
+(defn cascade-retract-parts-ops
+  "Tx-data cascading every live part of `parent-eids` (a collection of entity ids):
+   unlink each part's transfer pair first (mirroring set-splits!'s retract path), then
+   retractEntity the part. [] when none of `parent-eids` has live parts. Shared with
+   provider.sync/retract-removed! — a removed transaction's parts cascade the same way
+   delete-manual!'s do (the bank says the money never happened, so its parts must go
+   too). Callers append this to their own retraction of the parents so parent(s) +
+   parts retract in one transact!."
+  [db parent-eids]
+  (mapcat retract-part-ops (split-parts-of db parent-eids)))
+
 (defn set-splits!
   "Diff a transaction's splits against its current live parts and write only the
    delta, instead of full-replace. `splits` is a vector of {:amount string
@@ -401,19 +461,28 @@
 
 (defn delete-manual!
   "Delete a manually-created transaction (entity id `tx-id`). Guards on
-   :transaction/provider :manual so an imported/synced row can never be deleted this
-   way — throws ex-info :bad-request otherwise (and :not-found for a missing id).
-   Unlinks any transfer pair first (retracting the partner's back-reference, which
-   retractEntity would otherwise leave dangling), then retracts the transaction — its
-   split parts cascade via :db/isComponent. Returns db-conn."
+   :transaction/provider :manual so an imported/synced row — or a split part itself,
+   which is :transaction/provider :split — can never be deleted this way: throws
+   ex-info :bad-request otherwise (and :not-found for a missing id). Unlinks any
+   transfer pair first (retracting the partner's back-reference, which retractEntity
+   would otherwise leave dangling), then retracts the transaction. Parts are additive
+   rows now, not :db/isComponent sub-entities, so a split MANUAL parent's live parts
+   don't cascade for free — this cascades them explicitly the same way (unlink each
+   part's transfer pair, then retract it), in the same transact!. Returns the vector of
+   cascaded part ids (possibly empty), so the caller can purge them from the undo/redo
+   command log (commands/forget!)."
   [conn tx-id]
-  (let [tx (d/pull (d/db conn) [:db/id :transaction/provider
-                                {:transaction/transfer-pair [:db/id]}] tx-id)]
+  (let [db (d/db conn)
+        tx (d/pull db [:db/id :transaction/provider
+                       {:transaction/transfer-pair [:db/id]}] tx-id)]
     (when-not (:db/id tx)
       (throw (ex-info "Transaction not found" {:type :not-found})))
     (when-not (= :manual (:transaction/provider tx))
       (throw (ex-info "Only manually-added transactions can be deleted" {:type :bad-request})))
-    (let [partner (get-in tx [:transaction/transfer-pair :db/id])]
-      (d/transact! conn (cond-> [[:db/retractEntity tx-id]]
-                          partner (conj [:db/retract partner :transaction/transfer-pair tx-id]))))
-    conn))
+    (let [partner (get-in tx [:transaction/transfer-pair :db/id])
+          parts (split-parts-of db [tx-id])
+          part-ids (mapv :db/id parts)]
+      (d/transact! conn (into (cond-> [[:db/retractEntity tx-id]]
+                                partner (conj [:db/retract partner :transaction/transfer-pair tx-id]))
+                              (mapcat retract-part-ops parts)))
+      part-ids)))

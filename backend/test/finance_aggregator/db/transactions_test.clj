@@ -687,11 +687,11 @@
                                               {:amount 5.00M :date (java.util.Date.)})))))
 
 (deftest delete-manual-test
-  (testing "deletes a manually-created transaction"
+  (testing "deletes a manually-created transaction, returning no cascaded part ids"
     (let [acct (make-account! "Cash")
           eid  (transactions/create-manual! setup/*test-conn* "test-user"
                                             {:account-eid acct :amount -5.00M :date (java.util.Date.)})]
-      (transactions/delete-manual! setup/*test-conn* eid)
+      (is (= [] (transactions/delete-manual! setup/*test-conn* eid)) "no parts — empty vector")
       (is (nil? (:transaction/external-id
                  (d/pull (d/db setup/*test-conn*) '[:transaction/external-id] eid))))))
 
@@ -701,3 +701,45 @@
                             (transactions/delete-manual! setup/*test-conn* tx-id)))
       (is (some? (:transaction/external-id
                   (d/pull (d/db setup/*test-conn*) '[:transaction/external-id] tx-id)))))))
+
+(deftest delete-manual-cascades-split-parts-test
+  (testing "deleting a split MANUAL parent cascades: its live parts (and any transfer
+            link) are retracted in the same transact!, and their ids are returned"
+    (let [acct (make-account! "Cash")
+          a (make-category! "CascadeA" :category/cascade-a)
+          ;; Even split so either live part matches the partner's exact opposite amount
+          ;; regardless of query ordering.
+          partner-id (make-tx! "tx-cascade-partner" {:transaction/amount 50.00M})
+          eid (transactions/create-manual! setup/*test-conn* "test-user"
+                                           {:account-eid acct :amount -100.00M :date (java.util.Date.)})
+          _ (transactions/set-splits! setup/*test-conn* eid
+                                      [{:amount "-50.00" :category-id a}
+                                       {:amount "-50.00" :category-id a}])
+          [p1 p2] (live-parts eid)]
+      (db-transfers/confirm-match! setup/*test-conn* (:db/id p1) partner-id)
+      (let [part-ids (transactions/delete-manual! setup/*test-conn* eid)]
+        (is (= (set (map :db/id [p1 p2])) (set part-ids)) "returns exactly the cascaded part ids")
+        (is (nil? (:transaction/external-id
+                   (d/pull (d/db setup/*test-conn*) '[:transaction/external-id] eid)))
+            "the parent is gone")
+        (is (every? #(nil? (:transaction/external-id
+                            (d/pull (d/db setup/*test-conn*) '[:transaction/external-id] %)))
+                    part-ids)
+            "every part is gone")
+        (is (nil? (:transaction/transfer-pair
+                   (d/pull (d/db setup/*test-conn*) '[{:transaction/transfer-pair [:db/id]}] partner-id)))
+            "the matched partner's back-ref is cleared, not left dangling")))))
+
+(deftest delete-manual-rejects-split-part-test
+  (testing "a split part itself (:transaction/provider :split) is rejected by the same
+            :manual guard as an imported row — depth is 1, delete via the parent"
+    (let [acct (make-account! "Cash")
+          eid (transactions/create-manual! setup/*test-conn* "test-user"
+                                           {:account-eid acct :amount -100.00M :date (java.util.Date.)})]
+      (transactions/set-splits! setup/*test-conn* eid [{:amount "-60.00"} {:amount "-40.00"}])
+      (let [part-id (:db/id (first (live-parts eid)))]
+        (is (thrown-with-msg? clojure.lang.ExceptionInfo #"manually-added"
+                              (transactions/delete-manual! setup/*test-conn* part-id)))
+        (is (some? (:transaction/external-id
+                    (d/pull (d/db setup/*test-conn*) '[:transaction/external-id] part-id)))
+            "the part survives")))))
