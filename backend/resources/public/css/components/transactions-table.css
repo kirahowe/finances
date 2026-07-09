@@ -60,12 +60,12 @@
   padding-left: 0;
 }
 
-/* The reviewed checkbox sits centered in its fixed-width column. */
-.table.table-resizable .reviewed-cell {
+/* The reconciled checkbox sits centered in its fixed-width column. */
+.table.table-resizable .reconciled-cell {
   text-align: center;
 }
 
-.reviewed-checkbox {
+.reconciled-checkbox {
   width: var(--spacing-md);
   height: var(--spacing-md);
   cursor: pointer;
@@ -235,7 +235,7 @@
 .table.hide-description th:nth-child(5), .table.hide-description td:nth-child(5),
 .table.hide-amount th:nth-child(6), .table.hide-amount td:nth-child(6),
 .table.hide-category th:nth-child(7), .table.hide-category td:nth-child(7),
-.table.hide-reviewed th:nth-child(8), .table.hide-reviewed td:nth-child(8) {
+.table.hide-reconciled th:nth-child(8), .table.hide-reconciled td:nth-child(8) {
   display: none;
 }
 

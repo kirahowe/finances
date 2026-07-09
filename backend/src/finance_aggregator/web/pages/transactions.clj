@@ -291,7 +291,7 @@
        (patch! sse (undo-redo-controls (undo-labels user)))
        ;; A recategorize/split moves money between rollup rows, so re-patch the whole-month pane.
        (patch! sse (rollup-pane (:rollup model)))
-       ;; Keep the reconciliation panel live too: reviewing/categorizing moves the completeness
+       ;; Keep the reconciliation panel live too: reconciling/categorizing moves the completeness
        ;; gate, and adding/removing a manual row moves an account's tracked delta + focused verdict.
        ;; (No recon prefill re-seed here — that would clobber unsaved typing in the balance fields.)
        (patch! sse (tv/close-panel close-model))
@@ -322,8 +322,8 @@
        (catch clojure.lang.ExceptionInfo e
          (error-response req (ex-message e)))))
 
-(defn toggle-reviewed
-  "PUT /transactions/:id/reviewed/:v — record + apply a reviewed command, then re-render."
+(defn toggle-reconciled
+  "PUT /transactions/:id/reconciled/:v — record + apply a reconciled command, then re-render."
   [{:keys [db-conn]}]
   (fn [req]
     (handle-edit req
@@ -331,8 +331,8 @@
        (let [tx-id (path-id req :id)
              after (= "true" (-> req :path-params :v))]
          (commands/apply! db-conn auth/user-id
-                          {:type :set-reviewed :tx-id tx-id :before (not after) :after after
-                           :label (if after "Marked reviewed" "Marked unreviewed")})
+                          {:type :set-reconciled :tx-id tx-id :before (not after) :after after
+                           :label (if after "Marked reconciled" "Marked unreconciled")})
          (edit-response db-conn req (r/read-signals req)))))))
 
 (defn set-description
@@ -656,8 +656,8 @@
 
 (defn close-month
   "POST /transactions/close — freeze the current month's category totals and lock it.
-   Refuses (surfaces an error, no write) unless the month is ready: everything
-   reviewed and categorized and every account's balance reconciled. Re-patches the panel."
+   Refuses (surfaces an error, no write) unless the month is ready: every transaction
+   reconciled and categorized and every account's balance reconciled. Re-patches the panel."
   [{:keys [db-conn]}]
   (fn [req]
     (handle-edit req

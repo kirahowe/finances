@@ -22,7 +22,7 @@
 (deftest close-panel-overview-drills-per-account
   (let [h (html (tv/close-panel
                  {:rows mixed-rows
-                  :gate {:unreviewed 2 :uncategorized 1 :all-reviewed? false
+                  :gate {:unreconciled 2 :uncategorized 1 :all-reconciled? false
                          :all-categorized? false :balanced? false :ready? false}
                   :closed? false :closed-at nil :drift nil}))]
     (testing "per-account statuses render"
@@ -38,7 +38,7 @@
       (is (not (re-find #"Add statement balance" h)))
       (is (not (re-find #"statement-modal" h))))
     (testing "gate lines + a disabled Close button (not ready)"
-      (is (re-find #"2 to review" h))
+      (is (re-find #"2 to reconcile" h))
       (is (re-find #"Close month" h))
       (is (re-find #"disabled" h))
       (is (not (re-find #"Reopen" h))))))
@@ -46,7 +46,7 @@
 (deftest close-panel-ready-enables-close
   (let [h (html (tv/close-panel
                  {:rows [{:account-id 1 :name "A" :status :reconciled :difference 0M}]
-                  :gate {:unreviewed 0 :uncategorized 0 :all-reviewed? true
+                  :gate {:unreconciled 0 :uncategorized 0 :all-reconciled? true
                          :all-categorized? true :balanced? true :ready? true}
                   :closed? false :closed-at nil :drift nil}))]
     (is (re-find #"Close month" h))
@@ -164,7 +164,7 @@
 
 (def ^:private plain-tx
   {:db/id 41 :transaction/payee "Superstore" :transaction/amount -85.00M
-   :transaction/effective-description "weekly shop" :transaction/reviewed true
+   :transaction/effective-description "weekly shop" :transaction/reconciled true
    :transaction/posted-date #inst "2026-05-05"
    :transaction/account {:db/id 100 :account/external-name "Visa"
                          :account/institution {:db/id 1 :institution/name "Bank"}}})
@@ -184,9 +184,9 @@
       (is (not (re-find #"is-split-part" h)))
       (is (not (re-find #"split-marker" h)))
       (is (not (re-find #"split-drift-badge" h))))
-    (testing "the reviewed checkbox is live (server-confirmed toggle)"
-      (is (re-find #"reviewed-checkbox" h))
-      (is (re-find #"/transactions/41/reviewed/" h))
+    (testing "the reconciled checkbox is live (server-confirmed toggle)"
+      (is (re-find #"reconciled-checkbox" h))
+      (is (re-find #"/transactions/41/reconciled/" h))
       (is (not (re-find #"disabled" h))))))
 
 (deftest normal-row-split-part-gets-marker-and-class
@@ -199,7 +199,7 @@
       (is (re-find #"Part of a split — view or edit" h))
       (is (re-find #"Part of a split of -\$100\.00" h) "title carries the formatted parent amount"))
     (testing "a part's checkbox is live like any row's"
-      (is (re-find #"/transactions/51/reviewed/" h)))
+      (is (re-find #"/transactions/51/reconciled/" h)))
     (testing "no drift badge when the family still reconciles"
       (is (not (re-find #"split-drift-badge" h))))))
 

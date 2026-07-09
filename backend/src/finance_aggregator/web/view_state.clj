@@ -35,7 +35,7 @@
    {:id "description" :label "Description" :w 240 :sortable false :min 200}
    {:id "amount"      :label "Amount"      :w 120 :sortable true  :min 90  :protected true}
    {:id "category"    :label "Category"    :w 180 :sortable true  :min 200 :protected true}
-   {:id "reviewed"    :label "Reviewed"    :w 96  :sortable false :min 80  :protected true}])
+   {:id "reconciled"  :label "Reconciled"  :w 96  :sortable false :min 80  :protected true}])
 
 (def hideable-columns
   "[(id label)…] of the columns the column-picker can toggle, in render order. Column
@@ -44,7 +44,7 @@
   (mapv (juxt :id :label) columns))
 
 (def resizable-cols
-  "Columns the resize island gives a drag handle (reviewed is fixed-width)."
+  "Columns the resize island gives a drag handle (reconciled is fixed-width)."
   #{"date" "account" "institution" "payee" "description" "amount" "category"})
 
 (def page-size-options [25 50 100 250])
@@ -96,7 +96,8 @@
    omitting them = no category/account/institution filter."
   [{:keys [search scope hide-transfers uncat sort-col sort-dir page page-size]}]
   {:search         (or search "")
-   :scope          (if (= "needs-review" scope) :needs-review :all)
+   ;; "needs-review" is the scope's pre-rename token — accepted so stale bookmarked URLs keep working.
+   :scope          (if (contains? #{"to-reconcile" "needs-review"} scope) :to-reconcile :all)
    :hide-transfers (boolean hide-transfers)
    :uncat          (boolean uncat)
    :sort           (when (not (str/blank? sort-col))
@@ -147,7 +148,7 @@
    clamped view result so the signal matches what's rendered."
   [vs month-str result]
   {:search        (:search vs)
-   :scope         (if (= :needs-review (:scope vs)) "needs-review" "all")
+   :scope         (if (= :to-reconcile (:scope vs)) "to-reconcile" "all")
    :hideTransfers (:hide-transfers vs)
    :uncat         (:uncat vs)
    :sortCol       (if-let [s (:sort vs)] (name (:col s)) "")

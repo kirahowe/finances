@@ -130,13 +130,13 @@ if (scroll && table) {
   });
   morphObserver.observe(table, { childList: true, subtree: true, attributes: true, attributeFilter: ['class'] });
 
-  function toggleReviewed() {
-    elFor(state.active)?.querySelector<HTMLInputElement>('.reviewed-checkbox')?.click();
+  function toggleReconciled() {
+    elFor(state.active)?.querySelector<HTMLInputElement>('.reconciled-checkbox')?.click();
   }
 
   // Open the active cell's editor. Description: click its button (its Datastar
   // handler snapshots + opens + focuses), optionally seeding a typed character.
-  // Category: hand off to the combobox island via a DOM event. Reviewed has no
+  // Category: hand off to the combobox island via a DOM event. Reconciled has no
   // inline editor, so it's left alone.
   function openActiveEditor(seed: string | null) {
     const a = state.active;
@@ -187,8 +187,8 @@ if (scroll && table) {
     if (!intent) return;
     e.preventDefault();
 
-    if (intent === 'toggle-reviewed') {
-      if (state.active?.col === 'reviewed') toggleReviewed();
+    if (intent === 'toggle-reconciled') {
+      if (state.active?.col === 'reconciled') toggleReconciled();
       return;
     }
     if (intent === 'edit') {

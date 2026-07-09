@@ -30,7 +30,7 @@
        :transaction/split-parent [:db/id :transaction/amount :transaction/payee
                                   {:transaction/_split-parent [:db/id :transaction/amount]}]
        :transaction/_split-parent [:db/id :transaction/amount :transaction/split-order
-                                   :transaction/description :transaction/reviewed
+                                   :transaction/description :transaction/reconciled
                                    {:transaction/category [:db/id :category/name]}]
        :transaction/transfer-pair [:db/id :transaction/amount :transaction/posted-date
                                    :transaction/user-posted-date
@@ -77,8 +77,8 @@
 (defn with-derived-fields
   "Annotate a pulled transaction with the server-computed fields the API contract
    promises: :transaction/effective-description, :transaction/effective-posted-date,
-   :transaction/split-drift and :transaction/transfer-hidden. (:transaction/reviewed is
-   the row's own stored flag, nil-punned absent — a split part reviews itself like any
+   :transaction/split-drift and :transaction/transfer-hidden. (:transaction/reconciled is
+   the row's own stored flag, nil-punned absent — a split part reconciles itself like any
    row, so there is no roll-up.) Applied uniformly by the list fns and the
    single-transaction mutation endpoints so the response shape never drifts."
   [tx]
@@ -259,19 +259,19 @@
       (when (seq tx-data)
         (d/transact! conn tx-data)))))
 
-(defn- set-reviewed-datom!
-  "Assert (true) or clear (false) the boolean reviewed flag `attr` on entity `eid`.
-   Clearing retracts the datom so its absence nil-puns to not-reviewed."
-  [conn eid attr reviewed?]
-  (d/transact! conn (if reviewed?
+(defn- set-reconciled-datom!
+  "Assert (true) or clear (false) the boolean reconciled flag `attr` on entity `eid`.
+   Clearing retracts the datom so its absence nil-puns to not-reconciled."
+  [conn eid attr reconciled?]
+  (d/transact! conn (if reconciled?
                       [{:db/id eid attr true}]
                       [[:db/retract eid attr]])))
 
-(defn set-reviewed!
-  "Mark a transaction reviewed (true) or clear it (false). Stored as an additive
+(defn set-reconciled!
+  "Mark a transaction reconciled (true) or clear it (false). Stored as an additive
    overlay on the imported transaction. Conn is a datalevin connection (not an atom)."
-  [conn tx-id reviewed?]
-  (set-reviewed-datom! conn tx-id :transaction/reviewed reviewed?)
+  [conn tx-id reconciled?]
+  (set-reconciled-datom! conn tx-id :transaction/reconciled reconciled?)
   (with-derived-fields (d/pull (d/db conn) transaction-pull-pattern tx-id)))
 
 (defn set-user-description!
@@ -299,7 +299,7 @@
    same as the split editor), then asserts (or retracts) the override on the root AND
    every one of its live parts in ONE d/transact!, so calling this on any family member
    converges the whole family onto the same effective date. Modeled on
-   set-reviewed-datom!'s assert/retract mechanics.
+   set-reconciled-datom!'s assert/retract mechanics.
 
    Returns the refreshed ROOT with the derived API fields (see with-derived-fields).
    Conn is a datalevin connection (not an atom)."
@@ -372,7 +372,7 @@
 
 (defn- update-part-ops
   "Tx-data to update an existing live part in place: amount, display order `i`, category
-   (nil clears it) and memo (blank/nil clears it). The part's reviewed flag,
+   (nil clears it) and memo (blank/nil clears it). The part's reconciled flag,
    transfer-pair, and external-id are never mentioned here, so an editor edit can't
    clobber per-part state set elsewhere."
   [i {:keys [id amount category-id memo]}]
@@ -423,14 +423,14 @@
    splits (un-split).
 
    A row's :id, when it names a LIVE part of this parent, updates that part in place
-   (amount/category/memo/order) — preserving its reviewed flag, transfer-pair link,
+   (amount/category/memo/order) — preserving its reconciled flag, transfer-pair link,
    and external-id. Any other row (no id, or a stale id — e.g. after undo re-creates
    a part that was previously retracted) creates a fresh part. A live part not named
    by any row is retracted, unlinking any transfer pair first.
 
-   Always retracts the parent's own :transaction/reviewed overlay: a split row has no
-   checkbox of its own once split (review happens per-part), so the flag can't
-   resurface on a later un-split — the user re-reviews.
+   Always retracts the parent's own :transaction/reconciled overlay: a split row has no
+   checkbox of its own once split (reconciling happens per-part), so the flag can't
+   resurface on a later un-split — the user re-reconciles.
 
    See assert-splittable! for the :not-found / :bad-request guards (missing
    transaction, editing a part instead of its parent, an already-matched transfer,
@@ -461,16 +461,16 @@
           create-ops (keep (fn [[i row]] (when-not (live-ids (:id row)) (new-part-tx-data full-parent i row)))
                            indexed)
           retract-ops (mapcat retract-part-ops (remove #(matched-ids (:db/id %)) live-parts))
-          ;; The parent has no reviewed checkbox of its own once split (each part
-          ;; owns its review), so drop any stored parent flag — otherwise it would
-          ;; resurface if the splits are later cleared.
-          reviewed-retract [[:db/retract tx-id :transaction/reviewed]]]
-      (d/transact! conn (vec (concat reviewed-retract update-ops create-ops retract-ops)))
+          ;; The parent has no reconciled checkbox of its own once split (each part
+          ;; owns its reconcile mark), so drop any stored parent flag — otherwise it
+          ;; would resurface if the splits are later cleared.
+          reconciled-retract [[:db/retract tx-id :transaction/reconciled]]]
+      (d/transact! conn (vec (concat reconciled-retract update-ops create-ops retract-ops)))
       (with-derived-fields (d/pull (d/db conn) transaction-pull-pattern tx-id)))))
 
 ;; --- Manual transactions ---------------------------------------------------
 ;; A user-entered transaction is a first-class :transaction/* row (provider :manual),
-;; not an overlay: once created it categorizes, reviews, splits, sorts and reconciles
+;; not an overlay: once created it categorizes, reconciles, splits and sorts
 ;; exactly like an imported one. Only its provenance and its direct create/delete
 ;; lifecycle differ.
 

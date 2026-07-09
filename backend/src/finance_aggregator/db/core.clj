@@ -14,6 +14,8 @@
   [db-path]
   (let [conn (d/get-conn db-path schema/schema)]
     (migrations/migrate-splits! conn)
+    ;; After migrate-splits! — it intentionally still writes the legacy attr this converts.
+    (migrations/migrate-reviewed->reconciled! conn)
     conn))
 
 (defn stop-db!

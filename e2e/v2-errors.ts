@@ -62,12 +62,12 @@ await page.locator('#error-bar .error-banner button').click();
 await page.waitForTimeout(100);
 check('dismiss clears the error bar', (await page.locator('#error-bar .error-banner').count()) === 0);
 
-// Trigger it again, then a SUCCESSFUL edit (toggle a reviewed checkbox) must auto-clear it.
+// Trigger it again, then a SUCCESSFUL edit (toggle a reconciled checkbox) must auto-clear it.
 await forceBadSplit();
 await bar.waitFor({ state: 'visible', timeout: 5000 });
 check('error bar re-appears on a second rejection', await bar.isVisible());
 
-await superstore().locator('.reviewed-checkbox').click();
+await superstore().locator('.reconciled-checkbox').click();
 await page.waitForFunction(
   () => !document.querySelector('#error-bar .error-banner'),
   null, { timeout: 5000 }).catch(() => {});

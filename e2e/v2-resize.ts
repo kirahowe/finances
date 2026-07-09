@@ -26,7 +26,7 @@ const colDisplay = (n) => page.locator('colgroup col').nth(n).evaluate((c) => c.
 // Rendered width of the table element — the model says a drag grows this by the drag delta.
 const tableW = () => page.locator('table.table-resizable').evaluate((t) => t.getBoundingClientRect().width);
 // Real-column indices in colgroup order (the trailing spacer <col> is not in this list).
-const COLS = { date: 0, account: 1, institution: 2, payee: 3, description: 4, amount: 5, category: 6, reviewed: 7 };
+const COLS = { date: 0, account: 1, institution: 2, payee: 3, description: 4, amount: 5, category: 6, reconciled: 7 };
 // Snapshot every real column's <col> width, keyed by id, for byte-identical comparison.
 const snapshotCols = async () => {
   const out: Record<string, number> = {};
@@ -41,7 +41,7 @@ check('auto-fit set column widths on load', (await colW(3)) > 0 && (await colW(4
   `payee=${await colW(3)} desc=${await colW(4)}`);
 
 // Drag the Payee (col index 3) resize handle right → its column grows, and ONLY it. The columns
-// to its LEFT (date/account/institution) and to its RIGHT (description/amount/category/reviewed)
+// to its LEFT (date/account/institution) and to its RIGHT (description/amount/category/reconciled)
 // must keep their EXACT widths, and the table's total width must grow by ~the drag delta (the
 // table scrolls horizontally rather than stealing width from any other column).
 const DRAG = 180;

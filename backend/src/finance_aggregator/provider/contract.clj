@@ -17,7 +17,7 @@
    payee, dates - are fair game for `modified` to update.)"
   #{:transaction/user-description
     :transaction/user-posted-date
-    :transaction/reviewed
+    :transaction/reconciled
     :transaction/category
     :transaction/splits
     :transaction/split-parent

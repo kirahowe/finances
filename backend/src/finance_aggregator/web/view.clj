@@ -15,7 +15,7 @@
 
    View-state shape (keyword map; the page parses it from query params):
      {:search \"text\"               ; case-insensitive substring over the haystack
-      :scope :all | :needs-review
+      :scope :all | :to-reconcile
       :hide-transfers bool           ; hide matched-transfer rows
       :uncat bool                    ; Uncategorized chip
       :accounts #{id…}               ; header-funnel selections (db ids, longs)
@@ -74,9 +74,9 @@
   [tx {:keys [search scope hide-transfers accounts institutions] :as vs}]
   (and (or (str/blank? search)
            (str/includes? (search-haystack tx) (str/lower-case search)))
-       ;; scope filters only when explicitly :needs-review (so a partial view-state from the
+       ;; scope filters only when explicitly :to-reconcile (so a partial view-state from the
        ;; facet helpers, with scope absent, defaults to showing all)
-       (or (not= scope :needs-review) (not (true? (:transaction/reviewed tx))))
+       (or (not= scope :to-reconcile) (not (true? (:transaction/reconciled tx))))
        (not (and hide-transfers (:transaction/transfer-hidden tx)))
        (in-selection? (tx-account-id tx) accounts)
        (in-selection? (tx-institution-id tx) institutions)
@@ -176,12 +176,12 @@
 
 (defn facet-counts
   "The four toolbar counts, faceted (each computed with its own control neutralized):
-   :total/:unreviewed reflect every filter except scope; :uncategorized reflects every filter
+   :total/:unreconciled reflect every filter except scope; :uncategorized reflects every filter
    except the category dimension; :transfers-hidden reflects every filter except Hide-transfers."
   [txs vs]
   (let [no-scope (filter-txs txs (drop-facet vs :scope))]
     {:total            (count no-scope)
-     :unreviewed       (count (remove #(true? (:transaction/reviewed %)) no-scope))
+     :unreconciled     (count (remove #(true? (:transaction/reconciled %)) no-scope))
      :uncategorized    (count (filter needs-category?
                                       (filter-txs txs (drop-facet vs :category-dim))))
      :transfers-hidden (count (filter :transaction/transfer-hidden
@@ -383,27 +383,27 @@
      :net-now          — the month's current signed net (rollup :grand-total), for drift
    Returns
      {:rows [reconcile-row…]
-      :gate {:unreviewed n :uncategorized n :all-reviewed? b :all-categorized? b
+      :gate {:unreconciled n :uncategorized n :all-reconciled? b :all-categorized? b
              :balanced? b :ready? b}
       :closed? b :closed-at inst
       :drift {:frozen bd :now bd} | nil}
-   `:ready?` — the month may be closed cleanly — needs everything reviewed AND
+   `:ready?` — the month may be closed cleanly — needs every transaction reconciled AND
    categorized AND every account's balance reconciled. `:drift` is present only for a
    CLOSED month whose current net no longer matches the frozen net (it changed since
    the lock)."
   [txs {:keys [reconciliation close net-now]}]
-  (let [unreviewed       (count (remove #(true? (:transaction/reviewed %)) txs))
+  (let [unreconciled     (count (remove #(true? (:transaction/reconciled %)) txs))
         uncategorized    (count (filter needs-category? txs))
         balanced?        (boolean (:all-reconciled? reconciliation))
-        all-reviewed?    (zero? unreviewed)
+        all-reconciled?  (zero? unreconciled)
         all-categorized? (zero? uncategorized)
         closed?          (some? close)
         frozen-net       (:reconciliation/net close)]
     {:rows            (:rows reconciliation)
-     :gate            {:unreviewed unreviewed :uncategorized uncategorized
-                       :all-reviewed? all-reviewed? :all-categorized? all-categorized?
+     :gate            {:unreconciled unreconciled :uncategorized uncategorized
+                       :all-reconciled? all-reconciled? :all-categorized? all-categorized?
                        :balanced? balanced?
-                       :ready? (and all-reviewed? all-categorized? balanced?)}
+                       :ready? (and all-reconciled? all-categorized? balanced?)}
      :closed?         closed?
      :closed-at       (:reconciliation/closed-at close)
      :drift           (when (and closed? net-now (not= frozen-net net-now))

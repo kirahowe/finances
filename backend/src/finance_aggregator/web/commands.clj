@@ -26,7 +26,7 @@
    :before on undo)."
   [conn {:keys [type tx-id partner]} value]
   (case type
-    :set-reviewed    (db/set-reviewed! conn tx-id (boolean value))
+    :set-reconciled  (db/set-reconciled! conn tx-id (boolean value))
     :set-category    (db/update-category! conn tx-id value)
     :set-description (db/set-user-description! conn tx-id (or value ""))
     ;; value is a java.util.Date (the manual override) or nil (clear it, falling back through

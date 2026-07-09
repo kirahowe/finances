@@ -15,7 +15,7 @@
 
 (defn- tx [m]
   (merge {:transaction/payee "" :transaction/effective-description ""
-          :transaction/reviewed false :transaction/transfer-hidden false}
+          :transaction/reconciled false :transaction/transfer-hidden false}
          m))
 
 (def ^:private t1
@@ -27,7 +27,7 @@
 (def ^:private t2
   (tx {:db/id 2 :transaction/posted-date #inst "2025-01-05"
        :transaction/payee "Superstore" :transaction/amount -85
-       :transaction/reviewed true
+       :transaction/reconciled true
        :transaction/category {:db/id 11 :category/name "Groceries"}
        :transaction/account (bank 101 "Visa")}))
 
@@ -73,8 +73,8 @@
 (deftest scope-filter
   (is (= [1 2 3 4 5 6] (ids (view/filter-txs txs {:scope :all})))
       "all shows everything")
-  (is (= [1 3 4 5 6] (ids (view/filter-txs txs {:scope :needs-review})))
-      "needs-review drops the reviewed row (t2)"))
+  (is (= [1 3 4 5 6] (ids (view/filter-txs txs {:scope :to-reconcile})))
+      "to-reconcile drops the reconciled row (t2)"))
 
 ;; --- Search -----------------------------------------------------------------
 
@@ -161,11 +161,11 @@
 ;; --- Compose ----------------------------------------------------------------
 
 (deftest view-composition
-  (let [v (view/view txs {:scope :needs-review
+  (let [v (view/view txs {:scope :to-reconcile
                           :sort {:col :amount :dir :asc}
                           :page 0 :page-size 2})]
     (is (= [3 5] (ids (:rows v)))
-        "needs-review → [t1 t3 t4 t5 t6], amount asc → [3 5 6 4 1], page 0/2 → [3 5]")
+        "to-reconcile → [t1 t3 t4 t5 t6], amount asc → [3 5 6 4 1], page 0/2 → [3 5]")
     (is (= 5 (:total v)) "filtered total drives pagination")
     (is (= 3 (:page-count v)))))
 
@@ -185,7 +185,7 @@
         (is (= (view/category-funnel-options txs vs) (:category-options m)))
         (is (not (contains? m :rollup)) "no :categories → no rollup")))
     (testing "a :linger set switches :result to the lingering view (carries :stale-ids)"
-      (let [m (view/present txs {:scope :needs-review} {:linger #{2}})]
+      (let [m (view/present txs {:scope :to-reconcile} {:linger #{2}})]
         (is (= #{2} (:stale-ids (:result m))) "edited-out t2 kept stale")))
     (testing ":categories add the whole-month rollup"
       (is (= (view/category-rollup txs []) (:rollup (view/present txs vs {:categories []})))))
@@ -242,25 +242,25 @@
       (is (false? (:all-reconciled? m)) "one uncovered account blocks the whole month"))))
 
 (deftest month-close-gate
-  (testing "everything reviewed + categorized + balanced → ready to close"
-    (let [done  [(tx {:db/id 1 :transaction/amount 100 :transaction/reviewed true
+  (testing "every transaction reconciled + categorized + balanced → ready to close"
+    (let [done  [(tx {:db/id 1 :transaction/amount 100 :transaction/reconciled true
                       :transaction/category {:db/id 10 :category/name "X"}
                       :transaction/account (bank 100 "A")})]
           recon {:rows [{:status :reconciled}] :all-reconciled? true}
           m     (view/month-close done {:reconciliation recon :net-now 100M})]
       (is (true? (get-in m [:gate :ready?])))
-      (is (zero? (get-in m [:gate :unreviewed])))
+      (is (zero? (get-in m [:gate :unreconciled])))
       (is (false? (:closed? m)))))
-  (testing "unreviewed / uncategorized rows block ready"
-    (let [txs2  [(tx {:db/id 2 :transaction/amount -5 :transaction/reviewed false
+  (testing "unreconciled / uncategorized rows block ready"
+    (let [txs2  [(tx {:db/id 2 :transaction/amount -5 :transaction/reconciled false
                       :transaction/category nil :transaction/account (bank 100 "A")})]
           recon {:rows [{:status :reconciled}] :all-reconciled? true}
           m     (view/month-close txs2 {:reconciliation recon :net-now -5M})]
-      (is (= 1 (get-in m [:gate :unreviewed])))
+      (is (= 1 (get-in m [:gate :unreconciled])))
       (is (= 1 (get-in m [:gate :uncategorized])))
       (is (false? (get-in m [:gate :ready?])))))
-  (testing "an unreconciled (no-snapshot) account blocks ready even when reviewed+categorized"
-    (let [done  [(tx {:db/id 1 :transaction/amount 100 :transaction/reviewed true
+  (testing "an unreconciled (no-snapshot) account blocks ready even when reconciled+categorized"
+    (let [done  [(tx {:db/id 1 :transaction/amount 100 :transaction/reconciled true
                       :transaction/category {:db/id 10 :category/name "X"}
                       :transaction/account (bank 100 "A")})]
           recon {:rows [{:status :no-snapshot}] :all-reconciled? false}
@@ -352,13 +352,13 @@
 ;; A row edited out of the active filter should stay visible *in its original position*
 ;; (de-emphasised) until the next pure view change, instead of vanishing or jumping to the
 ;; bottom. These guard bugs 7 (Uncategorized chip → categorize → row disappears) and 8
-;; (Needs-review → review → row jumps to the bottom): both were the linger composition
+;; (To-reconcile → reconcile → row jumps to the bottom): both were the linger composition
 ;; *appending* the lingered row instead of keeping it in place.
 
 (deftest view-with-linger-keeps-original-position
-  (testing "BUG 8 (no sort): a now-reviewed row lingers in its natural position, not at the end"
-    ;; t2 (db/id 2) is reviewed; under :needs-review it no longer matches, but it's lingering.
-    (let [v (view/view-with-linger txs {:scope :needs-review} #{2})]
+  (testing "BUG 8 (no sort): a now-reconciled row lingers in its natural position, not at the end"
+    ;; t2 (db/id 2) is reconciled; under :to-reconcile it no longer matches, but it's lingering.
+    (let [v (view/view-with-linger txs {:scope :to-reconcile} #{2})]
       (is (= [1 2 3 4 5 6] (ids (:rows v)))
           "t2 stays between t1 and t3 (source order), NOT appended after t6")
       (is (= #{2} (:stale-ids v)) "the lingered-but-unmatching row is reported stale")))
@@ -374,9 +374,9 @@
 
 (deftest view-with-linger-sorts-stale-rows-in-place
   (testing "with an active sort, a lingered non-matching row sorts into its natural slot"
-    ;; :needs-review drops t2 (reviewed); linger keeps it. amount asc over [1 2 3 4 5 6] is
+    ;; :to-reconcile drops t2 (reconciled); linger keeps it. amount asc over [1 2 3 4 5 6] is
     ;; [3(-2000) 5(-120) 2(-85) 6(-80) 4(-50) 1(4000)] — t2 sorts between t5 and t6, not appended.
-    (let [v (view/view-with-linger txs {:scope :needs-review
+    (let [v (view/view-with-linger txs {:scope :to-reconcile
                                         :sort {:col :amount :dir :asc}}
                                    #{2})]
       (is (= [3 5 2 6 4 1] (ids (:rows v)))
@@ -391,23 +391,23 @@
 
 (deftest view-with-linger-empty-and-clear-semantics
   (testing "no linger set = plain view, never stale"
-    (let [v (view/view-with-linger txs {:scope :needs-review} #{})]
-      (is (= [1 3 4 5 6] (ids (:rows v))) "reviewed t2 dropped, none lingering")
+    (let [v (view/view-with-linger txs {:scope :to-reconcile} #{})]
+      (is (= [1 3 4 5 6] (ids (:rows v))) "reconciled t2 dropped, none lingering")
       (is (= #{} (:stale-ids v))))
-    (let [v (view/view-with-linger txs {:scope :needs-review} nil)]
+    (let [v (view/view-with-linger txs {:scope :to-reconcile} nil)]
       (is (= [1 3 4 5 6] (ids (:rows v))) "nil linger set tolerated as empty")
       (is (= #{} (:stale-ids v)))))
   (testing "clearing the linger set (the next view change) drops the stale row entirely"
     ;; Same view-state as the lingering case, but with the set cleared: t2 is simply gone.
-    (let [lingered (view/view-with-linger txs {:scope :needs-review} #{2})
-          cleared  (view/view-with-linger txs {:scope :needs-review} #{})]
+    (let [lingered (view/view-with-linger txs {:scope :to-reconcile} #{2})
+          cleared  (view/view-with-linger txs {:scope :to-reconcile} #{})]
       (is (= [1 2 3 4 5 6] (ids (:rows lingered))) "while lingering: t2 visible")
       (is (= [1 3 4 5 6]   (ids (:rows cleared)))  "after clear: t2 gone"))))
 
 (deftest view-with-linger-paginates-after-injection
   (testing ":total + pagination count the injected stale row"
-    ;; needs-review base = [1 3 4 5 6] (5 rows); linger t2 → 6 visible. page 0, size 2.
-    (let [v (view/view-with-linger txs {:scope :needs-review :page 0 :page-size 2} #{2})]
+    ;; to-reconcile base = [1 3 4 5 6] (5 rows); linger t2 → 6 visible. page 0, size 2.
+    (let [v (view/view-with-linger txs {:scope :to-reconcile :page 0 :page-size 2} #{2})]
       (is (= 6 (:total v)) "stale row included in the total")
       (is (= 3 (:page-count v)) "6 rows / 2 = 3 pages")
       (is (= [1 2] (ids (:rows v))) "first page holds t1 then the in-place stale t2"))))
@@ -426,10 +426,10 @@
     (is (= [{:id 100 :label "Chequing" :count 2}
             {:id 101 :label "Visa" :count 4}]
            (view/account-options txs {:accounts #{101}}))))
-  (testing "but ANOTHER active filter is faceted in: needs-review drops t2 → Visa 4→3"
+  (testing "but ANOTHER active filter is faceted in: to-reconcile drops t2 → Visa 4→3"
     (is (= [{:id 100 :label "Chequing" :count 2}
             {:id 101 :label "Visa" :count 3}]
-           (view/account-options txs {:scope :needs-review}))))
+           (view/account-options txs {:scope :to-reconcile}))))
   (testing "missing-account rows contribute no option"
     (is (= [] (view/account-options [(tx {:db/id 9 :transaction/amount 1})] {})))))
 
@@ -455,17 +455,17 @@
   (testing "no filters → the faceted counts equal the full-month tallies"
     (let [fc (view/facet-counts txs {})]
       (is (= 6 (:total fc)))
-      (is (= 5 (:unreviewed fc)) "t2 reviewed")
+      (is (= 5 (:unreconciled fc)) "t2 reconciled")
       (is (= 2 (:uncategorized fc)) "t4 + the uncategorized part row t6")
       (is (= 1 (:transfers-hidden fc)) "t3")))
   (testing "scope/uncat compose: each count reflects the OTHER active filters, not its own"
-    ;; uncat chip on, scope=needs-review. Category-dim removed for :total/:unreviewed leaves
-    ;; scope, but those use drop scope: All = the 2 uncategorized rows, Needs review = those
-    ;; that are unreviewed (both) = 2.
-    (let [fc (view/facet-counts txs {:scope :needs-review :uncat true})]
+    ;; uncat chip on, scope=to-reconcile. Category-dim removed for :total/:unreconciled leaves
+    ;; scope, but those use drop scope: All = the 2 uncategorized rows, To reconcile = those
+    ;; that are unreconciled (both) = 2.
+    (let [fc (view/facet-counts txs {:scope :to-reconcile :uncat true})]
       (is (= 2 (:total fc)) "All = uncategorized rows (scope neutralized)")
-      (is (= 2 (:unreviewed fc)) "Needs review = those also unreviewed")
-      (is (= 2 (:uncategorized fc)) "Uncategorized = needs-review rows that are uncategorized"))))
+      (is (= 2 (:unreconciled fc)) "To reconcile = those also unreconciled")
+      (is (= 2 (:uncategorized fc)) "Uncategorized = to-reconcile rows that are uncategorized"))))
 
 ;; --- Split editor seed ------------------------------------------------------
 

@@ -58,7 +58,11 @@
                      :transaction/splits [{:split/amount -60.00M :split/category groceries
                                            :split/order 0 :split/memo "food" :split/reviewed true}
                                           {:split/amount -40.00M :split/order 1}]}])
+      ;; The full boot pipeline: migrate-splits! writes the LEGACY :transaction/reviewed
+      ;; (recreating the historical shape); migrate-reviewed->reconciled! runs AFTER it
+      ;; and converts the flag — the same order db.core/start-db! runs them in.
       (migrations/migrate-splits! setup/*test-conn*)
+      (migrations/migrate-reviewed->reconciled! setup/*test-conn*)
       (let [[p1 p2] (parts tx-id)]
         (is (= 2 (count (parts tx-id))))
         ;; Generated identity + provenance
@@ -76,12 +80,13 @@
         (is (== -60.00M (:transaction/amount p1)))
         (is (= "food" (:transaction/description p1)))
         (is (= groceries (get-in p1 [:transaction/category :db/id])))
-        (is (true? (:transaction/reviewed p1)))
+        (is (true? (:transaction/reconciled p1)))
+        (is (not (contains? p1 :transaction/reviewed)))
         ;; Optional sub-entity fields stay absent, not nil/false
         (is (== -40.00M (:transaction/amount p2)))
         (is (not (contains? p2 :transaction/description)))
         (is (not (contains? p2 :transaction/category)))
-        (is (not (contains? p2 :transaction/reviewed))))
+        (is (not (contains? p2 :transaction/reconciled))))
       (testing "the old sub-entities (and the parent's :transaction/splits refs) are retracted"
         (is (empty? (old-split-eids tx-id)))))))
 
@@ -118,6 +123,29 @@
       (is (= "mig-4" (:transaction/external-id
                       (d/pull (d/db setup/*test-conn*) '[:transaction/external-id] tx-id)))))))
 
+(defn- reviewed-datoms []
+  (d/q '[:find ?e ?v :where [?e :transaction/reviewed ?v]] (d/db setup/*test-conn*)))
+
+(defn- reconciled-flag [tx-id]
+  (:transaction/reconciled
+   (d/pull (d/db setup/*test-conn*) '[:transaction/reviewed :transaction/reconciled] tx-id)))
+
+(deftest migrate-reviewed->reconciled-test
+  (testing "an old-shape flag converts: readable as :transaction/reconciled, old attr gone"
+    (let [flagged   (make-parent! "rr-1" {:transaction/reviewed true})
+          unflagged (make-parent! "rr-2" {})]
+      (migrations/migrate-reviewed->reconciled! setup/*test-conn*)
+      (is (true? (reconciled-flag flagged)))
+      (is (empty? (reviewed-datoms)) "every :transaction/reviewed datom is retracted")
+      (is (not (contains? (d/pull (d/db setup/*test-conn*)
+                                  '[:transaction/reviewed :transaction/reconciled] unflagged)
+                          :transaction/reconciled))
+          "a row that never carried the flag gains nothing")
+      (testing "a second run is a no-op"
+        (migrations/migrate-reviewed->reconciled! setup/*test-conn*)
+        (is (true? (reconciled-flag flagged)))
+        (is (empty? (reviewed-datoms)))))))
+
 (deftest start-db-runs-migration-test
   (testing "opening the database migrates old-model splits (every entry point migrates)"
     (let [db-path (setup/create-temp-db-dir)]
@@ -127,6 +155,7 @@
           (d/transact! conn [{:transaction/external-id "boot-1"
                               :transaction/amount -10.00M
                               :transaction/posted-date posted
+                              :transaction/reviewed true
                               :transaction/splits [{:split/amount -6.00M :split/order 0}
                                                    {:split/amount -4.00M :split/order 1}]}])
           (db-core/stop-db! conn))
@@ -135,6 +164,11 @@
             (is (= 2 (count (d/q '[:find [?p ...] :where [?p :transaction/split-parent _]]
                                  (d/db conn)))))
             (is (empty? (d/q '[:find [?s ...] :where [_ :transaction/splits ?s]] (d/db conn))))
+            (is (true? (:transaction/reconciled
+                        (d/pull (d/db conn) '[:transaction/reconciled]
+                                [:transaction/external-id "boot-1"])))
+                "boot also converts the legacy reviewed flag")
+            (is (empty? (d/q '[:find ?e :where [?e :transaction/reviewed _]] (d/db conn))))
             (finally (db-core/stop-db! conn))))
         (finally
           (setup/delete-directory-recursive (java.io.File. db-path)))))))

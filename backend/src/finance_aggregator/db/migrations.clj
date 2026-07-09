@@ -11,7 +11,7 @@
 ;; See doc/plans/splits-as-transactions.md. A part used to be a :split/* component
 ;; sub-entity hanging off its parent; it's now a real :transaction/* row linked back to
 ;; the parent via :transaction/split-parent, so every transaction-grain feature (filters,
-;; review, categorize, transfer matching…) covers splits for free.
+;; reconcile, categorize, transfer matching…) covers splits for free.
 
 (def ^:private old-split-pull
   [:db/id :split/amount :split/order :split/memo :split/reviewed
@@ -35,6 +35,8 @@
                   :transaction/amount amount}
            memo             (assoc :transaction/description memo)
            category         (assoc :transaction/category (:db/id category))
+           ;; Deliberately still the LEGACY attr (this recreates the historical shape);
+           ;; migrate-reviewed->reconciled! runs after this and converts it.
            (true? reviewed) (assoc :transaction/reviewed true))))
 
 (defn migrate-splits!
@@ -59,3 +61,23 @@
               retracts (mapcat (fn [p] (map (fn [s] [:db/retractEntity (:db/id s)]) (:transaction/splits p)))
                                parents)]
           (d/transact! conn (vec (concat creates retracts))))))))
+
+;; --- Reviewed flag: :transaction/reviewed -> :transaction/reconciled ----------------
+;; The per-transaction flag is the register-model reconcile mark ("I checked this row
+;; against the bank/statement"), so it's named :transaction/reconciled now. Must run
+;; AFTER migrate-splits!, which intentionally still writes the legacy attr when it
+;; recreates the historical split shape.
+
+(defn migrate-reviewed->reconciled!
+  "Rename the per-transaction flag: for every entity carrying :transaction/reviewed,
+   assert :transaction/reconciled with the same value and retract the old datom, in one
+   transact!. Idempotent: gates on any :transaction/reviewed datom existing, so once
+   converted a second run finds nothing and is a no-op. Conn is a datalevin connection
+   (not an atom)."
+  [conn]
+  (let [flagged (d/q '[:find ?e ?v :where [?e :transaction/reviewed ?v]] (d/db conn))]
+    (when (seq flagged)
+      (d/transact! conn (vec (mapcat (fn [[e v]]
+                                       [{:db/id e :transaction/reconciled v}
+                                        [:db/retract e :transaction/reviewed v]])
+                                     flagged))))))

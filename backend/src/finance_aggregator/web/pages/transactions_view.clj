@@ -68,13 +68,13 @@
   [amt]
   [:span {:class (str "numeric " (if (pos? amt) "positive" "negative"))} (fmt/amount amt)])
 
-(defn reviewed-checkbox
+(defn reconciled-checkbox
   "A server-confirmed toggle (`change` @put's the new state in the path — `el.checked`,
-   no per-row signal). Every row's checkbox is live: a split part reviews itself like
+   no per-row signal). Every row's checkbox is live: a split part reconciles itself like
    any transaction."
-  [tx-id reviewed?]
-  [:input {:type "checkbox" :class "reviewed-checkbox" :checked (boolean reviewed?)
-           "data-on:change" (str "@put('/transactions/" tx-id "/reviewed/' + el.checked)")}])
+  [tx-id reconciled?]
+  [:input {:type "checkbox" :class "reconciled-checkbox" :checked (boolean reconciled?)
+           "data-on:change" (str "@put('/transactions/" tx-id "/reconciled/' + el.checked)")}])
 
 (defn row-class [base stale?]
   (str/trim (str base (when stale? " is-stale"))))
@@ -266,7 +266,7 @@
   "One transaction as one row. A split part renders as a normal row plus a payee-cell
    marker back to its family (and, on drift, an amount-cell warning) — every column
    stays live exactly like any other row's."
-  [stale? {:transaction/keys [payee effective-description amount reviewed
+  [stale? {:transaction/keys [payee effective-description amount reconciled
                               split-parent split-drift] :as tx}]
   [:tr {:role "row" :class (row-class (if split-parent "is-split-part" "") stale?)}
    (date-cell tx)
@@ -276,7 +276,7 @@
    [:td.description-cell (grid-cell (:db/id tx) "description") (editable-description (:db/id tx) effective-description)]
    [:td.amount-cell (amount-span amount) (when split-drift (split-drift-badge))]
    [:td.category-cell (grid-cell (:db/id tx) "category") (category-cell-inner tx)]
-   [:td.reviewed-cell (grid-cell (:db/id tx) "reviewed") (reviewed-checkbox (:db/id tx) reviewed)]
+   [:td.reconciled-cell (grid-cell (:db/id tx) "reconciled") (reconciled-checkbox (:db/id tx) reconciled)]
    (row-actions-cell (:db/id tx) (:db/id split-parent) (some? (:transaction/transfer-pair tx))
                      (= :manual (:transaction/provider tx)))])
 
@@ -396,12 +396,12 @@
      "data-bind" "search"
      "data-on:input__debounce.300ms" "$page = 0; @get('/transactions/rows')"}]])
 
-(defn scope-toggle [{:keys [unreviewed total]}]
-  [:div.scope-toggle {:role "group" :aria-label "Review scope"}
+(defn scope-toggle [{:keys [unreconciled total]}]
+  [:div.scope-toggle {:role "group" :aria-label "Reconcile scope"}
    [:button.scope-toggle-btn
-    {"type" "button" "data-on:click" "$scope = 'needs-review'; $page = 0; @get('/transactions/rows')"
-     "data-class" "{'is-active': $scope === 'needs-review'}"}
-    "Needs review" [:span#count-unreviewed.filter-count unreviewed]]
+    {"type" "button" "data-on:click" "$scope = 'to-reconcile'; $page = 0; @get('/transactions/rows')"
+     "data-class" "{'is-active': $scope === 'to-reconcile'}"}
+    "To reconcile" [:span#count-unreconciled.filter-count unreconciled]]
    [:button.scope-toggle-btn
     {"type" "button" "data-on:click" "$scope = 'all'; $page = 0; @get('/transactions/rows')"
      "data-class" "{'is-active': $scope === 'all'}"}
@@ -467,9 +467,9 @@
 
 (defn counts-fragment
   "The toolbar count badges as a hiccup fragment (each span morphed by id) — re-patched after
-   an edit, since reviewing/categorizing a row moves these server-authoritative counts."
-  [{:keys [unreviewed total uncategorized transfers-hidden]}]
-  (list [:span#count-unreviewed.filter-count unreviewed]
+   an edit, since reconciling/categorizing a row moves these server-authoritative counts."
+  [{:keys [unreconciled total uncategorized transfers-hidden]}]
+  (list [:span#count-unreconciled.filter-count unreconciled]
         [:span#count-total.filter-count total]
         [:span#count-uncategorized.filter-count uncategorized]
         [:span#count-transfers.filter-count transfers-hidden]))
@@ -561,11 +561,11 @@
   ([msg] [:div {:id "sr-status" :class "sr-only" :role "status" :aria-live "polite"} msg]))
 
 (defn review-status-message
-  "The spoken summary after an edit: the faceted needs-review count, plus the uncategorized
+  "The spoken summary after an edit: the faceted to-reconcile count, plus the uncategorized
    count when any remain. Gives a screen-reader user confirmation an action landed and where
    the counts now stand."
-  [{:keys [unreviewed uncategorized]}]
-  (str unreviewed (if (= 1 unreviewed) " transaction" " transactions") " to review"
+  [{:keys [unreconciled uncategorized]}]
+  (str unreconciled (if (= 1 unreconciled) " transaction" " transactions") " to reconcile"
        (when (pos? uncategorized) (str ", " uncategorized " uncategorized"))))
 
 (defn url-sync
@@ -1009,9 +1009,8 @@
    [:button.reconcile-statement-span
     {:type "button" :aria-label (str "Show transactions for " (fmt/date start-date) " to " (fmt/date end-date))
      "data-on:click" (statement-toggle-js start-iso end-iso)}
-    [:span.reconcile-statement-line
-     [:span.reconcile-statement-dates (fmt/date start-date) " → " (fmt/date end-date)]
-     (reconcile-status-span status difference)]
+    [:span.reconcile-statement-dates (fmt/date start-date) " → " (fmt/date end-date)]
+    (reconcile-status-span status difference)
     [:span.reconcile-statement-bals.numeric (fmt/amount start-balance) " → " (fmt/amount end-balance)]]
    [:button.reconcile-statement-edit
     {:type "button" :aria-haspopup "dialog"
@@ -1308,8 +1307,8 @@
       {"data-on:click" "@post('/transactions/reopen')"} "Reopen"]]
     [:div.reconcile-close
      [:ul.reconcile-gate
-      (gate-line (:all-reviewed? gate)
-                 (if (:all-reviewed? gate) "All reviewed" (str (:unreviewed gate) " to review")))
+      (gate-line (:all-reconciled? gate)
+                 (if (:all-reconciled? gate) "All reconciled" (str (:unreconciled gate) " to reconcile")))
       (gate-line (:all-categorized? gate)
                  (if (:all-categorized? gate) "All categorized" (str (:uncategorized gate) " uncategorized")))
       (gate-line (:balanced? gate)

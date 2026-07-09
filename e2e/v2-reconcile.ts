@@ -116,11 +116,11 @@ check('the saved closing balance is prefilled on re-drill',
 await page.locator('.reconcile-back').click();
 await page.locator('.reconcile-rows').waitFor({ state: 'visible', timeout: 5000 }).catch(() => {});
 
-// 8. Close stays blocked while transactions remain unreviewed (the seed month is full of
-//    un-reviewed rows) — the completeness half of the gate.
-check('Close still blocked by unreviewed transactions',
+// 8. Close stays blocked while transactions remain unreconciled (the seed month is full of
+//    un-reconciled rows) — the completeness half of the gate.
+check('Close still blocked by unreconciled transactions',
   await page.locator('.reconcile-close-btn').isDisabled());
-check('gate still lists review work', /to review/i.test(await gateText()));
+check('gate still lists reconcile work', /to reconcile/i.test(await gateText()));
 
 // 9. Statements (arbitrary-span reconciliation) on Visa — a credit card. Visa's own snapshots
 //    already tie out (-500 -> -285 = 215, matching its Jan groceries + payment), so it already

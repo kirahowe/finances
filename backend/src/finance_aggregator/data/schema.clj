@@ -52,7 +52,7 @@
    :transaction/transfer-rejected {:db/valueType   :db.type/ref
                                    :db/cardinality :db.cardinality/many}  ; pairs the user rejected; written symmetrically so auto-match won't re-propose
    :transaction/user          {:db/valueType :db.type/ref}   ; ref to user (denormalized for query speed)
-   :transaction/reviewed      {:db/valueType :db.type/boolean}  ; user-authored overlay; absent = not reviewed (nil-punned)
+   :transaction/reconciled    {:db/valueType :db.type/boolean}  ; user-authored overlay; absent = not reconciled (nil-punned)
    :transaction/splits        {:db/valueType   :db.type/ref
                                :db/cardinality :db.cardinality/many
                                :db/isComponent true}  ; RETIRED (old sub-entity split model): only db.migrations/migrate-splits! reads it; nothing may write it

@@ -13,7 +13,7 @@
   [""
    ["/"        {:get {:handler (transactions/page deps) :name ::transactions}}]
    ["/transactions/rows"            {:get  {:handler (transactions/rows deps) :name ::rows}}]
-   ["/transactions/:id/reviewed/:v" {:put  {:handler (transactions/toggle-reviewed deps) :name ::reviewed}}]
+   ["/transactions/:id/reconciled/:v" {:put  {:handler (transactions/toggle-reconciled deps) :name ::reconciled}}]
    ["/transactions/:id/description" {:put  {:handler (transactions/set-description deps) :name ::description}}]
    ["/transactions/:id/category"    {:put  {:handler (transactions/set-category deps) :name ::category}}]
    ["/transactions/:id/split-editor" {:get {:handler (transactions/split-editor deps) :name ::split-editor}}]

@@ -17,7 +17,7 @@
 // The editable columns, in visual left-to-right order. Horizontal navigation hops
 // between these (skipping the read-only and hidden columns); this is the single
 // source of truth for which columns the keyboard layer knows about.
-export const EDITABLE_COLUMN_IDS = ['description', 'category', 'reviewed'] as const;
+export const EDITABLE_COLUMN_IDS = ['description', 'category', 'reconciled'] as const;
 export type ColId = (typeof EDITABLE_COLUMN_IDS)[number];
 
 export type NavMode = 'navigation' | 'edit';
@@ -97,11 +97,11 @@ export function cellKey(key: RowKey, col: ColId): string {
 }
 
 // Whether a cell opens an INLINE editor (a text input or the category combobox).
-// The reviewed checkbox toggles in place (Space), so it isn't "inline editable" —
+// The reconciled checkbox toggles in place (Space), so it isn't "inline editable" —
 // Enter/type-to-edit must not switch it into edit mode; the island routes it to
 // its side effect. The same rule for every row (a split part is a plain row).
 export function isInlineEditable(col: ColId): boolean {
-  return col !== 'reviewed';
+  return col !== 'reconciled';
 }
 
 // ---------------------------------------------------------------------------
@@ -119,7 +119,7 @@ export type Intent =
   | 'grid-end'
   | 'edit'
   | 'type-to-edit'
-  | 'toggle-reviewed'
+  | 'toggle-reconciled'
   | 'commit-down'
   | 'commit-close'
   | 'cancel';
@@ -160,7 +160,7 @@ const KEY_BINDINGS: KeyBinding[] = [
   { key: 'Tab', mode: 'navigation', shift: false, intent: 'right' },
   { key: 'Tab', mode: 'navigation', shift: true, intent: 'left' },
   { key: 'Enter', mode: 'navigation', intent: 'edit' },
-  { key: ' ', mode: 'navigation', intent: 'toggle-reviewed' },
+  { key: ' ', mode: 'navigation', intent: 'toggle-reconciled' },
   // Edit mode — only Tab is the grid's to handle; the editors own Enter/Escape
   // and report back via their callbacks (which dispatch commit-*/cancel).
   { key: 'Tab', mode: 'edit', shift: false, intent: 'right' },
@@ -263,7 +263,7 @@ export function navReducer(state: NavState, intent: Intent, model: GridModel): N
 
     case 'edit':
     case 'type-to-edit':
-      // Only inline-editable cells enter edit mode; the island routes reviewed
+      // Only inline-editable cells enter edit mode; the island routes reconciled
       // cells to their side effect instead of dispatching here.
       if (!isInlineEditable(active.col)) return { active, mode: 'navigation' };
       return { active, mode: 'edit' };
@@ -283,7 +283,7 @@ export function navReducer(state: NavState, intent: Intent, model: GridModel): N
     case 'cancel':
       return { active, mode: 'navigation' };
 
-    case 'toggle-reviewed':
+    case 'toggle-reconciled':
       // A pure no-op here — the toggle itself is a persisted side effect the hook
       // performs. Returning state unchanged keeps the active cell put.
       return state;

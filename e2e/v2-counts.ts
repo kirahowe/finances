@@ -32,8 +32,8 @@ await page.locator('.count-chip').filter({ hasText: 'Uncategorized' }).click();
 await page.waitForFunction(() => document.querySelectorAll('#tx-tbody tr').length > 2, null, { timeout: 5000 }).catch(() => {});
 check('counts re-patch on toggle (All grows when chip off)', (await n('#count-total')) > all1, `${all1}→${await n('#count-total')}`);
 
-// Funnel option counts are faceted: under needs-review, Visa's count drops (the reviewed Visa row excluded).
-await page.goto(`${BASE}/?month=2025-01&scope=needs-review`, { waitUntil: 'networkidle' });
+// Funnel option counts are faceted: under to-reconcile, Visa's count drops (the reconciled Visa row excluded).
+await page.goto(`${BASE}/?month=2025-01&scope=to-reconcile`, { waitUntil: 'networkidle' });
 await page.waitForTimeout(300);
 await page.getByRole('button', { name: 'Filter Account' }).click();
 await page.waitForTimeout(200);

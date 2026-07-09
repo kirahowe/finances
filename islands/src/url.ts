@@ -33,7 +33,7 @@ const csv = (a: unknown[] | undefined): string => (a ?? []).filter(Boolean).join
   const set = (k: string, v: string) => (v ? p.set(k, v) : p.delete(k));
 
   set('q', s.q ?? '');
-  set('scope', s.scope === 'needs-review' ? 'needs-review' : ''); // 'all' is the default → omit
+  set('scope', s.scope === 'to-reconcile' ? 'to-reconcile' : ''); // 'all' is the default → omit
   set('ht', s.ht ? '1' : '');
   set('uncat', s.uncat ? '1' : '');
   // Sort: only meaningful with a column; dir defaults to asc.

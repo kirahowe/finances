@@ -1,9 +1,9 @@
 // Real-Chromium proof of the split editor under the "splits as transactions" model: row-actions
 // menu → modal → live balance math (uncategorized parts are now saveable) → save (round-tripped
 // through the command log) → the original row disappears and TWO independent, first-class rows
-// render in its place (each with its own live reviewed checkbox and category cell, plus a
+// render in its place (each with its own live reconciled checkbox and category cell, plus a
 // payee-cell marker back to the family) → those rows filter independently under the
-// needs-review scope (the headline bug the redesign fixes) → the marker/row-actions menu route
+// to-reconcile scope (the headline bug the redesign fixes) → the marker/row-actions menu route
 // back to the parent's editor → undo fully reverts.
 //
 //   BASE_URL=http://localhost:8099 node e2e/v2-split.ts
@@ -91,25 +91,25 @@ check('the original (unsplit) row is gone', (await unsplitSuperstore().count()) 
 check('two split-part rows render instead', (await splitParts().count()) === 2);
 check('each part has a split-marker in the payee cell',
   (await splitParts().locator('.payee-cell .split-marker').count()) === 2);
-check('each part has a live reviewed checkbox',
-  (await splitParts().locator('.reviewed-checkbox').count()) === 2);
+check('each part has a live reconciled checkbox',
+  (await splitParts().locator('.reconciled-checkbox').count()) === 2);
 check('the categorized part reads "Groceries"', (await partWithCategory('Groceries').count()) === 1);
 check("the uncategorized part's category cell reads Uncategorized",
   (await partWithCategory('Uncategorized').locator('.category-button').innerText()).trim() === 'Uncategorized');
 
-// --- Toggle exactly one part's reviewed checkbox → it persists across the SSE morph. -----------
-await partWithCategory('Groceries').locator('.reviewed-checkbox').click();
+// --- Toggle exactly one part's reconciled checkbox → it persists across the SSE morph. ---------
+await partWithCategory('Groceries').locator('.reconciled-checkbox').click();
 await page.waitForTimeout(400);
-check("the Groceries part's reviewed checkbox stays checked after the morph",
-  await partWithCategory('Groceries').locator('.reviewed-checkbox').isChecked());
-check("the Uncategorized part's reviewed checkbox is untouched",
-  !(await partWithCategory('Uncategorized').locator('.reviewed-checkbox').isChecked()));
+check("the Groceries part's reconciled checkbox stays checked after the morph",
+  await partWithCategory('Groceries').locator('.reconciled-checkbox').isChecked());
+check("the Uncategorized part's reconciled checkbox is untouched",
+  !(await partWithCategory('Uncategorized').locator('.reconciled-checkbox').isChecked()));
 
-// --- Scope to needs-review: parts filter INDEPENDENTLY — the headline bug this fixes. ----------
-await page.locator('.scope-toggle-btn', { hasText: 'Needs review' }).click();
+// --- Scope to to-reconcile: parts filter INDEPENDENTLY — the headline bug this fixes. ----------
+await page.locator('.scope-toggle-btn', { hasText: 'To reconcile' }).click();
 await page.waitForTimeout(400);
-check('needs-review hides the now-reviewed part', (await partWithCategory('Groceries').count()) === 0);
-check('needs-review still shows the unreviewed part', (await partWithCategory('Uncategorized').count()) === 1);
+check('to-reconcile hides the now-reconciled part', (await partWithCategory('Groceries').count()) === 0);
+check('to-reconcile still shows the unreconciled part', (await partWithCategory('Uncategorized').count()) === 1);
 
 // --- Back to all: click a part's split-marker → editor opens in "Edit split" state. ------------
 await page.locator('.scope-toggle-btn', { hasText: 'All' }).click();
@@ -143,7 +143,7 @@ await page.keyboard.press('Escape');
 await menu.waitFor({ state: 'hidden' }).catch(() => {});
 
 // --- Undo until the split is fully reverted. ----------------------------------------------------
-// Two commands are on the stack (the reviewed toggle, then the split itself), so undo may need
+// Two commands are on the stack (the reconciled toggle, then the split itself), so undo may need
 // to run twice before the parts are gone.
 for (let i = 0; i < 4 && (await splitParts().count()) > 0; i++) {
   await page.locator('#undo-redo button[aria-label="Undo"]').click();

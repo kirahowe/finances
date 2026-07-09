@@ -1,5 +1,5 @@
 // Real-Chromium proof for keyboard grid-navigation on /v2 (Phase cp2-tail). Arrow keys move
-// the active cell, Space toggles reviewed (a server-confirmed edit), Enter opens the inline
+// the active cell, Space toggles reconciled (a server-confirmed edit), Enter opens the inline
 // editor. The key /v2 wrinkle: every edit morphs #tx-tbody, which would wipe the client-side
 // active highlight — the island's morph observer rebuilds + repaints so the active cell (keyed
 // by stable RowKey) survives.
@@ -35,19 +35,19 @@ const r1 = c1?.split(':')[0];
 // Arrow navigation across columns and down rows.
 await page.keyboard.press('ArrowRight');
 await page.keyboard.press('ArrowRight');
-check('ArrowRight → reviewed cell', (await active()) === `${r1}:tx:reviewed`, await active());
+check('ArrowRight → reconciled cell', (await active()) === `${r1}:tx:reconciled`, await active());
 await page.keyboard.press('ArrowDown');
 const c2 = await active();
-check('ArrowDown → next row', !!c2 && /:tx:reviewed$/.test(c2) && c2 !== `${r1}:tx:reviewed`, c2);
+check('ArrowDown → next row', !!c2 && /:tx:reconciled$/.test(c2) && c2 !== `${r1}:tx:reconciled`, c2);
 const r2 = c2?.split(':')[0];
 
-// Space toggles reviewed (server edit + morph); the active cell survives the morph.
+// Space toggles reconciled (server edit + morph); the active cell survives the morph.
 await page.keyboard.press('Space');
 await page.waitForTimeout(500);
 const checkedAfter = await page.evaluate((cell) =>
-  document.querySelector<HTMLInputElement>(`[data-cell="${cell}"] input`)?.checked, `${r2}:tx:reviewed`);
-check('Space toggled reviewed (server-confirmed)', checkedAfter === true);
-check('active cell survives the edit morph', (await active()) === `${r2}:tx:reviewed`, await active());
+  document.querySelector<HTMLInputElement>(`[data-cell="${cell}"] input`)?.checked, `${r2}:tx:reconciled`);
+check('Space toggled reconciled (server-confirmed)', checkedAfter === true);
+check('active cell survives the edit morph', (await active()) === `${r2}:tx:reconciled`, await active());
 
 // Enter opens the inline description editor on a description cell.
 await page.keyboard.press('ArrowLeft');

@@ -39,11 +39,11 @@
 
 (defn- live-parts
   "tx-id's live split parts, pulled in full and ordered by :transaction/split-order —
-   for asserting on a part's amount/category/memo/reviewed/external-id/transfer-pair
+   for asserting on a part's amount/category/memo/reconciled/external-id/transfer-pair
    and its inherited date/posted-date/account."
   [tx-id]
   (->> (d/q '[:find [(pull ?p [:db/id :transaction/amount :transaction/split-order
-                               :transaction/description :transaction/reviewed
+                               :transaction/description :transaction/reconciled
                                :transaction/external-id :transaction/date :transaction/posted-date
                                {:transaction/category [:db/id]}
                                {:transaction/account [:db/id]}
@@ -457,7 +457,7 @@
               "amounts as submitted"))))))
 
 (deftest set-splits-update-preserves-state-test
-  (testing "updating a live part in place preserves its reviewed flag and external-id"
+  (testing "updating a live part in place preserves its reconciled flag and external-id"
     (let [a (make-category! "UP" :category/up)
           b (make-category! "UQ" :category/uq)
           tx-id (make-tx! "tx-update-1" {:transaction/amount -100.00M})]
@@ -466,17 +466,17 @@
       (let [[p1 p2] (live-parts tx-id)
             p1-id (:db/id p1)
             p1-ext (:transaction/external-id p1)]
-        ;; A part is a plain transaction — the generic set-reviewed! already works on it.
-        (transactions/set-reviewed! setup/*test-conn* p1-id true)
+        ;; A part is a plain transaction — the generic set-reconciled! already works on it.
+        (transactions/set-reconciled! setup/*test-conn* p1-id true)
         ;; Editing the split (amount + category change, same :id) must not touch
-        ;; p1's reviewed flag or regenerate its external-id.
+        ;; p1's reconciled flag or regenerate its external-id.
         (transactions/set-splits! setup/*test-conn* tx-id
                                   [{:id p1-id :amount "-70.00" :category-id b}
                                    {:id (:db/id p2) :amount "-30.00" :category-id a}])
         (let [p1' (first (filter #(= p1-id (:db/id %)) (live-parts tx-id)))]
           (is (== -70.00M (:transaction/amount p1')) "amount updated")
           (is (= b (get-in p1' [:transaction/category :db/id])) "category updated")
-          (is (true? (:transaction/reviewed p1')) "reviewed flag preserved across the edit")
+          (is (true? (:transaction/reconciled p1')) "reconciled flag preserved across the edit")
           (is (= p1-ext (:transaction/external-id p1')) "external-id stable")))))
 
   (testing "a nil category-id / blank memo on an update retracts them"
@@ -553,42 +553,42 @@
   (testing "nil for a missing transaction, like by-id"
     (is (nil? (transactions/split-editor-root setup/*test-conn* 99999999)))))
 
-(deftest set-reviewed-test
-  (testing "marks a transaction reviewed and clears it again"
+(deftest set-reconciled-test
+  (testing "marks a transaction reconciled and clears it again"
     (let [tx-id (make-tx! "tx-rev-1" {:transaction/amount -100.00M})]
-      (is (true? (:transaction/reviewed (transactions/set-reviewed! setup/*test-conn* tx-id true))))
-      (is (true? (:transaction/reviewed
-                  (d/pull (d/db setup/*test-conn*) '[:transaction/reviewed] tx-id))))
-      ;; Clearing retracts the datom so it nil-puns to not-reviewed.
-      (transactions/set-reviewed! setup/*test-conn* tx-id false)
-      (is (nil? (:transaction/reviewed
-                 (d/pull (d/db setup/*test-conn*) '[:transaction/reviewed] tx-id))))))
+      (is (true? (:transaction/reconciled (transactions/set-reconciled! setup/*test-conn* tx-id true))))
+      (is (true? (:transaction/reconciled
+                  (d/pull (d/db setup/*test-conn*) '[:transaction/reconciled] tx-id))))
+      ;; Clearing retracts the datom so it nil-puns to not-reconciled.
+      (transactions/set-reconciled! setup/*test-conn* tx-id false)
+      (is (nil? (:transaction/reconciled
+                 (d/pull (d/db setup/*test-conn*) '[:transaction/reconciled] tx-id))))))
 
-  (testing "an unsplit transaction's reviewed flag is left absent when never set"
+  (testing "an unsplit transaction's reconciled flag is left absent when never set"
     (let [tx-id (make-tx! "tx-rev-2" {:transaction/amount -100.00M})
           tx (transactions/with-derived-fields
               (d/pull (d/db setup/*test-conn*) transactions/transaction-pull-pattern tx-id))]
-      (is (not (contains? tx :transaction/reviewed)))))
+      (is (not (contains? tx :transaction/reconciled)))))
 
-  (testing "splitting clears the parent's own reviewed flag so it can't resurface on un-split"
+  (testing "splitting clears the parent's own reconciled flag so it can't resurface on un-split"
     (let [a (make-category! "RE" :category/re)
           b (make-category! "RF" :category/rf)
           tx-id (make-tx! "tx-rev-5" {:transaction/amount -100.00M})]
-      (transactions/set-reviewed! setup/*test-conn* tx-id true)
+      (transactions/set-reconciled! setup/*test-conn* tx-id true)
       (transactions/set-splits! setup/*test-conn* tx-id
                                 [{:amount "-60.00" :category-id a}
                                  {:amount "-40.00" :category-id b}])
       ;; The stored parent flag is gone the moment it's split...
-      (is (nil? (:transaction/reviewed
-                 (d/pull (d/db setup/*test-conn*) '[:transaction/reviewed] tx-id))))
-      ;; ...so after clearing the splits the transaction is not reviewed again.
+      (is (nil? (:transaction/reconciled
+                 (d/pull (d/db setup/*test-conn*) '[:transaction/reconciled] tx-id))))
+      ;; ...so after clearing the splits the transaction is not reconciled again.
       (transactions/set-splits! setup/*test-conn* tx-id [])
-      (is (not (:transaction/reviewed
+      (is (not (:transaction/reconciled
                 (transactions/with-derived-fields
                  (d/pull (d/db setup/*test-conn*) transactions/transaction-pull-pattern tx-id))))))))
 
-(deftest split-part-reviewed-via-generic-endpoint-test
-  (testing "a part is a plain transaction — the generic set-reviewed! reviews it
+(deftest split-part-reconciled-via-generic-endpoint-test
+  (testing "a part is a plain transaction — the generic set-reconciled! reconciles it
             independently of its siblings, with no split-specific endpoint needed"
     (let [a (make-category! "RA" :category/ra)
           b (make-category! "RB" :category/rb)
@@ -597,10 +597,10 @@
                                 [{:amount "-60.00" :category-id a}
                                  {:amount "-40.00" :category-id b}])
       (let [[p1] (live-parts tx-id)]
-        (transactions/set-reviewed! setup/*test-conn* (:db/id p1) true)
+        (transactions/set-reconciled! setup/*test-conn* (:db/id p1) true)
         (let [[p1' p2'] (live-parts tx-id)]
-          (is (true? (:transaction/reviewed p1')) "p1 reviewed")
-          (is (not (:transaction/reviewed p2')) "p2 untouched"))))))
+          (is (true? (:transaction/reconciled p1')) "p1 reconciled")
+          (is (not (:transaction/reconciled p2')) "p2 untouched"))))))
 
 (deftest set-user-description-test
   (testing "sets a user description and exposes it as the effective description"

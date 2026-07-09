@@ -18,8 +18,8 @@
                                    :transaction/posted-date (java.util.Date.)}])
   (:db/id (d/pull (d/db setup/*test-conn*) '[:db/id] [:transaction/external-id external-id])))
 
-(defn- reviewed? [tx-id]
-  (true? (:transaction/reviewed (d/pull (d/db setup/*test-conn*) '[:transaction/reviewed] tx-id))))
+(defn- reconciled? [tx-id]
+  (true? (:transaction/reconciled (d/pull (d/db setup/*test-conn*) '[:transaction/reconciled] tx-id))))
 
 (defn- posted-date-override [tx-id]
   (:transaction/user-posted-date (d/pull (d/db setup/*test-conn*) '[:transaction/user-posted-date] tx-id)))
@@ -54,25 +54,25 @@
                                    :transaction/posted-date (java.util.Date.)}])
   (:db/id (d/pull (d/db setup/*test-conn*) '[:db/id] [:transaction/external-id external-id])))
 
-(deftest apply-undo-redo-reviewed
+(deftest apply-undo-redo-reconciled
   (let [conn setup/*test-conn*
         tx-id (make-tx! "c-1")
         user :u1
-        cmd {:type :set-reviewed :tx-id tx-id :before false :after true :label "Marked reviewed"}]
-    (is (false? (reviewed? tx-id)) "starts unreviewed")
+        cmd {:type :set-reconciled :tx-id tx-id :before false :after true :label "Marked reconciled"}]
+    (is (false? (reconciled? tx-id)) "starts unreconciled")
 
     (commands/apply! conn user cmd)
-    (is (true? (reviewed? tx-id)) "apply runs the mutation to :after")
+    (is (true? (reconciled? tx-id)) "apply runs the mutation to :after")
     (is (= #{tx-id} (commands/linger user)) "an edit lingers its tx")
-    (is (= "Marked reviewed" (commands/undo-label user)) "undo label is the last action's")
+    (is (= "Marked reconciled" (commands/undo-label user)) "undo label is the last action's")
 
     (commands/undo! conn user)
-    (is (false? (reviewed? tx-id)) "undo runs the mutation to :before")
+    (is (false? (reconciled? tx-id)) "undo runs the mutation to :before")
     (is (nil? (commands/undo-label user)) "nothing left to undo")
 
     (commands/redo! conn user)
-    (is (true? (reviewed? tx-id)) "redo re-applies")
-    (is (= "Marked reviewed" (commands/undo-label user)) "redo restores the undo entry")))
+    (is (true? (reconciled? tx-id)) "redo re-applies")
+    (is (= "Marked reconciled" (commands/undo-label user)) "redo restores the undo entry")))
 
 (deftest apply-undo-redo-splits
   (let [conn setup/*test-conn*
@@ -159,16 +159,16 @@
   (let [conn setup/*test-conn*
         tx-id (make-tx! "c-2")
         user :u2]
-    (commands/apply! conn user {:type :set-reviewed :tx-id tx-id :before false :after true :label "a"})
+    (commands/apply! conn user {:type :set-reconciled :tx-id tx-id :before false :after true :label "a"})
     (commands/undo! conn user)
-    (commands/apply! conn user {:type :set-reviewed :tx-id tx-id :before false :after true :label "b"})
+    (commands/apply! conn user {:type :set-reconciled :tx-id tx-id :before false :after true :label "b"})
     (is (nil? (commands/redo! conn user)) "a fresh edit drops the redo stack")))
 
 (deftest linger-clears-on-view-change
   (let [conn setup/*test-conn*
         tx-id (make-tx! "c-3")
         user :u3]
-    (commands/apply! conn user {:type :set-reviewed :tx-id tx-id :before false :after true :label "x"})
+    (commands/apply! conn user {:type :set-reconciled :tx-id tx-id :before false :after true :label "x"})
     (is (= #{tx-id} (commands/linger user)))
     (commands/clear-linger! user)
     (is (= #{} (commands/linger user)) "a pure view change clears lingering pins")))
@@ -191,18 +191,18 @@
     (is (= [] (commands/removed-split-part-ids [] [])))))
 
 (deftest forget-purges-commands-referencing-a-deleted-tx
-  ;; A manual transaction that was matched (and reviewed) is deleted; forget! must drop
-  ;; every command touching it so a later undo can't replay unmatch!/set-reviewed! against
+  ;; A manual transaction that was matched (and reconciled) is deleted; forget! must drop
+  ;; every command touching it so a later undo can't replay unmatch!/set-reconciled! against
   ;; the retracted row (which throws and would jam the stack forever).
   (let [conn setup/*test-conn*
         a (make-tx! "c-forget-a")             ; the "manual" row that gets deleted (-100)
         b (counterpart-tx! "c-forget-b" 100.00M)
         user :uforget]
-    ;; The match command references A via :after (initiated from B); the reviewed command
+    ;; The match command references A via :after (initiated from B); the reconciled command
     ;; references A via :tx-id — forget! must drop BOTH.
     (commands/apply! conn user {:type :set-match :tx-id b :before nil :after a :label "Matched transfer"})
-    (commands/apply! conn user {:type :set-reviewed :tx-id a :before false :after true :label "Marked reviewed"})
-    (is (= "Marked reviewed" (commands/undo-label user)))
+    (commands/apply! conn user {:type :set-reconciled :tx-id a :before false :after true :label "Marked reconciled"})
+    (is (= "Marked reconciled" (commands/undo-label user)))
     (is (contains? (commands/linger user) a))
 
     (commands/forget! user a)

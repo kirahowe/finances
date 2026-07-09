@@ -70,13 +70,13 @@
 
 (deftest query->view-state-full
   (testing "every param flows into the view-state with the right coercions"
-    (let [v (vs/query->view-state {"q" "coffee" "scope" "needs-review"
+    (let [v (vs/query->view-state {"q" "coffee" "scope" "to-reconcile"
                                    "ht" "1" "uncat" "1"
                                    "sortCol" "amount" "sortDir" "desc"
                                    "page" "2" "pageSize" "50"
                                    "fa" "100,101" "fi" "1000" "fc" "10,11"})]
       (is (= "coffee" (:search v)))
-      (is (= :needs-review (:scope v)))
+      (is (= :to-reconcile (:scope v)))
       (is (true? (:hide-transfers v)) "ht=1 → true")
       (is (true? (:uncat v)) "uncat=1 → true")
       (is (= {:col :amount :dir :desc} (:sort v)) "sort col keywordized, dir parsed")
@@ -85,21 +85,23 @@
       (is (= #{100 101} (:accounts v)))
       (is (= #{1000} (:institutions v)))
       (is (= #{10 11} (:categories v)))))
-  (testing "sort dir other than 'desc' → :asc; scope other than needs-review → :all"
+  (testing "sort dir other than 'desc' → :asc; scope other than to-reconcile → :all"
     (let [v (vs/query->view-state {"sortCol" "payee" "sortDir" "asc" "scope" "everything"})]
       (is (= {:col :payee :dir :asc} (:sort v)))
-      (is (= :all (:scope v))))))
+      (is (= :all (:scope v)))))
+  (testing "the pre-rename scope token still parses (stale bookmarked URLs keep working)"
+    (is (= :to-reconcile (:scope (vs/query->view-state {"scope" "needs-review"}))))))
 
 ;; --- signals → view-state ---------------------------------------------------
 
 (deftest signals->view-state-mapping
   (testing "the live signals map (camelCase + nested :filter) → view-state"
     (let [v (vs/signals->view-state
-             {:search "rent" :scope "needs-review" :hideTransfers true :uncat false
+             {:search "rent" :scope "to-reconcile" :hideTransfers true :uncat false
               :sortCol "date" :sortDir "desc" :page 1 :pageSize 100
               :filter {:account ["100"] :institution [] :category ["10" "11"]}})]
       (is (= "rent" (:search v)))
-      (is (= :needs-review (:scope v)))
+      (is (= :to-reconcile (:scope v)))
       (is (true? (:hide-transfers v)))
       (is (false? (:uncat v)))
       (is (= {:col :date :dir :desc} (:sort v)))
@@ -113,13 +115,13 @@
 
 (deftest vs->signals-mapping
   (testing "page/page-size come from the clamped view result, not the requested view-state"
-    (let [v      (vs/query->view-state {"q" "x" "scope" "needs-review"
+    (let [v      (vs/query->view-state {"q" "x" "scope" "to-reconcile"
                                         "sortCol" "amount" "sortDir" "desc"
                                         "page" "9" "pageSize" "50"})
           result {:page 2 :page-size 50}   ; clamped by the view engine
           s      (vs/vs->signals v "2025-01" result)]
       (is (= "x" (:search s)))
-      (is (= "needs-review" (:scope s)) "scope stringified")
+      (is (= "to-reconcile" (:scope s)) "scope stringified")
       (is (= "amount" (:sortCol s)) "sort col → name string")
       (is (= "desc" (:sortDir s)))
       (is (= 2 (:page s)) "page taken from clamped result, not the requested 9")
@@ -179,7 +181,7 @@
 
 (deftest query-roundtrips-through-signals
   (testing "query → view-state → signals preserves the persistent view fields"
-    (let [qp     {"q" "groceries" "scope" "needs-review" "ht" "1" "uncat" "1"
+    (let [qp     {"q" "groceries" "scope" "to-reconcile" "ht" "1" "uncat" "1"
                   "sortCol" "category" "sortDir" "desc" "page" "0" "pageSize" "100"
                   "fa" "100" "fi" "1000" "fc" "10"}
           v      (vs/query->view-state qp)
@@ -187,7 +189,7 @@
           s      (vs/client-signals v "2025-04" result qp)]
       ;; The signal map a fresh load ships should describe the same view the URL asked for.
       (is (= "groceries" (:search s)))
-      (is (= "needs-review" (:scope s)))
+      (is (= "to-reconcile" (:scope s)))
       (is (true? (:hideTransfers s)))
       (is (true? (:uncat s)))
       (is (= "category" (:sortCol s)))

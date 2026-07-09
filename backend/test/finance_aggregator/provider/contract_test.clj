@@ -24,10 +24,10 @@
 
 (deftest error-names-the-offending-key
   (try
-    (contract/assert-no-overlay-keys! [(assoc imported :transaction/reviewed true)])
+    (contract/assert-no-overlay-keys! [(assoc imported :transaction/reconciled true)])
     (is false "expected throw")
     (catch clojure.lang.ExceptionInfo e
-      (is (= [:transaction/reviewed] (:overlay-keys (ex-data e))))
+      (is (= [:transaction/reconciled] (:overlay-keys (ex-data e))))
       (is (= "tx-1" (:transaction/external-id (ex-data e)))))))
 
 (deftest rejects-split-parent-key

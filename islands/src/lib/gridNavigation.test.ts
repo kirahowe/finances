@@ -12,22 +12,22 @@ import {
   type ColId,
 } from './gridNavigation';
 
-const ALL_COLS: ColId[] = ['description', 'category', 'reviewed'];
+const ALL_COLS: ColId[] = ['description', 'category', 'reconciled'];
 
 // A transaction row (every row is a plain transaction — a split part included).
 const tx = (txId: number) => ({ txId });
 
 describe('navigableColumns', () => {
   it('keeps only editable columns, in visual order', () => {
-    expect(navigableColumns(['date', 'description', 'amount', 'category', 'reviewed'])).toEqual([
+    expect(navigableColumns(['date', 'description', 'amount', 'category', 'reconciled'])).toEqual([
       'description',
       'category',
-      'reviewed',
+      'reconciled',
     ]);
   });
 
   it('drops hidden editable columns', () => {
-    expect(navigableColumns(['description', 'reviewed'])).toEqual(['description', 'reviewed']);
+    expect(navigableColumns(['description', 'reconciled'])).toEqual(['description', 'reconciled']);
   });
 
   it('returns empty when no editable column is visible', () => {
@@ -50,13 +50,13 @@ describe('buildGridModel', () => {
 describe('cell identity helpers', () => {
   it('keys cells by row identity and column, not index (the "tx" token is the DOM contract)', () => {
     expect(cellKey({ txId: 7 }, 'category')).toBe('7:tx:category');
-    expect(cellKey({ txId: 41 }, 'reviewed')).toBe('41:tx:reviewed');
+    expect(cellKey({ txId: 41 }, 'reconciled')).toBe('41:tx:reconciled');
   });
 
-  it('marks reviewed as the only non-inline-editable column', () => {
+  it('marks reconciled as the only non-inline-editable column', () => {
     expect(isInlineEditable('description')).toBe(true);
     expect(isInlineEditable('category')).toBe(true);
-    expect(isInlineEditable('reviewed')).toBe(false);
+    expect(isInlineEditable('reconciled')).toBe(false);
   });
 });
 
@@ -79,7 +79,7 @@ describe('resolveIntent', () => {
 
   it('maps Enter to edit and Space to toggle in navigation mode', () => {
     expect(resolveIntent({ key: 'Enter' }, 'navigation')).toBe('edit');
-    expect(resolveIntent({ key: ' ' }, 'navigation')).toBe('toggle-reviewed');
+    expect(resolveIntent({ key: ' ' }, 'navigation')).toBe('toggle-reconciled');
   });
 
   it('treats a lone printable character as type-to-edit', () => {
@@ -121,14 +121,14 @@ describe('navReducer', () => {
 
   it('moves left and right within a row, clamping at the ends', () => {
     expect(navReducer(at(0, 'description'), 'right', model)).toEqual(at(0, 'category'));
-    expect(navReducer(at(0, 'category'), 'right', model)).toEqual(at(0, 'reviewed'));
-    expect(navReducer(at(0, 'reviewed'), 'right', model)).toEqual(at(0, 'reviewed'));
+    expect(navReducer(at(0, 'category'), 'right', model)).toEqual(at(0, 'reconciled'));
+    expect(navReducer(at(0, 'reconciled'), 'right', model)).toEqual(at(0, 'reconciled'));
     expect(navReducer(at(0, 'description'), 'left', model)).toEqual(at(0, 'description'));
   });
 
   it('jumps to row and grid edges', () => {
     expect(navReducer(at(1, 'category'), 'row-start', model)).toEqual(at(1, 'description'));
-    expect(navReducer(at(1, 'category'), 'row-end', model)).toEqual(at(1, 'reviewed'));
+    expect(navReducer(at(1, 'category'), 'row-end', model)).toEqual(at(1, 'reconciled'));
     expect(navReducer(at(1, 'category'), 'grid-start', model)).toEqual(at(0, 'category'));
     expect(navReducer(at(1, 'category'), 'grid-end', model)).toEqual(at(2, 'category'));
   });
@@ -136,8 +136,8 @@ describe('navReducer', () => {
   it('enters edit mode only on inline-editable cells', () => {
     expect(navReducer(at(0, 'description'), 'edit', model).mode).toBe('edit');
     expect(navReducer(at(0, 'category'), 'edit', model).mode).toBe('edit');
-    // Reviewed has no inline editor — Enter is a no-op, stays in navigation.
-    expect(navReducer(at(0, 'reviewed'), 'edit', model).mode).toBe('navigation');
+    // Reconciled has no inline editor — Enter is a no-op, stays in navigation.
+    expect(navReducer(at(0, 'reconciled'), 'edit', model).mode).toBe('navigation');
     // type-to-edit behaves the same as edit.
     expect(navReducer(at(0, 'description'), 'type-to-edit', model).mode).toBe('edit');
   });
@@ -155,9 +155,9 @@ describe('navReducer', () => {
     expect(navReducer(editAt(2, 'category'), 'commit-down', model)).toEqual(at(2, 'category'));
   });
 
-  it('toggle-reviewed leaves the state untouched (the toggle is a side effect)', () => {
-    const s = at(0, 'reviewed');
-    expect(navReducer(s, 'toggle-reviewed', model)).toBe(s);
+  it('toggle-reconciled leaves the state untouched (the toggle is a side effect)', () => {
+    const s = at(0, 'reconciled');
+    expect(navReducer(s, 'toggle-reconciled', model)).toBe(s);
   });
 
   it('re-anchors to the top when the active row has dropped out of the grid', () => {

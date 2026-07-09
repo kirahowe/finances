@@ -208,7 +208,7 @@
                                              :transaction/description "Original")])
     (let [eid (d/q '[:find ?e . :where [?e :transaction/external-id "tx-1"]] (d/db conn))]
       (d/transact! conn [{:db/id eid
-                          :transaction/reviewed true
+                          :transaction/reconciled true
                           :transaction/user-description "My label"
                           :transaction/user-posted-date (Date. 1700000000000)}]))
     ;; Re-import the same transaction with bank-changed fields.
@@ -220,7 +220,7 @@
         (is (= "Bank renamed" (:transaction/description t)))
         (is (= (bigdec "12.00") (:transaction/amount t))))
       (testing "user overlays preserved"
-        (is (= true (:transaction/reviewed t)))
+        (is (= true (:transaction/reconciled t)))
         (is (= "My label" (:transaction/user-description t)))
         (is (= (Date. 1700000000000) (:transaction/user-posted-date t)))))))
 
@@ -256,7 +256,7 @@
                         :account/user [:user/id "test-user"]}])
     (is (thrown? clojure.lang.ExceptionInfo
                  (sync/persist-transactions!
-                  conn [(assoc (canonical-txn "tx-x") :transaction/reviewed true)])))))
+                  conn [(assoc (canonical-txn "tx-x") :transaction/reconciled true)])))))
 
 (deftest retract-removed-cascades-split-parts-test
   (testing "a removed transaction's live parts cascade with it — the bank says the

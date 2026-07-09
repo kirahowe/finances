@@ -33,7 +33,7 @@
   flex-wrap: wrap;
 }
 
-/* Review-scope segmented toggle (Needs review / All). Pinned to the shared
+/* Reconcile-scope segmented toggle (To reconcile / All). Pinned to the shared
    control height. */
 .scope-toggle {
   display: inline-flex;

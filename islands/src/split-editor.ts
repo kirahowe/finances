@@ -24,7 +24,7 @@ interface Row extends SplitRowInput {
   memo: string;
   // The existing live part this row edits (its transaction db id), or null for a
   // fresh row. Rides the save payload so set-splits! diffs by id — an id'd row
-  // updates its part in place (preserving reviewed/transfer-pair/external-id).
+  // updates its part in place (preserving reconciled/transfer-pair/external-id).
   id: number | null;
 }
 
