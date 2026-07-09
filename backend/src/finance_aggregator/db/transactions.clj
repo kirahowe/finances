@@ -7,30 +7,21 @@
             [finance-aggregator.utils :as utils])
   (:import [java.util Date UUID]))
 
-(def split-pull
-  "Pull sub-pattern for a transaction's split parts. Shared with the list endpoint
-   (handlers.entities) so the two views never drift."
-  [:db/id :split/amount :split/order :split/memo :split/reviewed
-   {:split/category [:db/id :category/name]}])
-
 (def transaction-pull-pattern
   "Canonical pull pattern for a transaction returned to the API. Shared by the list
-   endpoint (handlers.entities) and the single-transaction mutation endpoints so the
-   shapes never drift. The wildcard `*` returns a ref attribute as a bare {:db/id},
-   so :transaction/transfer-pair is expanded explicitly: the server-side hide rule
-   (db-transfers/with-transfer-hidden) reads the partner's category type, and the UI
-   renders the partner's amount and posted date.
+   fns and the single-transaction mutation endpoints so the shapes never drift. The
+   wildcard `*` returns a ref attribute as a bare {:db/id}, so :transaction/transfer-pair
+   is expanded explicitly: the server-side hide rule (db-transfers/with-transfer-hidden)
+   reads the partner's category type, and the UI renders the partner's amount and posted
+   date.
 
    :transaction/split-parent (present only on a PART) pulls its parent plus every
    sibling's amount — enough to compute :transaction/split-drift (with-split-drift)
    without a second query. :transaction/_split-parent (present only on a PARENT with
-   live parts, e.g. via by-id for the editor) is the reverse pull of those parts.
-   :transaction/splits/split-pull is the OLD sub-entity model, retired by the
-   migration — kept here until it's deleted in Phase 4."
+   live parts, e.g. via by-id for the editor) is the reverse pull of those parts."
   ['* {:transaction/category [:db/id :category/name :category/type]
        :transaction/account [:db/id :account/external-name
                              {:account/institution [:db/id :institution/name]}]
-       :transaction/splits split-pull
        :transaction/split-parent [:db/id :transaction/amount :transaction/payee
                                   {:transaction/_split-parent [:db/id :transaction/amount]}]
        :transaction/_split-parent [:db/id :transaction/amount :transaction/split-order
@@ -39,27 +30,6 @@
        :transaction/transfer-pair [:db/id :transaction/amount :transaction/posted-date
                                    {:transaction/category [:db/id :category/name :category/type]}
                                    {:transaction/account [:db/id :account/external-name]}]}])
-
-(defn with-split-balance
-  "Annotate a pulled transaction with :transaction/splits-balanced — the bigdec-exact
-   reconciliation verdict — when it has splits, so clients never re-derive drift from
-   lossy doubles. Transactions without splits are returned unchanged."
-  [tx]
-  (if-let [parts (seq (:transaction/splits tx))]
-    (assoc tx :transaction/splits-balanced
-           (splits/reconciled? (:transaction/amount tx) (map :split/amount parts)))
-    tx))
-
-(defn with-reviewed
-  "Normalize :transaction/reviewed to the row's effective reviewed status. A split
-   transaction has no checkbox of its own — it counts as reviewed only when every
-   split part is reviewed — so the parent's stored flag is overridden by that roll-up
-   (this is also what the reviewed filter keys off). Unsplit transactions are returned
-   unchanged: their stored flag stands, absent meaning not reviewed."
-  [tx]
-  (if-let [parts (seq (:transaction/splits tx))]
-    (assoc tx :transaction/reviewed (every? :split/reviewed parts))
-    tx))
 
 (defn with-effective-description
   "Annotate a pulled transaction with :transaction/effective-description — the value
@@ -79,8 +49,7 @@
    extra query — no longer sum to the parent's amount (bigdec-exact, via
    splits/reconciled?). This is how a re-sync that changes the parent's imported
    amount after the split was made surfaces, instead of silently drifting. Absent
-   on a non-part transaction, or when the parts still reconcile. Replaces the old
-   parent-level :transaction/splits-balanced flag for the new split-part model."
+   on a non-part transaction, or when the parts still reconcile."
   [tx]
   (if-let [parent (:transaction/split-parent tx)]
     (let [amounts (map :transaction/amount (:transaction/_split-parent parent))]
@@ -91,13 +60,13 @@
 
 (defn with-derived-fields
   "Annotate a pulled transaction with the server-computed fields the API contract
-   promises: :transaction/splits-balanced, :transaction/reviewed (effective),
-   :transaction/effective-description, :transaction/split-drift and
-   :transaction/transfer-hidden. Applied uniformly by the list endpoint and the
-   single-transaction mutation endpoints so the response shape never drifts."
+   promises: :transaction/effective-description, :transaction/split-drift and
+   :transaction/transfer-hidden. (:transaction/reviewed is the row's own stored flag,
+   nil-punned absent — a split part reviews itself like any row, so there is no
+   roll-up.) Applied uniformly by the list fns and the single-transaction mutation
+   endpoints so the response shape never drifts."
   [tx]
-  (-> tx with-split-balance with-reviewed with-effective-description with-split-drift
-      db-transfers/with-transfer-hidden))
+  (-> tx with-effective-description with-split-drift db-transfers/with-transfer-hidden))
 
 (defn list-for-month
   "All transactions whose posted-date falls in `month` (a YYYY-MM string), pulled

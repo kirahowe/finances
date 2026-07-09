@@ -5,10 +5,11 @@
    server owns which rows render (see doc/plans/datastar-server-authoritative-rewrite.md).
 
    Input transactions already carry the derived fields (db.transactions/with-derived-fields):
-   :transaction/reviewed (effective, split-rolled-up), :transaction/transfer-hidden,
-   :transaction/effective-description, and nested :transaction/splits. Because a split's
-   parts are nested in its transaction, sorting the transaction list keeps each split's
-   rows together for free — no leader/group bookkeeping.
+   :transaction/effective-description, :transaction/split-drift and
+   :transaction/transfer-hidden. A split part is a first-class row here like any other
+   transaction — it filters, sorts, counts and attributes independently (no split
+   special-casing anywhere in this engine). Parts share their parent's posted-date (a
+   copied field), so a date sort clusters a family naturally; no leader/group bookkeeping.
 
    View-state shape (keyword map; the page parses it from query params):
      {:search \"text\"               ; case-insensitive substring over the haystack
@@ -17,7 +18,7 @@
       :uncat bool                    ; Uncategorized chip
       :accounts #{id…}               ; header-funnel selections (db ids, longs)
       :institutions #{id…}
-      :categories #{id…}             ; split-aware; unions with :uncat
+      :categories #{id…}             ; unions with :uncat
       :sort {:col :date|:amount|:account|:institution|:payee|:category :dir :asc|:desc}
       :page 0-indexed
       :page-size pos-int}"
@@ -28,39 +29,27 @@
 ;; --- Filtering --------------------------------------------------------------
 
 (defn- search-haystack
-  "Lower-cased text a search matches against (payee, effective description, category,
-   and each split part's memo + category) — the case-insensitive substring search rule."
+  "Lower-cased text a search matches against (payee, effective description, category
+   name) — the case-insensitive substring search rule. A split part is a plain row here:
+   its memo IS its effective description and it carries its own category."
   [tx]
-  (->> (concat [(:transaction/payee tx)
-                (:transaction/effective-description tx)
-                (get-in tx [:transaction/category :category/name])]
-               (mapcat (fn [p] [(:split/memo p)
-                                (get-in p [:split/category :category/name])])
-                       (:transaction/splits tx)))
+  (->> [(:transaction/payee tx)
+        (:transaction/effective-description tx)
+        (get-in tx [:transaction/category :category/name])]
        (remove str/blank?)
        (str/join " ")
        str/lower-case))
 
-(defn- tx-category-ids
-  "Distinct real category ids a transaction touches (split-aware): each split part's
-   category, or the unsplit tx's category. Categoryless parts contribute nothing — the
-   Uncategorized chip owns those."
-  [tx]
-  (set (if-let [parts (seq (:transaction/splits tx))]
-         (keep #(get-in % [:split/category :db/id]) parts)
-         (when-let [id (get-in tx [:transaction/category :db/id])] [id]))))
-
-(defn needs-category?
-  "True when a transaction still needs a category: a split needs work when any part
-   lacks a category; an unsplit row needs a category ref. Pure predicate over the
-   canonical transaction shape (no I/O)."
-  [tx]
-  (if-let [parts (seq (:transaction/splits tx))]
-    (some #(nil? (get-in % [:split/category :db/id])) parts)
-    (nil? (get-in tx [:transaction/category :db/id]))))
-
+(defn- tx-category-id [tx] (get-in tx [:transaction/category :db/id]))
 (defn- tx-account-id [tx] (get-in tx [:transaction/account :db/id]))
 (defn- tx-institution-id [tx] (get-in tx [:transaction/account :account/institution :db/id]))
+
+(defn needs-category?
+  "True when a transaction still needs a category (no :transaction/category ref). A split
+   part is a plain row with its own category, so no split awareness is needed. Pure
+   predicate over the canonical transaction shape (no I/O)."
+  [tx]
+  (nil? (tx-category-id tx)))
 
 (defn- in-selection?
   "A funnel passes a row when nothing is selected, or the row's value is selected."
@@ -68,14 +57,14 @@
   (or (empty? selected) (contains? selected id)))
 
 (defn- matches-category?
-  "Category funnel ∪ Uncategorized chip, split-aware:
-   passes when neither is active, OR the row touches a selected category, OR (the chip is on
-   AND the row still needs a category)."
+  "Category funnel ∪ Uncategorized chip:
+   passes when neither is active, OR the row's own category is selected, OR (the chip is
+   on AND the row still needs a category)."
   [tx {:keys [categories uncat]}]
   (let [funnel? (seq categories)]
     (if (and (not funnel?) (not uncat))
       true
-      (boolean (or (and funnel? (some categories (tx-category-ids tx)))
+      (boolean (or (and funnel? (contains? categories (tx-category-id tx)))
                    (and uncat (needs-category? tx)))))))
 
 (defn- match?
@@ -220,18 +209,12 @@
                        #(or (get-in % [:transaction/account :account/institution :institution/name]) "Unknown")))
 
 (defn category-funnel-options
-  "Real categories present this month (split-aware), each with a faceted touch-count. The
-   Uncategorized chip owns categoryless rows, so it's excluded here."
+  "Real categories present this month, each with a faceted per-row touch-count (a part
+   row counts like any row). The Uncategorized chip owns categoryless rows, so it's
+   excluded here."
   [txs vs]
-  (let [counts (frequencies (mapcat tx-category-ids (filter-txs txs (drop-facet vs :category-dim))))
-        labels (reduce (fn [m tx]
-                         (reduce (fn [m c] (cond-> m (:db/id c) (assoc (:db/id c) (:category/name c))))
-                                 m
-                                 (cons (:transaction/category tx) (map :split/category (:transaction/splits tx)))))
-                       {} txs)]
-    (->> labels
-         (map (fn [[id label]] {:id id :label label :count (get counts id 0)}))
-         (sort-by :label))))
+  (options-with-counts txs (filter-txs txs (drop-facet vs :category-dim)) tx-category-id
+                       #(get-in % [:transaction/category :category/name])))
 
 ;; --- Split editor seed ------------------------------------------------------
 
@@ -257,8 +240,10 @@
 
 ;; --- Category rollup --------------------------------------------------------
 ;; A per-category breakdown of a month for the summary pane.
-;; Splits attribute to each part's own category; an unsplit tx to its category; a missing/unknown
-;; category falls into an Uncategorized bucket split by sign. Single-level parent hierarchy.
+;; Every row attributes its own amount to its own category (a split part is a plain row —
+;; its family's parts land in their own rollup rows and sum to the excluded parent); a
+;; missing/unknown category falls into an Uncategorized bucket split by sign. Single-level
+;; parent hierarchy.
 
 (defn- mag
   "Unsigned magnitude (works for bigdec, long, and 0)."
@@ -291,10 +276,7 @@
                       (>= amount 0)              [sums (+ uinc amount) uexp]
                       :else                      [sums uinc (+ uexp amount)]))
         [sums uinc uexp]
-        (reduce (fn [acc tx]
-                  (if-let [parts (seq (:transaction/splits tx))]
-                    (reduce (fn [a s] (attribute a (get-in s [:split/category :db/id]) (or (:split/amount s) 0))) acc parts)
-                    (attribute acc (get-in tx [:transaction/category :db/id]) (or (:transaction/amount tx) 0))))
+        (reduce (fn [acc tx] (attribute acc (tx-category-id tx) (or (:transaction/amount tx) 0)))
                 [{} 0 0] txs)
         signed-for (fn [type] (reduce-kv (fn [acc id sum] (cond-> acc (= type (:type (info id))) (+ sum))) 0 sums))
         income-signed   (+ uinc (signed-for :income))

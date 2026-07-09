@@ -54,11 +54,13 @@
    :transaction/reviewed      {:db/valueType :db.type/boolean}  ; user-authored overlay; absent = not reviewed (nil-punned)
    :transaction/splits        {:db/valueType   :db.type/ref
                                :db/cardinality :db.cardinality/many
-                               :db/isComponent true}  ; user-authored parts; parent owns them, cascades on retractEntity
+                               :db/isComponent true}  ; RETIRED (old sub-entity split model): only db.migrations/migrate-splits! reads it; nothing may write it
    :transaction/split-parent  {:db/valueType :db.type/ref}   ; ref to originating transaction; presence marks this row as a split part
    :transaction/split-order   {:db/valueType :db.type/long}  ; stable editor/display order among sibling parts
 
-   ;; Transaction split parts (sub-entities of a transaction; never imported/deduped)
+   ;; RETIRED split sub-entity attrs (old model, replaced by first-class part rows). Kept
+   ;; so a fresh DB still defines them and the migration's queries never hit an unknown
+   ;; attribute; only db.migrations/migrate-splits! reads them. Nothing may write them.
    :split/amount   {:db/valueType :db.type/bigdec}   ; signed, same convention as :transaction/amount
    :split/category {:db/valueType :db.type/ref}
    :split/memo     {:db/valueType :db.type/string}   ; optional

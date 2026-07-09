@@ -138,15 +138,18 @@
                                        :transaction/category (:db/id cat)}])
       (is (true? (categories/in-use? setup/*test-conn* (:db/id cat))))))
 
-  (testing "in-use? is true when only a split part references the category"
+  (testing "in-use? is true when only a split part references the category (a part is a
+            normal :transaction/* row, so :transaction/category covers it)"
     (let [cat (categories/create! setup/*test-conn* {:category/name "SplitOnly"
                                                      :category/type :expense
                                                      :category/ident :category/split-only})]
       (d/transact! setup/*test-conn* [{:transaction/external-id "tx-cat-2"
+                                       :transaction/amount -10.00M}])
+      (d/transact! setup/*test-conn* [{:transaction/external-id "split-cat-2a"
+                                       :transaction/split-parent [:transaction/external-id "tx-cat-2"]
+                                       :transaction/split-order 0
                                        :transaction/amount -10.00M
-                                       :transaction/splits [{:split/amount -10.00M
-                                                             :split/category (:db/id cat)
-                                                             :split/order 0}]}])
+                                       :transaction/category (:db/id cat)}])
       (is (true? (categories/in-use? setup/*test-conn* (:db/id cat)))))))
 
 (deftest get-category-by-ident-test

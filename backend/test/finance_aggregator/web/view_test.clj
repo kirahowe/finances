@@ -15,8 +15,7 @@
 
 (defn- tx [m]
   (merge {:transaction/payee "" :transaction/effective-description ""
-          :transaction/reviewed false :transaction/transfer-hidden false
-          :transaction/splits []}
+          :transaction/reviewed false :transaction/transfer-hidden false}
          m))
 
 (def ^:private t1
@@ -45,53 +44,68 @@
        :transaction/category nil
        :transaction/account (bank 101 "Visa")}))
 
+;; t5 + t6 model a split family: two first-class part rows (each carries
+;; :transaction/split-parent, which the view engine ignores — a part is a plain row).
+;; They share the parent's payee/posted-date (copied at split time), sum to the
+;; excluded parent's -200, and carry their own category/memo-as-description.
+
 (def ^:private t5
   (tx {:db/id 5 :transaction/posted-date #inst "2025-01-20"
-       :transaction/payee "Costco" :transaction/amount -200
-       :transaction/account (bank 101 "Visa")
-       :transaction/splits [{:split/order 0 :split/memo "food"
-                             :split/category {:db/id 11 :category/name "Groceries"}}
-                            {:split/order 1 :split/memo "household"
-                             :split/category nil}]}))
+       :transaction/payee "Costco" :transaction/amount -120
+       :transaction/effective-description "food"
+       :transaction/split-parent {:db/id 50}
+       :transaction/category {:db/id 11 :category/name "Groceries"}
+       :transaction/account (bank 101 "Visa")}))
 
-(def ^:private txs [t1 t2 t3 t4 t5])
+(def ^:private t6
+  (tx {:db/id 6 :transaction/posted-date #inst "2025-01-20"
+       :transaction/payee "Costco" :transaction/amount -80
+       :transaction/effective-description "household"
+       :transaction/split-parent {:db/id 50}
+       :transaction/category nil
+       :transaction/account (bank 101 "Visa")}))
+
+(def ^:private txs [t1 t2 t3 t4 t5 t6])
 (defn- ids [ts] (map :db/id ts))
 
 ;; --- Scope ------------------------------------------------------------------
 
 (deftest scope-filter
-  (is (= [1 2 3 4 5] (ids (view/filter-txs txs {:scope :all})))
+  (is (= [1 2 3 4 5 6] (ids (view/filter-txs txs {:scope :all})))
       "all shows everything")
-  (is (= [1 3 4 5] (ids (view/filter-txs txs {:scope :needs-review})))
+  (is (= [1 3 4 5 6] (ids (view/filter-txs txs {:scope :needs-review})))
       "needs-review drops the reviewed row (t2)"))
 
 ;; --- Search -----------------------------------------------------------------
 
 (deftest search-filter
-  (testing "matches across payee / description / category / split memo + category"
+  (testing "matches across payee / effective description / category"
     (is (= [2] (ids (view/filter-txs txs {:scope :all :search "superstore"}))) "payee")
     (is (= [3] (ids (view/filter-txs txs {:scope :all :search "housing"})))   "category name")
-    (is (= [5] (ids (view/filter-txs txs {:scope :all :search "food"})))      "split memo")
+    (is (= [5] (ids (view/filter-txs txs {:scope :all :search "food"})))
+        "a part's memo is its effective description — a plain-row match")
     (is (= [2 5] (ids (view/filter-txs txs {:scope :all :search "groceries"})))
-        "category on a normal row AND a split part"))
+        "category on a normal row AND a part row")
+    (is (= [5 6] (ids (view/filter-txs txs {:scope :all :search "costco"})))
+        "a family's rows share the parent's payee, so both parts match"))
   (testing "case-insensitive + blank = no filter"
     (is (= [2] (ids (view/filter-txs txs {:scope :all :search "SUPERSTORE"}))))
-    (is (= [1 2 3 4 5] (ids (view/filter-txs txs {:scope :all :search ""}))))))
+    (is (= [1 2 3 4 5 6] (ids (view/filter-txs txs {:scope :all :search ""}))))))
 
 ;; --- Hide transfers ---------------------------------------------------------
 
 (deftest hide-transfers-filter
-  (is (= [1 2 4 5] (ids (view/filter-txs txs {:scope :all :hide-transfers true})))
+  (is (= [1 2 4 5 6] (ids (view/filter-txs txs {:scope :all :hide-transfers true})))
       "drops the transfer-hidden row (t3)")
-  (is (= [1 2 3 4 5] (ids (view/filter-txs txs {:scope :all :hide-transfers false})))))
+  (is (= [1 2 3 4 5 6] (ids (view/filter-txs txs {:scope :all :hide-transfers false})))))
 
 ;; --- Account / institution funnels ------------------------------------------
 
 (deftest account-funnel
-  (is (= [2 4 5] (ids (view/filter-txs txs {:scope :all :accounts #{101}}))) "Visa only")
-  (is (= [1 2 3 4 5] (ids (view/filter-txs txs {:scope :all :accounts #{}})))
+  (is (= [2 4 5 6] (ids (view/filter-txs txs {:scope :all :accounts #{101}}))) "Visa only")
+  (is (= [1 2 3 4 5 6] (ids (view/filter-txs txs {:scope :all :accounts #{}})))
       "empty selection = no filter")
-  (is (= [1 2 3 4 5] (ids (view/filter-txs txs {:scope :all :institutions #{1000}})))
+  (is (= [1 2 3 4 5 6] (ids (view/filter-txs txs {:scope :all :institutions #{1000}})))
       "all share the one institution"))
 
 ;; --- Category funnel ∪ Uncategorized chip -----------------------------------
@@ -99,21 +113,21 @@
 (deftest category-funnel-and-uncat
   (is (= [1] (ids (view/filter-txs txs {:scope :all :categories #{10}}))) "Salary")
   (is (= [2 5] (ids (view/filter-txs txs {:scope :all :categories #{11}})))
-      "Groceries — split-aware (t5's part touches it)")
-  (is (= [4 5] (ids (view/filter-txs txs {:scope :all :uncat true})))
-      "uncat chip: t4 (no category) + t5 (a split part lacks one)")
-  (is (= [3 4 5] (ids (view/filter-txs txs {:scope :all :categories #{12} :uncat true})))
-      "union: Housing(t3) ∪ uncategorized(t4,t5)"))
+      "Groceries — a normal row and a part row, each by its own category")
+  (is (= [4 6] (ids (view/filter-txs txs {:scope :all :uncat true})))
+      "uncat chip: t4 (no category) + t6 (an uncategorized part row)")
+  (is (= [3 4 6] (ids (view/filter-txs txs {:scope :all :categories #{12} :uncat true})))
+      "union: Housing(t3) ∪ uncategorized(t4,t6)"))
 
 ;; --- Sorting ----------------------------------------------------------------
 
 (deftest sorting
-  (is (= [3 5 2 4 1] (ids (view/sort-txs txs {:col :amount :dir :asc}))) "amount asc")
-  (is (= [1 4 2 5 3] (ids (view/sort-txs txs {:col :amount :dir :desc}))) "amount desc")
-  (is (= [1 5 3 2 4] (ids (view/sort-txs txs {:col :payee :dir :asc})))
-      "payee asc, lower-cased")
-  (is (= [1 2 3 4 5] (ids (view/sort-txs txs nil))) "no sort = unchanged")
-  (is (= [1 2 3 4 5] (ids (view/sort-txs txs {:col :unknown :dir :asc})))
+  (is (= [3 5 2 6 4 1] (ids (view/sort-txs txs {:col :amount :dir :asc}))) "amount asc")
+  (is (= [1 4 6 2 5 3] (ids (view/sort-txs txs {:col :amount :dir :desc}))) "amount desc")
+  (is (= [1 5 6 3 2 4] (ids (view/sort-txs txs {:col :payee :dir :asc})))
+      "payee asc, lower-cased; the family's parts cluster on their shared payee (stable)")
+  (is (= [1 2 3 4 5 6] (ids (view/sort-txs txs nil))) "no sort = unchanged")
+  (is (= [1 2 3 4 5 6] (ids (view/sort-txs txs {:col :unknown :dir :asc})))
       "unknown column = unchanged"))
 
 ;; --- Pagination -------------------------------------------------------------
@@ -121,15 +135,15 @@
 (deftest pagination
   (let [p0 (view/paginate txs 0 2)]
     (is (= [1 2] (ids (:rows p0))))
-    (is (= {:total 5 :page 0 :page-count 3 :page-size 2}
+    (is (= {:total 6 :page 0 :page-count 3 :page-size 2}
            (dissoc p0 :rows))))
   (is (= [3 4] (ids (:rows (view/paginate txs 1 2)))) "second page")
   (let [over (view/paginate txs 5 2)]
-    (is (= [5] (ids (:rows over))) "out-of-range page clamps to the last")
+    (is (= [5 6] (ids (:rows over))) "out-of-range page clamps to the last")
     (is (= 2 (:page over))))
   (let [zero (view/paginate txs 0 0)]
     (is (= 25 (:page-size zero)) "non-positive page size defaults to 25")
-    (is (= 5 (count (:rows zero))))))
+    (is (= 6 (count (:rows zero))))))
 
 ;; --- Compose ----------------------------------------------------------------
 
@@ -138,9 +152,9 @@
                           :sort {:col :amount :dir :asc}
                           :page 0 :page-size 2})]
     (is (= [3 5] (ids (:rows v)))
-        "needs-review → [t1 t3 t4 t5], amount asc → [3 5 4 1], page 0/2 → [3 5]")
-    (is (= 4 (:total v)) "filtered total drives pagination")
-    (is (= 2 (:page-count v)))))
+        "needs-review → [t1 t3 t4 t5 t6], amount asc → [3 5 6 4 1], page 0/2 → [3 5]")
+    (is (= 5 (:total v)) "filtered total drives pagination")
+    (is (= 3 (:page-count v)))))
 
 ;; --- Presenter: the response view-model -------------------------------------
 ;; `present` is the single transformation entry point the handlers route through; it bundles the
@@ -169,8 +183,10 @@
 ;; --- Monthly close ----------------------------------------------------------
 ;; Coverage-strict reconciliation: Chequing (eid 100) has t1 (+4000, 2025-01-01) and t3
 ;; (-2000, 2025-01-15) — net 2000; Visa (eid 101) has t2 (-85, 2025-01-05), t4 (-50,
-;; 2025-01-12), t5 (-200, 2025-01-20) — net -335. `month-span` is the calendar month's own
-;; (open, close] span, wide enough to cover every January date the fixture uses.
+;; 2025-01-12) and the split family's part rows t5 (-120) + t6 (-80) on 2025-01-20 —
+;; net -335 (the parts carry the account and sum to the excluded parent's -200, so the
+;; account total is unchanged). `month-span` is the calendar month's own (open, close]
+;; span, wide enough to cover every January date the fixture uses.
 
 (def ^:private month-span {:start #inst "2024-12-31" :end #inst "2025-01-31"})
 
@@ -208,7 +224,7 @@
           m (view/reconcile-month txs {} month-span stmts)
           visa (first (filter #(= 101 (:account-id %)) (:rows m)))]
       (is (= :partial (:status visa)))
-      (is (= 1 (:uncovered visa)) "only t5 (2025-01-20) falls outside the one statement")
+      (is (= 2 (:uncovered visa)) "the part rows t5+t6 (2025-01-20) fall outside the one statement")
       (is (= #inst "2025-01-20" (:first-uncovered visa)))
       (is (false? (:all-reconciled? m)) "one uncovered account blocks the whole month"))))
 
@@ -303,7 +319,7 @@
           f (view/focus-close txs {:account-eid 101 :opening nil :closing nil :statements [stmt]})
           cov (:coverage f)]
       (is (= :partial (:status cov)))
-      (is (= 1 (:uncovered cov)) "only t5 (2025-01-20) falls outside the statement")
+      (is (= 2 (:uncovered cov)) "the part rows t5+t6 (2025-01-20) fall outside the statement")
       (is (= #inst "2025-01-20" (:first-uncovered cov))))))
 
 (deftest reconcile-statement-uses-statement-balance-polarity
@@ -330,57 +346,57 @@
   (testing "BUG 8 (no sort): a now-reviewed row lingers in its natural position, not at the end"
     ;; t2 (db/id 2) is reviewed; under :needs-review it no longer matches, but it's lingering.
     (let [v (view/view-with-linger txs {:scope :needs-review} #{2})]
-      (is (= [1 2 3 4 5] (ids (:rows v)))
-          "t2 stays between t1 and t3 (source order), NOT appended after t5")
+      (is (= [1 2 3 4 5 6] (ids (:rows v)))
+          "t2 stays between t1 and t3 (source order), NOT appended after t6")
       (is (= #{2} (:stale-ids v)) "the lingered-but-unmatching row is reported stale")))
   (testing "BUG 7 (no sort): a now-categorized row lingers in place under the Uncat chip"
-    ;; With :uncat the chip matches t4 + t5 (both lack a category somewhere). Pretend t4 was
-    ;; just categorized so it no longer matches; it must hold its slot, not move/disappear.
+    ;; With :uncat the chip matches t4 + t6 (both lack a category). Pretend t4 was just
+    ;; categorized so it no longer matches; it must hold its slot, not move/disappear.
     (let [categorized-t4 (assoc t4 :transaction/category {:db/id 99 :category/name "Dining"})
-          month          [t1 t2 t3 categorized-t4 t5]
+          month          [t1 t2 t3 categorized-t4 t5 t6]
           v              (view/view-with-linger month {:scope :all :uncat true} #{4})]
-      (is (= [4 5] (ids (:rows v)))
-          "t4 keeps its position ahead of t5 even though it no longer matches the chip")
+      (is (= [4 6] (ids (:rows v)))
+          "t4 keeps its position ahead of t6 even though it no longer matches the chip")
       (is (= #{4} (:stale-ids v)) "t4 reported stale"))))
 
 (deftest view-with-linger-sorts-stale-rows-in-place
   (testing "with an active sort, a lingered non-matching row sorts into its natural slot"
-    ;; :needs-review drops t2 (reviewed); linger keeps it. amount asc over [1 2 3 4 5] is
-    ;; [3(-2000) 5(-200) 2(-85) 4(-50) 1(4000)] — t2 sorts between t5 and t4, not appended.
+    ;; :needs-review drops t2 (reviewed); linger keeps it. amount asc over [1 2 3 4 5 6] is
+    ;; [3(-2000) 5(-120) 2(-85) 6(-80) 4(-50) 1(4000)] — t2 sorts between t5 and t6, not appended.
     (let [v (view/view-with-linger txs {:scope :needs-review
                                         :sort {:col :amount :dir :asc}}
                                    #{2})]
-      (is (= [3 5 2 4 1] (ids (:rows v)))
+      (is (= [3 5 2 6 4 1] (ids (:rows v)))
           "t2 sorts to its amount position, not the bottom")
       (is (= #{2} (:stale-ids v))))))
 
 (deftest view-with-linger-matching-rows-not-stale
   (testing "a lingered row that STILL matches the filter is not stale (just re-rendered)"
     (let [v (view/view-with-linger txs {:scope :all} #{1})]
-      (is (= [1 2 3 4 5] (ids (:rows v))) "all rows present, normal order")
+      (is (= [1 2 3 4 5 6] (ids (:rows v))) "all rows present, normal order")
       (is (= #{} (:stale-ids v)) "t1 still matches :all, so nothing is stale"))))
 
 (deftest view-with-linger-empty-and-clear-semantics
   (testing "no linger set = plain view, never stale"
     (let [v (view/view-with-linger txs {:scope :needs-review} #{})]
-      (is (= [1 3 4 5] (ids (:rows v))) "reviewed t2 dropped, none lingering")
+      (is (= [1 3 4 5 6] (ids (:rows v))) "reviewed t2 dropped, none lingering")
       (is (= #{} (:stale-ids v))))
     (let [v (view/view-with-linger txs {:scope :needs-review} nil)]
-      (is (= [1 3 4 5] (ids (:rows v))) "nil linger set tolerated as empty")
+      (is (= [1 3 4 5 6] (ids (:rows v))) "nil linger set tolerated as empty")
       (is (= #{} (:stale-ids v)))))
   (testing "clearing the linger set (the next view change) drops the stale row entirely"
     ;; Same view-state as the lingering case, but with the set cleared: t2 is simply gone.
     (let [lingered (view/view-with-linger txs {:scope :needs-review} #{2})
           cleared  (view/view-with-linger txs {:scope :needs-review} #{})]
-      (is (= [1 2 3 4 5] (ids (:rows lingered))) "while lingering: t2 visible")
-      (is (= [1 3 4 5]   (ids (:rows cleared)))  "after clear: t2 gone"))))
+      (is (= [1 2 3 4 5 6] (ids (:rows lingered))) "while lingering: t2 visible")
+      (is (= [1 3 4 5 6]   (ids (:rows cleared)))  "after clear: t2 gone"))))
 
 (deftest view-with-linger-paginates-after-injection
   (testing ":total + pagination count the injected stale row"
-    ;; needs-review base = [1 3 4 5] (4 rows); linger t2 → 5 visible. page 0, size 2.
+    ;; needs-review base = [1 3 4 5 6] (5 rows); linger t2 → 6 visible. page 0, size 2.
     (let [v (view/view-with-linger txs {:scope :needs-review :page 0 :page-size 2} #{2})]
-      (is (= 5 (:total v)) "stale row included in the total")
-      (is (= 3 (:page-count v)) "5 rows / 2 = 3 pages")
+      (is (= 6 (:total v)) "stale row included in the total")
+      (is (= 3 (:page-count v)) "6 rows / 2 = 3 pages")
       (is (= [1 2] (ids (:rows v))) "first page holds t1 then the in-place stale t2"))))
 
 ;; --- Funnel options ---------------------------------------------------------
@@ -391,24 +407,25 @@
 (deftest account-funnel-options
   (testing "no other filter → every account with its full-month count, label-sorted"
     (is (= [{:id 100 :label "Chequing" :count 2}
-            {:id 101 :label "Visa" :count 3}]
+            {:id 101 :label "Visa" :count 4}]
            (view/account-options txs {}))))
   (testing "the funnel's OWN selection doesn't affect its option counts (so nothing zeroes out)"
     (is (= [{:id 100 :label "Chequing" :count 2}
-            {:id 101 :label "Visa" :count 3}]
+            {:id 101 :label "Visa" :count 4}]
            (view/account-options txs {:accounts #{101}}))))
-  (testing "but ANOTHER active filter is faceted in: needs-review drops t2 → Visa 3→2"
+  (testing "but ANOTHER active filter is faceted in: needs-review drops t2 → Visa 4→3"
     (is (= [{:id 100 :label "Chequing" :count 2}
-            {:id 101 :label "Visa" :count 2}]
+            {:id 101 :label "Visa" :count 3}]
            (view/account-options txs {:scope :needs-review}))))
   (testing "missing-account rows contribute no option"
     (is (= [] (view/account-options [(tx {:db/id 9 :transaction/amount 1})] {})))))
 
 (deftest institution-funnel-options
-  (is (= [{:id 1000 :label "Test Bank" :count 5}] (view/institution-options txs {}))))
+  (is (= [{:id 1000 :label "Test Bank" :count 6}] (view/institution-options txs {}))))
 
-(deftest category-funnel-options-split-aware
-  (testing "real categories, split-aware counts, Uncategorized excluded, label-sorted"
+(deftest category-funnel-option-counts
+  (testing "real categories with per-row counts (a part row counts like any row),
+            Uncategorized excluded, label-sorted"
     (is (= [{:id 11 :label "Groceries" :count 2}
             {:id 12 :label "Housing" :count 1}
             {:id 10 :label "Salary" :count 1}]
@@ -424,9 +441,9 @@
 (deftest facet-counts-compose
   (testing "no filters → the faceted counts equal the full-month tallies"
     (let [fc (view/facet-counts txs {})]
-      (is (= 5 (:total fc)))
-      (is (= 4 (:unreviewed fc)) "t2 reviewed")
-      (is (= 2 (:uncategorized fc)) "t4 + t5")
+      (is (= 6 (:total fc)))
+      (is (= 5 (:unreviewed fc)) "t2 reviewed")
+      (is (= 2 (:uncategorized fc)) "t4 + the uncategorized part row t6")
       (is (= 1 (:transfers-hidden fc)) "t3")))
   (testing "scope/uncat compose: each count reflects the OTHER active filters, not its own"
     ;; uncat chip on, scope=needs-review. Category-dim removed for :total/:unreviewed leaves
@@ -478,13 +495,6 @@
   (cond-> {:db/id id :transaction/amount amount}
     cat-id (assoc :transaction/category {:db/id cat-id})))
 
-(defn- rsplit-tx [id parts]
-  {:db/id id
-   :transaction/amount (reduce + 0 (map :amount parts))
-   :transaction/splits (map-indexed (fn [i p] (cond-> {:split/order i :split/amount (:amount p)}
-                                                (:cat p) (assoc :split/category {:db/id (:cat p)})))
-                                    parts)})
-
 (defn- ≈ [a b] (< (abs (- (double a) (double b))) 0.005))
 (defn- row-ok? [{:keys [ids name depth group? amount]} actual]
   (and (= ids (:ids actual)) (= name (:name actual)) (= depth (:depth actual))
@@ -515,13 +525,18 @@
   (let [rows (get-in (view/category-rollup [(rtx 10 -43.76M 1)] [(rcat 1 "Groceries" :expense nil 1)]) [:expenses :rows])]
     (is (row-ok? {:ids [1] :name "Groceries" :depth 0 :group? false :amount 43.76} (nth rows 0)))))
 
-(deftest rollup-splits-attribute-to-part-categories
+(deftest rollup-part-rows-attribute-their-own-amounts
+  ;; A split family's parts are plain rows: each attributes its own amount to its own
+  ;; category (the parent is excluded from the list fns upstream), so the family lands in
+  ;; different rollup rows and the totals tie out with the category filter. The engine
+  ;; ignores :transaction/split-parent — included here to prove it changes nothing.
   (let [cats [(rcat 1 "Groceries" :expense nil 1) (rcat 2 "Home supplies" :expense nil 2)]
-        r (view/category-rollup [(rsplit-tx 10 [{:amount -30M :cat 1} {:amount -20M :cat 2}])] cats)
+        part (fn [id amount cat] (assoc (rtx id amount cat) :transaction/split-parent {:db/id 99}))
+        r (view/category-rollup [(part 10 -30M 1) (part 11 -20M 2)] cats)
         rows (get-in r [:expenses :rows])]
     (is (≈ 30 (:amount (first (filter #(= "Groceries" (:name %)) rows)))))
     (is (≈ 20 (:amount (first (filter #(= "Home supplies" (:name %)) rows)))))
-    (is (≈ 50 (get-in r [:expenses :total])))))
+    (is (≈ 50 (get-in r [:expenses :total])) "the family's parts sum to the parent's amount")))
 
 (deftest rollup-separates-types-and-excludes-transfers-from-net
   (let [cats [(rcat 1 "Paycheck" :income nil 1) (rcat 2 "Groceries" :expense nil 1) (rcat 3 "CC Payment" :transfer nil 1)]

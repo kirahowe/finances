@@ -3,10 +3,9 @@
    [clojure.test :refer [deftest is testing]]
    [finance-aggregator.data.ledger :as ledger]))
 
-(defn- tx [acct-eid acct-name amount & {:keys [splits]}]
-  (cond-> {:transaction/account {:db/id acct-eid :account/external-name acct-name}
-           :transaction/amount  (bigdec amount)}
-    splits (assoc :transaction/splits splits)))
+(defn- tx [acct-eid acct-name amount]
+  {:transaction/account {:db/id acct-eid :account/external-name acct-name}
+   :transaction/amount  (bigdec amount)})
 
 (deftest reconcile-period-verdict
   ;; A strict balance-delta period: does end − start match Σ of the span's transactions?
@@ -54,12 +53,12 @@
       (is (= "Chequing" (get-in deltas [1 :name])))
       (is (= 2 (get-in deltas [2 :account-id]))))))
 
-(deftest account-computed-deltas-ignores-splits
-  (testing "a split tx contributes only its parent amount (splits re-attribute, not re-bank)"
-    (let [deltas (ledger/account-computed-deltas
-                  [(tx 1 "Chequing" "-90.00"
-                       :splits [{:split/amount (bigdec "-60.00")}
-                                {:split/amount (bigdec "-30.00")}])])]
+(deftest account-computed-deltas-sums-split-part-rows
+  (testing "a split family's part rows carry the account and sum exactly to the excluded
+            parent's amount, so the account total is unchanged (splits re-attribute, not
+            re-bank; the parent never reaches here — the list fns exclude it)"
+    (let [part (fn [amount] (assoc (tx 1 "Chequing" amount) :transaction/split-parent {:db/id 9}))
+          deltas (ledger/account-computed-deltas [(part "-60.00") (part "-30.00")])]
       (is (= (bigdec "-90.00") (get-in deltas [1 :computed-delta]))))))
 
 (deftest account-computed-deltas-skips-accountless-rows

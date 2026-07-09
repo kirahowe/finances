@@ -133,15 +133,15 @@
   (d/transact! conn [[:db/retractEntity db-id]]))
 
 (defn in-use?
-  "Whether a category is referenced by any transaction or split part. Deleting an
-   in-use category would orphan those refs, so callers should block on this.
-   Conn is a datalevin connection (not an atom)."
+  "Whether a category is referenced by any transaction. A split part is a normal
+   :transaction/* row, so its :transaction/category ref is covered like any other.
+   Deleting an in-use category would orphan those refs, so callers should block on
+   this. Conn is a datalevin connection (not an atom)."
   [conn category-id]
   (let [db (d/db conn)]
     (boolean (seq (d/q '[:find ?e
                          :in $ ?cat-id
-                         :where (or [?e :transaction/category ?cat-id]
-                                    [?e :split/category ?cat-id])]
+                         :where [?e :transaction/category ?cat-id]]
                        db
                        category-id)))))
 

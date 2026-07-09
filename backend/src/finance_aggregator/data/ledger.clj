@@ -39,9 +39,10 @@
 
 (defn account-computed-deltas
   "Σ signed :transaction/amount grouped by account, over `txs` (one month's pulled
-   transactions). Splits never change an account's total — they only re-attribute
-   the parent's amount across categories — so the parent amount is summed and split
-   parts are ignored. Returns
+   transactions). Splits never change an account's total — a split parent is excluded
+   from the list fns, and its part rows carry the same account and sum exactly to its
+   amount — so summing the rows as given is already correct, with no split awareness
+   needed here. Returns
    {account-eid {:account-id eid :name str :computed-delta bigdec}}."
   [txs]
   (reduce
