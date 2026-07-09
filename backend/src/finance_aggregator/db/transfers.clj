@@ -19,10 +19,17 @@
     {:transaction/transfer-pair [:db/id]}
     {:transaction/transfer-rejected [:db/id]}])
 
-(defn- all-transactions [db]
+(defn- all-transactions
+  "Every transaction eligible to be a transfer leg. Excludes any transaction that
+   HAS live split parts — a split parent is hidden from every list, so it must never
+   be suggested or offered as a candidate; its parts are normal rows and flow through
+   untouched (a part categorized as a transfer is matchable like any leg)."
+  [db]
   (d/q '[:find [(pull ?e pattern) ...]
          :in $ pattern
-         :where [?e :transaction/external-id _]]
+         :where
+         [?e :transaction/external-id _]
+         (not [?p :transaction/split-parent ?e])]
        db suggest-pull))
 
 (defn- normalize [tx]
@@ -54,13 +61,17 @@
   '[:db/id :transaction/amount
     {:transaction/account [:db/id]}
     {:transaction/transfer-pair [:db/id]}
-    {:transaction/transfer-rejected [:db/id]}])
+    {:transaction/transfer-rejected [:db/id]}
+    {:transaction/_split-parent [:db/id]}])
 
 (defn- validate-transfer!
   "Pull and validate the two legs of a proposed transfer, throwing ex-info for any
-   violation shared by confirm and reject: same transaction, missing transaction,
-   same account, or amounts that aren't equal-and-opposite. Returns [a b], the
-   pulled entities. The not-already-paired rule is confirm-only and checked there."
+   violation shared by confirm and reject: same transaction, missing transaction, a
+   leg with live split parts (a split parent is hidden from every list, so it must
+   never become a matched leg — match one of its parts; defensive, since the PUT
+   route takes raw ids), same account, or amounts that aren't equal-and-opposite.
+   Returns [a b], the pulled entities. The not-already-paired rule is confirm-only
+   and checked there."
   [db a-id b-id]
   (when (= a-id b-id)
     (throw (ex-info "Cannot match a transaction to itself" {:type :bad-request})))
@@ -68,6 +79,9 @@
         b (d/pull db validate-pull b-id)]
     (when-not (and (:transaction/amount a) (:transaction/amount b))
       (throw (ex-info "Transaction not found" {:type :not-found})))
+    (when (or (seq (:transaction/_split-parent a)) (seq (:transaction/_split-parent b)))
+      (throw (ex-info "This transaction is split — match one of its parts instead"
+                      {:type :bad-request})))
     (when (= (get-in a [:transaction/account :db/id])
              (get-in b [:transaction/account :db/id]))
       (throw (ex-info "A transfer must move money between two different accounts"

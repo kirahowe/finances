@@ -1,6 +1,7 @@
 (ns finance-aggregator.db.transfers-test
   (:require [clojure.test :refer [deftest is testing use-fixtures]]
             [datalevin.core :as d]
+            [finance-aggregator.db.transactions :as db-transactions]
             [finance-aggregator.db.transfers :as transfers]
             [finance-aggregator.db.categories :as categories]
             [finance-aggregator.test-utils.setup :as setup]))
@@ -38,6 +39,18 @@
 
 (defn- pair-ids [result] (set (map (juxt #(:db/id (:outflow %)) #(:db/id (:inflow %))) result)))
 
+(defn- split!
+  "Split `tx-id` into uncategorized parts (amount strings), returning the part ids
+   ordered by :transaction/split-order. Parts inherit the parent's account and
+   posted-date, so they window/pair like any leg."
+  [tx-id & amounts]
+  (db-transactions/set-splits! setup/*test-conn* tx-id (mapv (fn [a] {:amount a}) amounts))
+  (->> (d/q '[:find [(pull ?p [:db/id :transaction/split-order]) ...]
+              :in $ ?tx :where [?p :transaction/split-parent ?tx]]
+            (d/db setup/*test-conn*) tx-id)
+       (sort-by :transaction/split-order)
+       (mapv :db/id)))
+
 ;; NOTE: with-empty-db is :each per deftest (not per testing block), and
 ;; suggest-matches / match-candidates query ALL transactions — so each global
 ;; scenario gets its own deftest to avoid cross-contamination.
@@ -72,6 +85,54 @@
           in (make-tx! "in-3" b 100.00M 10)]
       (transfers/confirm-match! setup/*test-conn* out in)
       (is (empty? (transfers/suggest-matches setup/*test-conn*))))))
+
+(deftest suggest-matches-excludes-split-parent-includes-parts-test
+  (testing "a split parent never appears in suggestions; its parts are normal legs"
+    (let [checking (make-account! "csp" "Checking")
+          savings (make-account! "ssp" "Savings")
+          parent (make-tx! "parent-sp" checking -100.00M 10)
+          ;; Two inflows: +100 would pair with the (hidden) parent, +60 with a part.
+          in-100 (make-tx! "in100-sp" savings 100.00M 10)
+          in-60 (make-tx! "in60-sp" savings 60.00M 10)
+          [part-60 _part-40] (split! parent "-60.00" "-40.00")
+          result (transfers/suggest-matches setup/*test-conn*)]
+      (is (= #{[part-60 in-60]} (pair-ids result))
+          "the -60 part pairs with the +60 inflow — and that is the ONLY pair: the
+           hidden parent never pairs with the +100 inflow")
+      (is (empty? (filter #(contains? #{parent in-100} %)
+                          (mapcat (juxt #(:db/id (:outflow %)) #(:db/id (:inflow %))) result)))
+          "neither the split parent nor its would-be +100 partner appears in any pair"))))
+
+(deftest match-candidates-exclude-split-parent-include-parts-test
+  (testing "a split parent is never offered as a manual-match candidate; its parts are"
+    (let [checking (make-account! "cmc" "Checking")
+          savings (make-account! "smc" "Savings")
+          parent (make-tx! "parent-mc" checking -100.00M 10)
+          plain (make-tx! "plain-mc" checking -100.00M 11)
+          src-100 (make-tx! "src100-mc" savings 100.00M 10)
+          src-60 (make-tx! "src60-mc" savings 60.00M 10)
+          [part-60 _part-40] (split! parent "-60.00" "-40.00")]
+      (is (= [plain] (map :db/id (transfers/match-candidates setup/*test-conn* src-100)))
+          "only the unsplit -100 is offered — the split parent is hidden")
+      (is (= [part-60] (map :db/id (transfers/match-candidates setup/*test-conn* src-60)))
+          "a part is a normal counterpart candidate"))))
+
+(deftest confirm-match-rejects-split-parent-test
+  (testing "confirming a match against a split parent is rejected (defensive — the PUT
+            route takes raw ids, and a hidden parent must never become a matched leg)"
+    (let [checking (make-account! "crj" "Checking")
+          savings (make-account! "srj" "Savings")
+          parent (make-tx! "parent-rj" checking -100.00M 10)
+          in (make-tx! "in-rj" savings 100.00M 10)]
+      (split! parent "-60.00" "-40.00")
+      (is (thrown-with-msg? clojure.lang.ExceptionInfo #"match one of its parts"
+                            (transfers/confirm-match! setup/*test-conn* parent in)))
+      (is (thrown-with-msg? clojure.lang.ExceptionInfo #"match one of its parts"
+                            (transfers/confirm-match! setup/*test-conn* in parent))
+          "either argument order")
+      (is (nil? (:transaction/transfer-pair
+                 (d/pull (d/db setup/*test-conn*) '[{:transaction/transfer-pair [:db/id]}] in)))
+          "nothing was written"))))
 
 (deftest confirm-and-unmatch-test
   (testing "confirm sets transfer-pair on both legs; unmatch retracts both"
