@@ -1158,32 +1158,33 @@
    [:h2#add-tx-title "Add transaction"]
    [:p.form-modal-hint
     "Record a transaction the bank feed didn't import — cash, a missed charge, anything you need in the ledger."]
-   [:div.form-group
-    [:label.form-label {:for "tx-account"} "Account"]
-    (account-select "tx-account" "txAccount" accounts selected)]
-   [:div.form-modal-row
+   [:div.form-fields
     [:div.form-group
-     [:span.form-label "Direction"]
-     [:div.txn-direction {:role "radiogroup" :aria-label "Direction"}
-      (direction-btn "out" "Money out")
-      (direction-btn "in" "Money in")]]
+     [:label.form-label {:for "tx-account"} "Account"]
+     (account-select "tx-account" "txAccount" accounts selected)]
+    [:div.form-modal-row
+     [:div.form-group
+      [:span.form-label "Direction"]
+      [:div.txn-direction {:role "radiogroup" :aria-label "Direction"}
+       (direction-btn "out" "Money out")
+       (direction-btn "in" "Money in")]]
+     [:div.form-group
+      [:label.form-label {:for "tx-amount"} "Amount"]
+      [:input.form-input {:id "tx-amount" :type "number" :step "0.01" :min "0" :inputmode "decimal"
+                          :placeholder "0.00" "data-bind" "txAmount"}]]]
+    [:div.form-modal-row
+     [:div.form-group
+      [:label.form-label {:for "tx-date"} "Date"]
+      [:input.form-input {:id "tx-date" :type "date" :value default-date "data-bind" "txDate"}]]
+     [:div.form-group
+      [:label.form-label {:for "tx-category"} "Category"]
+      (category-select categories)]]
     [:div.form-group
-     [:label.form-label {:for "tx-amount"} "Amount"]
-     [:input.form-input {:id "tx-amount" :type "number" :step "0.01" :min "0" :inputmode "decimal"
-                         :placeholder "0.00" "data-bind" "txAmount"}]]]
-   [:div.form-modal-row
+     [:label.form-label {:for "tx-payee"} "Payee"]
+     [:input.form-input {:id "tx-payee" :type "text" :placeholder "e.g. Corner Store" "data-bind" "txPayee"}]]
     [:div.form-group
-     [:label.form-label {:for "tx-date"} "Date"]
-     [:input.form-input {:id "tx-date" :type "date" :value default-date "data-bind" "txDate"}]]
-    [:div.form-group
-     [:label.form-label {:for "tx-category"} "Category"]
-     (category-select categories)]]
-   [:div.form-group
-    [:label.form-label {:for "tx-payee"} "Payee"]
-    [:input.form-input {:id "tx-payee" :type "text" :placeholder "e.g. Corner Store" "data-bind" "txPayee"}]]
-   [:div.form-group
-    [:label.form-label {:for "tx-desc"} "Description"]
-    [:input.form-input {:id "tx-desc" :type "text" :placeholder "Optional" "data-bind" "txDesc"}]]
+     [:label.form-label {:for "tx-desc"} "Description"]
+     [:input.form-input {:id "tx-desc" :type "text" :placeholder "Optional" "data-bind" "txDesc"}]]]
    [:div.form-actions
     [:button.button.button-secondary {:type "button" "data-on:click" close-modal-js} "Cancel"]
     [:button.button.button-primary
@@ -1223,22 +1224,23 @@
    [:h2#statement-modal-title (if editing? "Edit statement" "Add statement")]
    [:p.form-modal-hint
     "A statement runs between two dates you read off it. The close checks your tracked activity in that span against the balance change."]
-   [:div.form-modal-row
-    [:div.form-group
-     [:label.form-label {:for "st-start"} "From"]
-     [:input.form-input {:id "st-start" :type "date" "data-bind" "stStart"}]]
-    [:div.form-group
-     [:label.form-label {:for "st-start-bal"} "Start balance"]
-     [:input.form-input {:id "st-start-bal" :type "number" :step "0.01" :inputmode "decimal"
-                         :placeholder "0.00" "data-bind" "stStartBal"}]]]
-   [:div.form-modal-row
-    [:div.form-group
-     [:label.form-label {:for "st-end"} "To"]
-     [:input.form-input {:id "st-end" :type "date" "data-bind" "stEnd"}]]
-    [:div.form-group
-     [:label.form-label {:for "st-end-bal"} "End balance"]
-     [:input.form-input {:id "st-end-bal" :type "number" :step "0.01" :inputmode "decimal"
-                         :placeholder "0.00" "data-bind" "stEndBal"}]]]
+   [:div.form-fields
+    [:div.form-modal-row
+     [:div.form-group
+      [:label.form-label {:for "st-start"} "From"]
+      [:input.form-input {:id "st-start" :type "date" "data-bind" "stStart"}]]
+     [:div.form-group
+      [:label.form-label {:for "st-start-bal"} "Start balance"]
+      [:input.form-input {:id "st-start-bal" :type "number" :step "0.01" :inputmode "decimal"
+                          :placeholder "0.00" "data-bind" "stStartBal"}]]]
+    [:div.form-modal-row
+     [:div.form-group
+      [:label.form-label {:for "st-end"} "To"]
+      [:input.form-input {:id "st-end" :type "date" "data-bind" "stEnd"}]]
+     [:div.form-group
+      [:label.form-label {:for "st-end-bal"} "End balance"]
+      [:input.form-input {:id "st-end-bal" :type "number" :step "0.01" :inputmode "decimal"
+                          :placeholder "0.00" "data-bind" "stEndBal"}]]]]
    [:div.form-actions
     (when editing?
       [:button.button.button-danger {:type "button"
@@ -1271,9 +1273,10 @@
      [:h2#posted-date-modal-title "Posted date — " (or (not-empty (:transaction/payee tx)) "(no payee)")]
      [:div.posted-date-modal-sub
       [:span.numeric (fmt/amount (:transaction/amount tx))]]
-     [:div.form-group
-      [:label.form-label {:for "posted-date-input"} "Posted date"]
-      [:input.form-input {:id "posted-date-input" :type "date" "data-bind" "postedDateValue"}]]
+     [:div.form-fields
+      [:div.form-group
+       [:label.form-label {:for "posted-date-input"} "Posted date"]
+       [:input.form-input {:id "posted-date-input" :type "date" "data-bind" "postedDateValue"}]]]
      [:p.form-modal-hint "Imported: " (if imported (fmt/date-short imported) "—")]
      [:div.form-actions
       (if override?

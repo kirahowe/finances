@@ -30,9 +30,10 @@
   gap: var(--spacing-md);
 }
 
-/* A row's form-groups don't need their own bottom margin — the row gap
-   handles vertical rhythm, and the row itself sits in the modal's stack
-   of form-groups (each with margin-bottom: spacing-md). */
+/* A row's form-groups don't need their own bottom margin — the row's own
+   gap handles rhythm between them. Between the row and its siblings,
+   vertical rhythm comes from the enclosing .form-fields stack's gap (see
+   common.css), which also zeroes the row's own margin. */
 .form-modal-row > .form-group {
   margin-bottom: 0;
 }
