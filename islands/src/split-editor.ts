@@ -22,10 +22,15 @@ import {
 
 interface Row extends SplitRowInput {
   memo: string;
+  // The existing live part this row edits (its transaction db id), or null for a
+  // fresh row. Rides the save payload so set-splits! diffs by id — an id'd row
+  // updates its part in place (preserving reviewed/transfer-pair/external-id).
+  id: number | null;
 }
 
 // One seed part as the server serializes it (charred → kebab-case keyword keys).
 interface SeedRow {
+  id: number | null;
   amount: string;
   'category-id': number | null;
   memo: string | null;
@@ -65,10 +70,11 @@ function mount(root: HTMLElement): void {
     id == null ? 'Select category…' : categoryNames.get(id) ?? 'Select category…';
 
   // Blank parts when the transaction isn't split yet (a split needs at least two).
-  const blank = (): Row => ({ amount: '', categoryId: null, memo: '', seedCents: null });
+  const blank = (): Row => ({ id: null, amount: '', categoryId: null, memo: '', seedCents: null });
   const rows: Row[] =
     seed.length > 0
       ? seed.map((s) => ({
+          id: s.id ?? null,
           amount: s.amount,
           categoryId: s['category-id'],
           memo: s.memo ?? '',
@@ -85,8 +91,9 @@ function mount(root: HTMLElement): void {
   // that opens the SAME Zag combobox/typeahead as the grid cell. The split isn't persisted
   // until "Save split", so the pick updates LOCAL row state (no @put) — the row keeps its
   // categoryId and the button text, and recompute() re-evaluates the balance/save gate.
-  // The combobox lists Uncategorized; a pick of it maps to categoryId null, leaving the row
-  // invalid (splits require a real category — canConfirm enforces categoryId != null).
+  // The combobox lists Uncategorized; a pick of it maps to categoryId null — a valid,
+  // saveable state (the part lands in the Uncategorized bucket, categorize later); the
+  // button keeps its placeholder look for null.
   const buildCategoryButton = (row: Row): HTMLButtonElement => {
     const btn = document.createElement('button');
     btn.type = 'button';
@@ -203,11 +210,13 @@ function mount(root: HTMLElement): void {
   };
 
   // Save: build the signed-amount payload and hand it to the courier (whose change @put's).
+  // A row's `id` (its existing live part) rides along so set-splits! diffs by id.
   const save = (): void => {
     if (!canConfirm(parentAmount, rows)) return;
     const payload = rows.map((r) => {
       const signed = rowSignedCents(parentAmount, r)!;
       return {
+        id: r.id ?? undefined,
         amount: centsToAmountString(signed),
         categoryId: r.categoryId,
         memo: r.memo.trim() || undefined,

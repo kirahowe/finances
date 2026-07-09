@@ -418,6 +418,26 @@
         (is (not (contains? (pulled tx-id) :transaction/split-drift))
             "the parent itself (not a part) is never flagged")))))
 
+(deftest split-editor-root-test
+  (testing "resolves the transaction itself for a non-part, and the PARENT for a part —
+            so every path into the split editor lands on the family's parent (depth is 1)"
+    (let [a (make-category! "ER" :category/er)
+          tx-id (make-tx! "tx-root-1" {:transaction/amount -100.00M})]
+      (is (= tx-id (:db/id (transactions/split-editor-root setup/*test-conn* tx-id)))
+          "an unsplit transaction is its own editor root")
+      (transactions/set-splits! setup/*test-conn* tx-id
+                                [{:amount "-60.00" :category-id a} {:amount "-40.00" :category-id a}])
+      (is (= tx-id (:db/id (transactions/split-editor-root setup/*test-conn* tx-id)))
+          "a split parent is its own editor root")
+      (let [part-id (:db/id (first (live-parts tx-id)))
+            root (transactions/split-editor-root setup/*test-conn* part-id)]
+        (is (= tx-id (:db/id root)) "a part resolves to its parent")
+        (is (= 2 (count (:transaction/_split-parent root)))
+            "the root is pulled like by-id — the editor's parts ride along"))))
+
+  (testing "nil for a missing transaction, like by-id"
+    (is (nil? (transactions/split-editor-root setup/*test-conn* 99999999)))))
+
 (deftest set-reviewed-test
   (testing "marks a transaction reviewed and clears it again"
     (let [tx-id (make-tx! "tx-rev-1" {:transaction/amount -100.00M})]

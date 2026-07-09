@@ -208,10 +208,12 @@
          :_funnelY 0
          :_funnelQuery ""
          ;; Row-actions menu (shared floating popover): which row's menu is open (0 = none),
-         ;; whether that row is already split / already a matched transfer (drive the item
-         ;; labels), and its position.
+         ;; whether that row is a split part / already a matched transfer (drive the item
+         ;; labels), the id the split editor opens on (a part's PARENT, else the row itself),
+         ;; and its position.
          :_rowMenu 0
          :_rowMenuSplit false
+         :_rowMenuSplitTarget 0
          :_rowMenuMatched false
          :_rowMenuManual false
          :_rowMenuX 0

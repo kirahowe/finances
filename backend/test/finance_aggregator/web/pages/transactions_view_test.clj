@@ -160,6 +160,96 @@
     (testing "the add-statement action is present"
       (is (re-find #"Add statement" h)))))
 
+;; --- Row rendering (splits-as-transactions: a part is a normal row + marker) --
+
+(def ^:private plain-tx
+  {:db/id 41 :transaction/payee "Superstore" :transaction/amount -85.00M
+   :transaction/effective-description "weekly shop" :transaction/reviewed true
+   :transaction/posted-date #inst "2026-05-05"
+   :transaction/account {:db/id 100 :account/external-name "Visa"
+                         :account/institution {:db/id 1 :institution/name "Bank"}}})
+
+(def ^:private part-tx
+  ;; A split part: a normal transaction plus the pulled :transaction/split-parent.
+  {:db/id 51 :transaction/payee "Costco" :transaction/amount -60.00M
+   :transaction/effective-description "food" :transaction/posted-date #inst "2026-05-06"
+   :transaction/split-parent {:db/id 50 :transaction/amount -100.00M
+                              :transaction/payee "Costco"}
+   :transaction/account {:db/id 100 :account/external-name "Visa"
+                         :account/institution {:db/id 1 :institution/name "Bank"}}})
+
+(deftest normal-row-plain-transaction
+  (let [h (html (tv/normal-row false plain-tx))]
+    (testing "no split affordances on an unsplit row"
+      (is (not (re-find #"is-split-part" h)))
+      (is (not (re-find #"split-marker" h)))
+      (is (not (re-find #"split-drift-badge" h))))
+    (testing "the reviewed checkbox is live (server-confirmed toggle)"
+      (is (re-find #"reviewed-checkbox" h))
+      (is (re-find #"/transactions/41/reviewed/" h))
+      (is (not (re-find #"disabled" h))))))
+
+(deftest normal-row-split-part-gets-marker-and-class
+  (let [h (html (tv/normal-row false part-tx))]
+    (testing "the row is tagged is-split-part"
+      (is (re-find #"is-split-part" h)))
+    (testing "the payee cell carries a marker button that opens the PARENT's editor"
+      (is (re-find #"split-marker" h))
+      (is (re-find #"/transactions/50/split-editor" h) "targets the parent id, not the part's")
+      (is (re-find #"Part of a split — view or edit" h))
+      (is (re-find #"Part of a split of -\$100\.00" h) "title carries the formatted parent amount"))
+    (testing "a part's checkbox is live like any row's"
+      (is (re-find #"/transactions/51/reviewed/" h)))
+    (testing "no drift badge when the family still reconciles"
+      (is (not (re-find #"split-drift-badge" h))))))
+
+(deftest normal-row-split-drift-badge
+  (let [h (html (tv/normal-row false (assoc part-tx :transaction/split-drift true)))]
+    (testing "a drifting part warns in the amount cell"
+      (is (re-find #"split-drift-badge" h))
+      (is (re-find #"Split no longer adds up" h)))))
+
+(deftest tbody-renders-one-row-per-transaction
+  (let [h (html (tv/tbody [plain-tx part-tx]))]
+    (testing "every transaction is a single normal row — no parent/child row machinery"
+      (is (= 2 (count (re-seq #"<tr" h))))
+      (is (not (re-find #"is-split-parent" h)))
+      (is (not (re-find #"split-child-row" h))))
+    (testing "the stale flag still marks rows"
+      (is (re-find #"is-stale" (html (tv/tbody [plain-tx] #{41})))))))
+
+(deftest row-actions-carry-the-split-target
+  (testing "a plain row's split menu target is the row itself"
+    (let [h (html (tv/normal-row false plain-tx))]
+      (is (re-find #"\$_rowMenuSplit = false" h))
+      (is (re-find #"\$_rowMenuSplitTarget = 41" h))))
+  (testing "a part's split menu target is its PARENT (Edit split opens the family's editor)"
+    (let [h (html (tv/normal-row false part-tx))]
+      (is (re-find #"\$_rowMenuSplit = true" h))
+      (is (re-find #"\$_rowMenuSplitTarget = 50" h))))
+  (testing "the shared menu's split item @gets the target, not the raw row id"
+    (let [h (html (tv/row-actions-menu))]
+      (is (re-find #"\$_rowMenuSplitTarget \+ &apos;/split-editor&apos;" h)))))
+
+(deftest split-editor-modal-split-state-and-hint
+  (let [parent {:db/id 50 :transaction/amount -100.00M :transaction/payee "Costco"
+                :transaction/_split-parent [{:db/id 51 :transaction/amount -60.00M
+                                             :transaction/split-order 0}
+                                            {:db/id 52 :transaction/amount -40.00M
+                                             :transaction/split-order 1}]}
+        split-h (html (tv/split-editor-modal parent [{:id 51 :amount "60.00" :category-id nil
+                                                      :memo nil :seed-cents -6000}
+                                                     {:id 52 :amount "40.00" :category-id nil
+                                                      :memo nil :seed-cents -4000}]))
+        unsplit-h (html (tv/split-editor-modal (dissoc parent :transaction/_split-parent) []))]
+    (testing "already-split comes from the live parts (:transaction/_split-parent)"
+      (is (re-find #"Edit split" split-h))
+      (is (re-find #"Un-split" split-h))
+      (is (re-find #"Split transaction" unsplit-h))
+      (is (not (re-find #"Un-split" unsplit-h))))
+    (testing "the hint says parts may be categorized now or later"
+      (is (re-find #"categorized now or later" split-h)))))
+
 (deftest date-cell-shows-posted-hint-only-when-dates-differ
   (testing "same-day: a single short date (no year), no posted hint"
     (let [h (html (tv/date-cell {:transaction/date #inst "2025-01-15"

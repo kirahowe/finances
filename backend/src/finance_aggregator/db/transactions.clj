@@ -131,6 +131,17 @@
   (let [tx (d/pull (d/db conn) transaction-pull-pattern tx-id)]
     (when (:transaction/external-id tx) (with-derived-fields tx))))
 
+(defn split-editor-root
+  "The transaction the split editor must open on for `tx-id`: the transaction itself,
+   or — when tx-id names a split PART — its PARENT (depth is 1; the parent's editor is
+   the only place amounts change, so every path into the editor lands on the family's
+   parent). Pulled + annotated like by-id; nil when tx-id isn't a real transaction."
+  [conn tx-id]
+  (let [tx (by-id conn tx-id)]
+    (if-let [parent-id (get-in tx [:transaction/split-parent :db/id])]
+      (by-id conn parent-id)
+      tx)))
+
 (defn user-description
   "The transaction's current user-description override (\"\" when none) — for capturing the
    before-value of an inline-description-edit command so undo can restore it."

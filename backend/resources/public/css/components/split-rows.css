@@ -1,30 +1,47 @@
-/* A split transaction reads as one group: the context (parent) row flows
-   into its part lines with no divider, and the group closes after the
-   last part. */
-.table tr.is-split-parent > td {
-  border-bottom: none;
-}
+/* Split parts in the transactions table. A part is a NORMAL row (own date,
+   payee, amount, category, checkbox) plus a small family marker in the payee
+   cell; the row itself stays quiet — `.is-split-part` is the hook (tests,
+   future tinting) with no visual treatment of its own. */
 
-.split-child-row > td {
-  border-bottom: none;
-  padding-top: var(--spacing-xs);
-  padding-bottom: var(--spacing-xs);
+/* Payee-cell marker linking a part back to its family: a quiet icon button
+   that opens the split editor on the PARENT. Muted at rest, accent on hover —
+   the same weight as the matched transfer-status glyph. */
+.split-marker {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  vertical-align: -0.2em;
+  margin-left: var(--spacing-xs);
+  padding: 2px;
+  background: none;
+  border: 1px solid transparent;
+  border-radius: var(--radius-sm);
   color: var(--color-text-muted);
+  cursor: pointer;
+  transition: color var(--duration-fast) var(--ease-out),
+    background-color var(--duration-fast) var(--ease-out);
 }
 
-.split-child-row.is-last > td {
-  border-bottom: 1px solid var(--color-border);
+.split-marker svg {
+  width: 0.85em;
+  height: 0.85em;
 }
 
-/* Branch marker shown in the (otherwise blank) description column of each
-   part line. */
-.split-icon {
-  display: inline-block;
-  vertical-align: -2px;
-  margin-right: var(--spacing-sm);
-  color: var(--color-text-muted);
+.split-marker:hover {
+  color: var(--color-primary);
+  background: var(--color-accent-soft);
 }
 
-.split-icon-drift {
-  color: var(--color-negative);
+.split-marker:focus-visible {
+  outline: none;
+  box-shadow: var(--focus-ring);
+}
+
+/* Amount-cell warning when the family no longer sums to the imported total
+   (the parent's amount changed on a re-sync). Warn pill text color; the title
+   carries the explanation. */
+.split-drift-badge {
+  margin-left: var(--spacing-xs);
+  color: var(--color-pill-warn-text);
+  cursor: help;
 }

@@ -17,11 +17,6 @@ export interface SplitRowInput {
   seedCents?: number | null;
 }
 
-/** Split parts in stable display order (by :split/order). Does not mutate input. */
-export function sortSplits<T extends { 'split/order'?: number }>(parts: T[]): T[] {
-  return [...parts].sort((a, b) => (a['split/order'] ?? 0) - (b['split/order'] ?? 0));
-}
-
 const AMOUNT_RE = /^-?(\d+(\.\d{1,2})?|\.\d{1,2})$/;
 
 /** Parse a user-entered amount to a positive magnitude in integer cents, or null if malformed. */
@@ -91,7 +86,11 @@ export function fillRemainingCents(
   return directionalRemaining(parentAmount, others);
 }
 
-/** Whether the split editor's rows are valid and ready to save. */
+/**
+ * Whether the split editor's rows are valid and ready to save. A part may be left
+ * uncategorized (the Uncategorized bucket owns it — categorize now or later); only
+ * the amounts must be present, non-zero, and reconcile exactly.
+ */
 export function canConfirm(parentAmount: number, rows: SplitRowInput[]): boolean {
   if (rows.length < 2) return false;
   // The 2-decimal editor can only reconcile a whole-cent parent exactly; for a
@@ -100,7 +99,6 @@ export function canConfirm(parentAmount: number, rows: SplitRowInput[]): boolean
   for (const r of rows) {
     const cents = rowSignedCents(parentAmount, r);
     if (cents === null || cents === 0) return false;
-    if (r.categoryId == null) return false;
   }
   return remainingCents(parentAmount, rows) === 0;
 }

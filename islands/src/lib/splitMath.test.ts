@@ -7,7 +7,6 @@ import {
   canConfirm,
   rowSignedCents,
   isWholeCents,
-  sortSplits,
 } from './splitMath';
 
 const row = (amount: string, categoryId: number | null = 1) => ({ amount, categoryId });
@@ -85,7 +84,7 @@ describe('fillRemainingCents', () => {
 });
 
 describe('canConfirm', () => {
-  it('accepts >=2 categorized rows whose magnitudes balance', () => {
+  it('accepts >=2 rows whose magnitudes balance', () => {
     expect(canConfirm(-100, [row('60'), row('40')])).toBe(true);
     expect(canConfirm(100, [row('60'), row('40')])).toBe(true);
   });
@@ -94,8 +93,9 @@ describe('canConfirm', () => {
     expect(canConfirm(-100, [row('100')])).toBe(false);
   });
 
-  it('rejects an uncategorized row', () => {
-    expect(canConfirm(-100, [row('60', null), row('40')])).toBe(false);
+  it('accepts an uncategorized row — parts can be categorized now or later', () => {
+    expect(canConfirm(-100, [row('60', null), row('40')])).toBe(true);
+    expect(canConfirm(-100, [row('60', null), row('40', null)])).toBe(true);
   });
 
   it('rejects a zero amount', () => {
@@ -104,24 +104,6 @@ describe('canConfirm', () => {
 
   it('rejects unbalanced rows', () => {
     expect(canConfirm(-100, [row('60'), row('30')])).toBe(false);
-  });
-});
-
-describe('sortSplits', () => {
-  it('orders parts by split/order without mutating the input', () => {
-    const parts = [
-      { 'split/order': 2, id: 'c' },
-      { 'split/order': 0, id: 'a' },
-      { 'split/order': 1, id: 'b' },
-    ];
-    expect(sortSplits(parts).map((p) => p.id)).toEqual(['a', 'b', 'c']);
-    // original array is untouched
-    expect(parts.map((p) => p.id)).toEqual(['c', 'a', 'b']);
-  });
-
-  it('treats a missing order as 0', () => {
-    const parts = [{ 'split/order': 1, id: 'b' }, { id: 'a' }];
-    expect(sortSplits(parts).map((p) => p.id)).toEqual(['a', 'b']);
   });
 });
 

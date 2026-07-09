@@ -368,11 +368,13 @@
          (edit-response db-conn req signals))))))
 
 (defn split-editor
-  "GET /transactions/:id/split-editor — render the split-editor modal for one transaction into
-   #modal-root. A pure read (no command, no lingering change)."
+  "GET /transactions/:id/split-editor — render the split-editor modal into #modal-root.
+   A pure read (no command, no lingering change). When :id names a split PART, the editor
+   opens on its PARENT (db-transactions/split-editor-root) — defensive, so every path in
+   lands on the family's parent."
   [{:keys [db-conn]}]
   (fn [req]
-    (let [tx (db-transactions/by-id db-conn (path-id req :id))]
+    (let [tx (db-transactions/split-editor-root db-conn (path-id req :id))]
       (sse-response req (fn [sse] (patch! sse (split-editor-modal tx (view/split-editor-seed tx))))))))
 
 (defn set-splits

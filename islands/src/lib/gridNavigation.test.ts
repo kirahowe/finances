@@ -14,10 +14,8 @@ import {
 
 const ALL_COLS: ColId[] = ['description', 'category', 'reviewed'];
 
-// A normal (unsplit) transaction row.
-const tx = (txId: number) => ({ txId, splitIds: null });
-// A split transaction with the given part ids.
-const split = (txId: number, splitIds: number[]) => ({ txId, splitIds });
+// A transaction row (every row is a plain transaction — a split part included).
+const tx = (txId: number) => ({ txId });
 
 describe('navigableColumns', () => {
   it('keeps only editable columns, in visual order', () => {
@@ -38,46 +36,27 @@ describe('navigableColumns', () => {
 });
 
 describe('buildGridModel', () => {
-  it('builds one row per unsplit transaction with all visible editable columns', () => {
+  it('builds one row per transaction with all visible editable columns', () => {
     const { rows } = buildGridModel(ALL_COLS, [tx(1), tx(2)]);
     expect(rows).toHaveLength(2);
-    expect(rows[0]).toEqual({ key: { txId: 1, splitId: null }, kind: 'normal', cols: ALL_COLS });
-  });
-
-  it('expands a split into a description-only parent plus full child rows', () => {
-    const { rows } = buildGridModel(ALL_COLS, [split(5, [51, 52])]);
-    expect(rows.map((r) => [r.kind, r.key.splitId, r.cols])).toEqual([
-      ['split-parent', null, ['description']],
-      ['split-child', 51, ALL_COLS],
-      ['split-child', 52, ALL_COLS],
-    ]);
-  });
-
-  it('omits the split parent when Description is hidden (it would have no cells)', () => {
-    const { rows } = buildGridModel(['category', 'reviewed'], [split(5, [51])]);
-    expect(rows.map((r) => r.kind)).toEqual(['split-child']);
-    expect(rows[0].cols).toEqual(['category', 'reviewed']);
+    expect(rows[0]).toEqual({ key: { txId: 1 }, cols: ALL_COLS });
   });
 
   it('produces no rows when every editable column is hidden', () => {
-    expect(buildGridModel([], [tx(1), split(5, [51])]).rows).toEqual([]);
+    expect(buildGridModel([], [tx(1), tx(2)]).rows).toEqual([]);
   });
 });
 
 describe('cell identity helpers', () => {
-  it('keys cells by row identity and column, not index', () => {
-    expect(cellKey({ txId: 7, splitId: null }, 'category')).toBe('7:tx:category');
-    expect(cellKey({ txId: 7, splitId: 51 }, 'reviewed')).toBe('7:51:reviewed');
+  it('keys cells by row identity and column, not index (the "tx" token is the DOM contract)', () => {
+    expect(cellKey({ txId: 7 }, 'category')).toBe('7:tx:category');
+    expect(cellKey({ txId: 41 }, 'reviewed')).toBe('41:tx:reviewed');
   });
 
-  it('marks reviewed and split-child category as not inline-editable', () => {
-    const normal = { key: { txId: 1, splitId: null }, kind: 'normal' as const, cols: ALL_COLS };
-    const child = { key: { txId: 1, splitId: 9 }, kind: 'split-child' as const, cols: ALL_COLS };
-    expect(isInlineEditable(normal, 'description')).toBe(true);
-    expect(isInlineEditable(normal, 'category')).toBe(true);
-    expect(isInlineEditable(normal, 'reviewed')).toBe(false);
-    expect(isInlineEditable(child, 'category')).toBe(false);
-    expect(isInlineEditable(child, 'description')).toBe(true);
+  it('marks reviewed as the only non-inline-editable column', () => {
+    expect(isInlineEditable('description')).toBe(true);
+    expect(isInlineEditable('category')).toBe(true);
+    expect(isInlineEditable('reviewed')).toBe(false);
   });
 });
 
@@ -185,34 +164,17 @@ describe('navReducer', () => {
     // A row that no longer exists (e.g. re-sorted / filtered away) must not move
     // from a stale index; the reducer re-anchors to the first row.
     const ghost: NavState = {
-      active: { key: { txId: 999, splitId: null }, col: 'category' },
+      active: { key: { txId: 999 }, col: 'category' },
       mode: 'navigation',
     };
     expect(navReducer(ghost, 'up', model)).toEqual(at(0, 'category'));
   });
 
-  describe('split traversal', () => {
-    const splitModel = buildGridModel(ALL_COLS, [tx(1), split(5, [51, 52]), tx(9)]);
-    // rows: [0] tx1 normal, [1] split-parent(desc), [2] child51, [3] child52, [4] tx9
-    const atS = (row: number, col: ColId): NavState => cellOf(splitModel, row, col);
-    const editAtS = (row: number, col: ColId): NavState => ({ ...atS(row, col), mode: 'edit' });
-
-    it('keeps the column when present, falls back to the first when absent', () => {
-      // Down from tx1's category onto the split parent (description only) -> description.
-      expect(navReducer(atS(0, 'category'), 'down', splitModel)).toEqual(atS(1, 'description'));
-      // Down again from the parent into the first child keeps description.
-      expect(navReducer(atS(1, 'description'), 'down', splitModel)).toEqual(atS(2, 'description'));
-      // A child keeps category on the way down to the next child.
-      expect(navReducer(atS(2, 'category'), 'down', splitModel)).toEqual(atS(3, 'category'));
-      // Down from the last child into the next normal tx keeps category.
-      expect(navReducer(atS(3, 'category'), 'down', splitModel)).toEqual(atS(4, 'category'));
-    });
-
-    it('commit-down out of a parent (description-only) drops to navigation in the child', () => {
-      // Parent's description -> child's description is inline-editable, so it stays editing.
-      expect(navReducer(editAtS(1, 'description'), 'commit-down', splitModel)).toEqual(
-        editAtS(2, 'description')
-      );
-    });
+  it('commit-down keeps editing when the row below offers the same inline column', () => {
+    // The rapid "Enter walks the column" flow works across ANY adjacent rows now —
+    // a split part is just a row, so a family boundary never breaks the walk.
+    expect(navReducer(editAt(0, 'description'), 'commit-down', model)).toEqual(
+      editAt(1, 'description')
+    );
   });
 });

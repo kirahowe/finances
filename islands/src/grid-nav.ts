@@ -1,13 +1,15 @@
 // Spreadsheet keyboard-navigation island for the transactions table.
 //
 // The movement/mode logic is the project's pure, framework-free reducer
-// (src/lib/gridNavigation.ts) — the same module React's useGridNavigation drives and
-// that vitest already covers. This island is the imperative shell: rebuild the
-// navigable grid from the server-rendered DOM (each editable <td> carries
-// data-cell="txId:splitId|tx:col"), translate keystrokes through the reducer, move DOM
-// focus + the roving tabindex, and drive the inline editors.
+// (src/lib/gridNavigation.ts), which vitest covers. This island is the imperative
+// shell: rebuild the navigable grid from the server-rendered DOM (each editable
+// <td> carries data-cell="txId:tx:col" — the middle token is a fixed literal, a
+// kept-verbatim relic of the split-row era so the DOM contract never churned),
+// translate keystrokes through the reducer, move DOM focus + the roving tabindex,
+// and drive the inline editors. Every row is a plain transaction row — a split
+// part included.
 //
-// Editing reuses the Phase-3c editors rather than reimplementing them: the island
+// Editing reuses the existing editors rather than reimplementing them: the island
 // OPENS an editor (clicking the description button runs its Datastar open handler; a
 // category cell dispatches `open-combobox` to the combobox island), and the editors
 // report back through a bubbling `gridedit` DOM event — detail.action `advance`
@@ -32,17 +34,15 @@ const table = scroll?.querySelector<HTMLElement>('table');
 
 if (scroll && table) {
   // Rebuild the navigable grid from the DOM: group consecutive [data-cell] cells by
-  // their row key (DOM order = visual order) into the {key, kind, cols} rows the
+  // their row key (DOM order = visual order) into the {key, cols} rows the
   // reducer reasons over (gotcha §2: no JSON in a <script>).
   const cellEls = new Map<string, HTMLElement>();
   const model: GridModel = { rows: [] };
 
   const parseKey = (dc: string): { key: RowKey; col: ColId } => {
-    const [txStr, splitStr, col] = dc.split(':');
-    return {
-      key: { txId: Number(txStr), splitId: splitStr === 'tx' ? null : Number(splitStr) },
-      col: col as ColId,
-    };
+    // data-cell="txId:tx:col" — the middle token is always the literal "tx".
+    const [txStr, , col] = dc.split(':');
+    return { key: { txId: Number(txStr) }, col: col as ColId };
   };
 
   // (Re)build the navigable grid from the current DOM order — called on load and again
@@ -50,7 +50,7 @@ if (scroll && table) {
   function buildModel() {
     cellEls.clear();
     model.rows.length = 0;
-    let lastRowKey: string | null = null;
+    let lastTxId: number | null = null;
     for (const td of table!.querySelectorAll<HTMLElement>('[data-cell]')) {
       // Skip cells in a hidden column (the column picker collapses them to display:none, so
       // offsetParent is null): an interactive column the user has hidden must drop out of
@@ -59,17 +59,11 @@ if (scroll && table) {
       const dc = td.dataset.cell!;
       cellEls.set(dc, td);
       const { key, col } = parseKey(dc);
-      const rowKeyStr = `${key.txId}:${key.splitId ?? 'tx'}`;
-      if (rowKeyStr !== lastRowKey) {
-        model.rows.push({ key, kind: key.splitId !== null ? 'split-child' : 'normal', cols: [] });
-        lastRowKey = rowKeyStr;
+      if (key.txId !== lastTxId) {
+        model.rows.push({ key, cols: [] });
+        lastTxId = key.txId;
       }
       model.rows[model.rows.length - 1].cols.push(col);
-    }
-    for (const r of model.rows) {
-      if (r.key.splitId === null && r.cols.length === 1 && r.cols[0] === 'description') {
-        r.kind = 'split-parent';
-      }
     }
   }
   buildModel();
@@ -80,7 +74,7 @@ if (scroll && table) {
   const elFor = (active: NavState['active']): HTMLElement | null =>
     active ? cellEls.get(cellKey(active.key, active.col)) ?? null : null;
   const rowFor = (key: RowKey): NavigableRow | undefined =>
-    model.rows.find((r) => r.key.txId === key.txId && r.key.splitId === key.splitId);
+    model.rows.find((r) => r.key.txId === key.txId);
 
   // An editor owns the keyboard while open: the floating combobox, or a focused
   // description input.
@@ -140,15 +134,15 @@ if (scroll && table) {
     elFor(state.active)?.querySelector<HTMLInputElement>('.reviewed-checkbox')?.click();
   }
 
-  // Open the active cell's editor. Description: click its button (the 3c Datastar
+  // Open the active cell's editor. Description: click its button (its Datastar
   // handler snapshots + opens + focuses), optionally seeding a typed character.
-  // Category (normal rows): hand off to the combobox island via a DOM event. Reviewed
-  // and a split child's category have no inline editor, so they're left alone.
+  // Category: hand off to the combobox island via a DOM event. Reviewed has no
+  // inline editor, so it's left alone.
   function openActiveEditor(seed: string | null) {
     const a = state.active;
     if (!a) return;
     const row = rowFor(a.key);
-    if (!row || !isInlineEditable(row, a.col)) return;
+    if (!row || !isInlineEditable(a.col)) return;
     const td = elFor(a);
     if (!td) return;
     if (a.col === 'description') {

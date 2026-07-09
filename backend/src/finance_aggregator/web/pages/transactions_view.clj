@@ -46,9 +46,10 @@
 (defn chevrons-right [] (icon [:polyline {:points "13 17 18 12 13 7"}] [:polyline {:points "6 17 11 12 6 7"}]))
 (defn undo-icon     [] (icon [:path {:d "M9 14 4 9l5-5"}] [:path {:d "M4 9h10.5a5.5 5.5 0 0 1 5.5 5.5 5.5 5.5 0 0 1-5.5 5.5H11"}]))
 (defn redo-icon     [] (icon [:path {:d "m15 14 5-5-5-5"}] [:path {:d "M20 9H9.5A5.5 5.5 0 0 0 4 14.5 5.5 5.5 0 0 0 9.5 20H13"}]))
+(defn split-icon    [] (icon [:polyline {:points "5 4 5 9 12 14 12 20"}] [:polyline {:points "19 4 19 9 12 14"}]))
 
 ;; ---------------------------------------------------------------------------
-;; Rows (editable normal rows + read-only split children)
+;; Rows (every transaction — a split part included — is one editable row)
 ;; ---------------------------------------------------------------------------
 
 (defn account-name
@@ -63,21 +64,17 @@
   (or (get-in tx [:transaction/account :account/institution :institution/name]) "—"))
 
 (defn amount-span
-  "Signed amount with sign class. `split?` matches the split rule (0 reads positive) vs
-   the normal-row rule (0 reads negative)."
-  [amt split?]
-  (let [negative? (if split? (neg? amt) (not (pos? amt)))]
-    [:span {:class (str "numeric " (if negative? "negative" "positive"))} (fmt/amount amt)]))
+  "Signed amount with sign class — one rule for every row: 0 reads negative."
+  [amt]
+  [:span {:class (str "numeric " (if (pos? amt) "positive" "negative"))} (fmt/amount amt)])
 
 (defn reviewed-checkbox
-  "Editable rows: a server-confirmed toggle (`change` @put's the new state in the path —
-   `el.checked`, no per-row signal). Split children have a rolled-up flag and stay read-only
-   (split-reviewed editing is later)."
-  [tx-id reviewed? editable?]
-  (if editable?
-    [:input {:type "checkbox" :class "reviewed-checkbox" :checked (boolean reviewed?)
-             "data-on:change" (str "@put('/transactions/" tx-id "/reviewed/' + el.checked)")}]
-    [:input {:type "checkbox" :class "reviewed-checkbox" :checked (boolean reviewed?) :disabled true}]))
+  "A server-confirmed toggle (`change` @put's the new state in the path — `el.checked`,
+   no per-row signal). Every row's checkbox is live: a split part reviews itself like
+   any transaction."
+  [tx-id reviewed?]
+  [:input {:type "checkbox" :class "reviewed-checkbox" :checked (boolean reviewed?)
+           "data-on:change" (str "@put('/transactions/" tx-id "/reviewed/' + el.checked)")}])
 
 (defn row-class [base stale?]
   (str/trim (str base (when stale? " is-stale"))))
@@ -187,7 +184,7 @@
 
 (defn grid-cell
   "Attrs marking a <td> as a keyboard-navigable grid cell (txId:tx:col, consumed by the
-   gridNavigation reducer). Normal rows only; split cells aren't navigable yet."
+   gridNavigation reducer). Every row is a plain navigable row — a split part included."
   [tx-id col]
   {:data-cell (str tx-id ":tx:" col) :role "gridcell" :tabindex "-1"})
 
@@ -197,7 +194,12 @@
 ;; rendered outside the table so it escapes overflow), carrying the row's id + split state +
 ;; position into the ephemeral _rowMenu signals.
 
-(defn row-actions-cell [tx-id split? matched? manual?]
+(defn row-actions-cell
+  "The caret cell. $_rowMenuSplit = \"this row is a split part\" (the menu item reads
+   'Edit split'); $_rowMenuSplitTarget = the id the split editor must open on — the
+   PARENT for a part (depth is 1), the row itself otherwise. `split-parent-id` is the
+   pulled parent's id, nil on a non-part row."
+  [tx-id split-parent-id matched? manual?]
   [:td.actions-cell
    [:div.row-actions
     [:button.row-actions-trigger
@@ -205,7 +207,9 @@
       "data-attr" (str "{'aria-expanded': $_rowMenu === " tx-id " ? 'true' : 'false'}")
       "data-on:click__stop"
       (str "$_rowMenu = ($_rowMenu === " tx-id " ? 0 : " tx-id ");"
-           " $_rowMenuSplit = " (boolean split?) "; $_rowMenuMatched = " (boolean matched?) ";"
+           " $_rowMenuSplit = " (some? split-parent-id) ";"
+           " $_rowMenuSplitTarget = " (or split-parent-id tx-id) ";"
+           " $_rowMenuMatched = " (boolean matched?) ";"
            " $_rowMenuManual = " (boolean manual?) ";"
            " $_rowMenuX = Math.max(8, window.innerWidth - el.getBoundingClientRect().right);"
            " $_rowMenuY = el.getBoundingClientRect().bottom + 4")}
@@ -225,50 +229,54 @@
      (when (and posted-date shown (not= shown posted-date))
        [:span.posted-hint [:span.posted-sep "·"] "posted " (fmt/date-short posted-date)])]))
 
-(defn normal-row [stale? {:transaction/keys [payee effective-description
-                                             amount reviewed] :as tx}]
-  [:tr {:role "row" :class (row-class "" stale?)}
+(defn split-marker
+  "Payee-cell marker on a split PART row: a quiet icon button linking the part back to
+   its family — it opens the split editor on the PARENT (the only place amounts change).
+   `parent` is the pulled :transaction/split-parent map. `__stop` so the click doesn't
+   also reach the cell/grid-nav handlers; tabindex -1 keeps it out of the tab order
+   (the row-actions menu is the keyboard path)."
+  [parent]
+  [:button.split-marker
+   {:type "button" :tabindex "-1"
+    :aria-label "Part of a split — view or edit"
+    :title (str "Part of a split of " (fmt/amount (:transaction/amount parent)))
+    "data-on:click__stop" (str "@get('/transactions/" (:db/id parent) "/split-editor')")}
+   (split-icon)])
+
+(defn split-drift-badge
+  "Amount-cell warning on a part whose family no longer sums to the imported total
+   (:transaction/split-drift — a re-sync changed the parent's amount). Surfaced, never
+   silently corrected; the editor is where the user re-balances."
+  []
+  [:span.split-drift-badge
+   {:role "img"
+    :aria-label "Split no longer adds up — the imported total changed"
+    :title "Split no longer adds up — the imported total changed"}
+   "⚠"])
+
+(defn normal-row
+  "One transaction as one row. A split part renders as a normal row plus a payee-cell
+   marker back to its family (and, on drift, an amount-cell warning) — every column
+   stays live exactly like any other row's."
+  [stale? {:transaction/keys [payee effective-description amount reviewed
+                              split-parent split-drift] :as tx}]
+  [:tr {:role "row" :class (row-class (if split-parent "is-split-part" "") stale?)}
    (date-cell tx)
    [:td (account-name tx)]
    [:td (institution-name tx)]
-   [:td payee]
+   [:td.payee-cell payee (when split-parent (split-marker split-parent))]
    [:td.description-cell (grid-cell (:db/id tx) "description") (editable-description (:db/id tx) effective-description)]
-   [:td.amount-cell (amount-span amount false)]
+   [:td.amount-cell (amount-span amount) (when split-drift (split-drift-badge))]
    [:td.category-cell (grid-cell (:db/id tx) "category") (category-cell-inner tx)]
-   [:td.reviewed-cell (grid-cell (:db/id tx) "reviewed") (reviewed-checkbox (:db/id tx) reviewed true)]
-   (row-actions-cell (:db/id tx) false (some? (:transaction/transfer-pair tx))
+   [:td.reviewed-cell (grid-cell (:db/id tx) "reviewed") (reviewed-checkbox (:db/id tx) reviewed)]
+   (row-actions-cell (:db/id tx) (:db/id split-parent) (some? (:transaction/transfer-pair tx))
                      (= :manual (:transaction/provider tx)))])
-
-(defn split-parent-row [stale? {:transaction/keys [payee effective-description] :as tx}]
-  [:tr {:role "row" :class (row-class "is-split-parent" stale?)}
-   (date-cell tx)
-   [:td (account-name tx)]
-   [:td (institution-name tx)]
-   [:td payee]
-   [:td.description-cell (if (str/blank? effective-description) "—" effective-description)]
-   [:td.amount-cell] [:td.category-cell] [:td.reviewed-cell]
-   (row-actions-cell (:db/id tx) true (some? (:transaction/transfer-pair tx))
-                     (= :manual (:transaction/provider tx)))])
-
-(defn split-child-row [stale? {:split/keys [amount memo category reviewed]}]
-  [:tr {:role "row" :class (row-class "split-child-row" stale?)}
-   [:td] [:td] [:td] [:td]
-   [:td.description-cell (if (str/blank? memo) "—" memo)]
-   [:td.amount-cell (amount-span amount true)]
-   [:td.category-cell (or (:category/name category) "Uncategorized")]
-   [:td.reviewed-cell (reviewed-checkbox nil reviewed false)]
-   [:td.actions-cell]])
-
-(defn tx-rows [stale-ids tx]
-  (let [stale? (contains? stale-ids (:db/id tx))]
-    (if-let [parts (seq (:transaction/splits tx))]
-      (into [(split-parent-row stale? tx)] (map #(split-child-row stale? %) (sort-by :split/order parts)))
-      [(normal-row stale? tx)])))
 
 (defn tbody
   ([rows] (tbody rows #{}))
   ([rows stale-ids]
-   (into [:tbody {:id "tx-tbody"}] (mapcat #(tx-rows stale-ids %) rows))))
+   (into [:tbody {:id "tx-tbody"}]
+         (map #(normal-row (contains? stale-ids (:db/id %)) %) rows))))
 
 ;; ---------------------------------------------------------------------------
 ;; Header (sortable columns; cycle asc → desc → cleared, server-side)
@@ -655,11 +663,12 @@
 
 (defn row-actions-menu
   "The single floating menu shared by every row's caret (rendered outside the table so it
-   escapes overflow). $_rowMenu holds the open row's id (0 = closed); $_rowMenuSplit and
-   $_rowMenuMatched carry that row's split/matched state so the items read \"Edit split\" vs
-   \"Split transaction\" and \"Matched transfer\" vs \"Match transfer\"; $_rowMenuManual gates
-   a \"Delete transaction\" item shown only for manual rows. Each item @get's the relevant
-   modal for $_rowMenu (the url is built before $_rowMenu is cleared)."
+   escapes overflow). $_rowMenu holds the open row's id (0 = closed); $_rowMenuSplit (\"this
+   row is a split part\") and $_rowMenuMatched flip the item labels — \"Edit split\" vs
+   \"Split transaction\" and \"Matched transfer\" vs \"Match transfer\"; $_rowMenuSplitTarget
+   is the id the split editor opens on (a part's PARENT, else the row itself); $_rowMenuManual
+   gates a \"Delete transaction\" item shown only for manual rows. Each item @get's the
+   relevant modal (the url is built before the signals are cleared)."
   []
   [:ul.row-actions-menu {:id "row-actions-menu" :role "menu" :aria-label "Row actions"
                          "data-show" "$_rowMenu"
@@ -670,7 +679,7 @@
     [:button.row-actions-item
      {:type "button" :role "menuitem"
       "data-text" "$_rowMenuSplit ? 'Edit split' : 'Split transaction'"
-      "data-on:click" "@get('/transactions/' + $_rowMenu + '/split-editor'); $_rowMenu = 0"}
+      "data-on:click" "@get('/transactions/' + $_rowMenuSplitTarget + '/split-editor'); $_rowMenu = 0"}
      "Split transaction"]]
    [:li {:role "none"}
     [:button.row-actions-item
@@ -696,7 +705,7 @@
   [tx seed]
   (let [tx-id (:db/id tx)
         amount (:transaction/amount tx)
-        split? (boolean (seq (:transaction/splits tx)))]
+        split? (boolean (seq (:transaction/_split-parent tx)))]
     [:div {:id "modal-root"}
      [:div.modal-backdrop.split-modal-backdrop {:role "presentation"}
       [:div.modal-content.split-modal-content
@@ -708,7 +717,7 @@
         [:span.split-modal-payee (:transaction/payee tx)]
         [:span.numeric (fmt/amount amount)]]
        [:p.split-modal-hint
-        "Divide this transaction into parts that add up to the total. Each part gets its own category."]
+        "Divide this transaction into parts that add up to the total. Parts can be categorized now or later."]
        [:div.split-row.split-row-head {:aria-hidden "true"}
         [:span "Amount"] [:span "Category"] [:span "Description"] [:span]]
        [:div.split-rows-container]

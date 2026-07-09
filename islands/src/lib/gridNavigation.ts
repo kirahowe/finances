@@ -1,17 +1,18 @@
 // The spreadsheet-style keyboard navigation core for the transactions table.
 //
 // This module is pure — no React, no DOM. It models the table as a flat list of
-// navigable rows (each carrying the editable columns it actually offers) and runs
-// a two-mode state machine over an `{ active, mode }` value:
+// navigable rows (every row a plain transaction — a split part included — offering
+// the same editable columns) and runs a two-mode state machine over an
+// `{ active, mode }` value:
 //
 //   navigation  — an active cell is highlighted; arrows move it.
 //   edit        — the active cell's editor is open and owns its own keys.
 //
-// The owning hook (useGridNavigation) is a thin imperative shell that feeds the
+// The owning island (grid-nav.ts) is a thin imperative shell that feeds the
 // current GridModel in, resolves a keystroke to an Intent, dispatches it through
 // `navReducer`, and moves real DOM focus to match. Keeping all the movement and
 // mode logic here means the whole keymap is unit-testable without rendering a
-// single component (mirrors the pure overlay modules + thin useWriteBehind shell).
+// single component.
 
 // The editable columns, in visual left-to-right order. Horizontal navigation hops
 // between these (skipping the read-only and hidden columns); this is the single
@@ -21,23 +22,17 @@ export type ColId = (typeof EDITABLE_COLUMN_IDS)[number];
 
 export type NavMode = 'navigation' | 'edit';
 
-// Stable identity of a navigable row. For an unsplit transaction and a split
-// PARENT row, splitId is null; for a split CHILD row it's the part's db id. This
-// (not a row index) keys the focus registry, so focus survives a re-sort.
+// Stable identity of a navigable row: its transaction's db id. This (not a row
+// index) keys the focus registry, so focus survives a re-sort.
 export interface RowKey {
   txId: number;
-  splitId: number | null;
 }
 
-export type RowKind = 'normal' | 'split-parent' | 'split-child';
-
-// One <tr> the keyboard can land on. `cols` is the ordered subset of the visible
-// editable columns this row actually offers — a split parent offers only its
-// description; a split child offers all three. Rows with no editable columns are
-// never built (see buildGridModel), so `cols` is always non-empty here.
+// One <tr> the keyboard can land on. `cols` is the visible editable columns —
+// the same ordered set for every row. Rows with no editable columns are never
+// built (see buildGridModel), so `cols` is always non-empty here.
 export interface NavigableRow {
   key: RowKey;
-  kind: RowKind;
   cols: ColId[];
 }
 
@@ -66,77 +61,47 @@ export const INITIAL_NAV_STATE: NavState = { active: null, mode: 'navigation' };
 // Building the model
 // ---------------------------------------------------------------------------
 
-// The per-transaction shape buildGridModel needs from the displayed page: the
-// transaction id and, when split, its parts' ids in display order (null when not
-// split). Derived at the call site from the displayed rows + their sorted splits.
+// The per-transaction shape buildGridModel needs from the displayed page: just
+// the transaction id (every row — a split part included — is a plain row).
 export interface RowInput {
   txId: number;
-  splitIds: number[] | null;
 }
 
 // The visible editable columns, in visual order — the intersection of the
-// editable set with whatever columns are currently shown. Pass
-// table.getVisibleLeafColumns().map(c => c.id); hidden columns drop out, so the
-// keyboard layer never lands on a column the user has hidden.
+// editable set with whatever columns are currently shown. Hidden columns drop
+// out, so the keyboard layer never lands on a column the user has hidden.
 export function navigableColumns(visibleColumnIds: readonly string[]): ColId[] {
   return EDITABLE_COLUMN_IDS.filter((id) => visibleColumnIds.includes(id));
 }
 
 // Build the flat navigable-row list from the displayed transactions and the
-// visible editable columns. A split transaction becomes a parent row (description
-// only) followed by one child row per part (all three columns). Rows left with no
-// editable columns — e.g. a split parent when the Description column is hidden —
-// are omitted entirely, so navigation never stalls on an inert row.
+// visible editable columns: one row per transaction, every row offering the same
+// columns. No rows when every editable column is hidden, so navigation never
+// stalls on an inert row.
 export function buildGridModel(cols: ColId[], inputs: RowInput[]): GridModel {
-  const childCols = cols; // children offer every visible editable column
-  const parentCols = cols.filter((c) => c === 'description');
-
-  const rows: NavigableRow[] = [];
-  for (const input of inputs) {
-    if (input.splitIds === null) {
-      if (cols.length > 0) {
-        rows.push({ key: { txId: input.txId, splitId: null }, kind: 'normal', cols });
-      }
-      continue;
-    }
-    if (parentCols.length > 0) {
-      rows.push({
-        key: { txId: input.txId, splitId: null },
-        kind: 'split-parent',
-        cols: parentCols,
-      });
-    }
-    for (const splitId of input.splitIds) {
-      if (childCols.length > 0) {
-        rows.push({
-          key: { txId: input.txId, splitId },
-          kind: 'split-child',
-          cols: childCols,
-        });
-      }
-    }
-  }
-  return { rows };
+  if (cols.length === 0) return { rows: [] };
+  return { rows: inputs.map((input) => ({ key: { txId: input.txId }, cols })) };
 }
 
 // ---------------------------------------------------------------------------
 // Cell identity helpers
 // ---------------------------------------------------------------------------
 
-// A stable string key for a cell, used by the hook's focus registry. Built from
-// the row's identity (not its index) so it's invariant under sort/filter changes.
+// A stable string key for a cell, used by the focus registry. Built from the
+// row's identity (not its index) so it's invariant under sort/filter changes.
+// The middle "tx" token is the server-rendered data-cell contract
+// (data-cell="txId:tx:col") — kept verbatim so the DOM never churned when the
+// old split-row model's per-part key slot went away.
 export function cellKey(key: RowKey, col: ColId): string {
-  return `${key.txId}:${key.splitId ?? 'tx'}:${col}`;
+  return `${key.txId}:tx:${col}`;
 }
 
 // Whether a cell opens an INLINE editor (a text input or the category combobox).
-// The reviewed checkbox toggles in place (Space), and a split child's category
-// opens the split modal — neither is "inline editable", so Enter/type-to-edit
-// must not switch them into edit mode. The hook routes those to side effects.
-export function isInlineEditable(row: NavigableRow, col: ColId): boolean {
-  if (col === 'reviewed') return false;
-  if (col === 'category' && row.kind === 'split-child') return false;
-  return true;
+// The reviewed checkbox toggles in place (Space), so it isn't "inline editable" —
+// Enter/type-to-edit must not switch it into edit mode; the island routes it to
+// its side effect. The same rule for every row (a split part is a plain row).
+export function isInlineEditable(col: ColId): boolean {
+  return col !== 'reviewed';
 }
 
 // ---------------------------------------------------------------------------
@@ -239,7 +204,7 @@ const clamp = (n: number, lo: number, hi: number): number =>
   Math.max(lo, Math.min(hi, n));
 
 const rowIndexOf = (rows: NavigableRow[], key: RowKey): number =>
-  rows.findIndex((r) => r.key.txId === key.txId && r.key.splitId === key.splitId);
+  rows.findIndex((r) => r.key.txId === key.txId);
 
 // The cell at row index `rowIdx`, keeping `preferred` if that row offers it (so
 // vertical motion stays in its column), else its first column.
@@ -298,9 +263,9 @@ export function navReducer(state: NavState, intent: Intent, model: GridModel): N
 
     case 'edit':
     case 'type-to-edit':
-      // Only inline-editable cells enter edit mode; the hook routes reviewed /
-      // split-category cells to their side effects instead of dispatching here.
-      if (!isInlineEditable(rows[i], active.col)) return { active, mode: 'navigation' };
+      // Only inline-editable cells enter edit mode; the island routes reviewed
+      // cells to their side effect instead of dispatching here.
+      if (!isInlineEditable(active.col)) return { active, mode: 'navigation' };
       return { active, mode: 'edit' };
 
     case 'commit-down': {
@@ -311,8 +276,7 @@ export function navReducer(state: NavState, intent: Intent, model: GridModel): N
       const next = moveVertical(active, rows, +1);
       const nextIdx = rowIndexOf(rows, next.key);
       const moved = nextIdx !== i;
-      const stayEditing =
-        moved && next.col === active.col && isInlineEditable(rows[nextIdx], next.col);
+      const stayEditing = moved && next.col === active.col && isInlineEditable(next.col);
       return { active: next, mode: stayEditing ? 'edit' : 'navigation' };
     }
     case 'commit-close':

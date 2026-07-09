@@ -36,15 +36,9 @@
 }
 
 /* Cells center vertically so a row's text sits midline against its taller
-   controls. The exception is a row carrying real stacked content (a split
-   group), where top-align keeps the date/amount on the category's first line. */
+   controls. */
 .table.table-resizable td {
   vertical-align: middle;
-}
-
-.table.table-resizable tr.is-split-parent td,
-.table.table-resizable tr.split-child-row td {
-  vertical-align: top;
 }
 
 /* In fixed layout the colgroup owns the widths, so the ellipsis max-width:0
@@ -180,21 +174,6 @@
 
 .description-cell.editing .description-input {
   display: block;
-}
-
-/* A split part's description cell: the branch marker followed by its own
-   editable memo. */
-.split-description {
-  display: flex;
-  align-items: center;
-  gap: var(--spacing-xs);
-}
-
-.split-description .description-button,
-.split-description .description-input {
-  flex: 1 1 auto;
-  width: auto;
-  min-width: 0;
 }
 
 /* Header content row. */
