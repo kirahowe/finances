@@ -22,8 +22,8 @@
    [finance-aggregator.web.month :as month]
    [finance-aggregator.web.pages.transactions-view :as tv
     :refer [active-filters counts-fragment error-banner funnel-list match-modal page-body
-            pagination-bar review-list review-modal review-status-message rollup-pane
-            split-editor-modal sr-status tbody undo-redo-controls]]
+            pagination-bar posted-date-modal review-list review-modal review-status-message
+            rollup-pane split-editor-modal sr-status tbody undo-redo-controls]]
    [finance-aggregator.web.render :as r]
    [finance-aggregator.web.view :as view]
    [finance-aggregator.web.view-state :as vs]
@@ -435,6 +435,41 @@
          (commands/apply! db-conn auth/user-id
                           {:type :set-match :tx-id tx-id :before before :after nil :label "Unmatched transfer"})
          (edit-response db-conn req (r/read-signals req) :close-modal? true))))))
+
+(defn posted-date-editor
+  "GET /transactions/:id/posted-date-editor — render the posted-date override modal into
+   #modal-root. A split PART opens on its family ROOT (db-transactions/split-editor-root — the
+   override is family-uniform, same as the split editor's own defensive resolve). Seeds
+   $postedDateValue with the row's current EFFECTIVE date (yyyy-MM-dd) so the date input opens
+   prefilled; the modal itself renders the imported date alongside for reference. A pure read
+   (no command, no lingering change)."
+  [{:keys [db-conn]}]
+  (fn [req]
+    (let [tx (db-transactions/split-editor-root db-conn (path-id req :id))]
+      (sse-response req
+       (fn [sse]
+         (d*/patch-signals!
+          sse (r/signals {:postedDateValue (str (u/date->local-date (:transaction/effective-posted-date tx)))}))
+         (patch! sse (posted-date-modal tx)))))))
+
+(defn set-posted-date
+  "PUT /transactions/:id/posted-date — record + apply a :set-posted-date command (the new value
+   rides in the $postedDateValue courier as yyyy-MM-dd; blank clears the override), then
+   re-render and close the modal. Reuses the standard edit-response re-render — the effective
+   date driving bucketing/coverage/transfer-matching may move a row across a month or
+   statement-span boundary, exactly the kind of change that recomputes rows/counts/reconcile."
+  [{:keys [db-conn]}]
+  (fn [req]
+    (handle-edit req
+     (fn []
+       (let [tx-id (path-id req :id)
+             signals (r/read-signals req)
+             before (db-transactions/user-posted-date db-conn tx-id)
+             after (courier-date (:postedDateValue signals))]
+         (commands/apply! db-conn auth/user-id
+                          {:type :set-posted-date :tx-id tx-id :before before :after after
+                           :label (if after "Set posted date" "Cleared posted date")})
+         (edit-response db-conn req signals :close-modal? true))))))
 
 (defn review-transfers
   "GET /transactions/review-transfers — render the bulk transfer-review modal (auto-suggested

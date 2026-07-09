@@ -217,17 +217,25 @@
 
 (defn date-cell
   "The date column: the transaction date (when the purchase happened), and — only when the
-   posted date differs, i.e. it cleared a day or two later — a muted inline '· posted <date>'
-   on the same line, mirroring how a bank/card statement shows both a transaction and a post
-   date. Reconciliation still buckets by the posted date. Both dates are short (no year — the
-   period header carries it); legacy rows imported before we captured the authorized date have
-   date == posted-date, so no hint shows."
-  [{:transaction/keys [date posted-date]}]
+   EFFECTIVE posted date differs from it — a muted inline '· posted <date>' on the same line,
+   mirroring how a bank/card statement shows both a transaction and a post date.
+   :transaction/effective-posted-date (data.ledger/effective-posted-date) is the manual
+   override when the user has set one, else the provider's posted-date guess, else the plain
+   transaction date; reconciliation buckets by it, so the hint always shows what actually
+   drives that, not just the raw imported guess. When a manual override is set
+   (:transaction/user-posted-date present) the hint carries `posted-hint--manual` + a title, so
+   a user-set date reads visibly different from the provider's own. Both dates are short (no
+   year — the period header carries it); a row with no distinct effective date has
+   date == effective, so no hint shows."
+  [{:transaction/keys [date posted-date effective-posted-date user-posted-date]}]
   (let [shown (or date posted-date)]
     [:td.date-cell
      [:span.numeric (fmt/date-short shown)]
-     (when (and posted-date shown (not= shown posted-date))
-       [:span.posted-hint [:span.posted-sep "·"] "posted " (fmt/date-short posted-date)])]))
+     (when (and effective-posted-date shown (not= shown effective-posted-date))
+       [:span (cond-> {:class "posted-hint"}
+                user-posted-date (assoc :class "posted-hint posted-hint--manual"
+                                        :title "Posted date set manually"))
+        [:span.posted-sep "·"] "posted " (fmt/date-short effective-posted-date)])]))
 
 (defn split-marker
   "Payee-cell marker on a split PART row: a quiet icon button linking the part back to
@@ -667,7 +675,9 @@
    row is a split part\") and $_rowMenuMatched flip the item labels — \"Edit split\" vs
    \"Split transaction\" and \"Matched transfer\" vs \"Match transfer\"; $_rowMenuSplitTarget
    is the id the split editor opens on (a part's PARENT, else the row itself); $_rowMenuManual
-   gates a \"Delete transaction\" item shown only for manual rows. Each item @get's the
+   gates a \"Delete transaction\" item shown only for manual rows. \"Set posted date…\" @get's
+   plain $_rowMenu — the server resolves a split part to its family root itself
+   (split-editor-root), so no dedicated target signal is needed there. Each item @get's the
    relevant modal (the url is built before the signals are cleared)."
   []
   [:ul.row-actions-menu {:id "row-actions-menu" :role "menu" :aria-label "Row actions"
@@ -687,6 +697,11 @@
       "data-text" "$_rowMenuMatched ? 'Matched transfer' : 'Match transfer'"
       "data-on:click" "@get('/transactions/' + $_rowMenu + '/match'); $_rowMenu = 0"}
      "Match transfer"]]
+   [:li {:role "none"}
+    [:button.row-actions-item
+     {:type "button" :role "menuitem"
+      "data-on:click" "@get('/transactions/' + $_rowMenu + '/posted-date-editor'); $_rowMenu = 0"}
+     "Set posted date…"]]
    ;; Manual transactions only (the user's own entries) can be deleted — the menu item
    ;; is hidden for imported rows via $_rowMenuManual.
    [:li {:role "none" "data-show" "$_rowMenuManual"}
@@ -1235,6 +1250,43 @@
       "data-attr" "{disabled: !($stStart && $stStartBal && $stEnd && $stEndBal)}"
       "data-on:click" "@post('/transactions/statement')"}
      (if editing? "Save" "Add statement")]]))
+
+(defn posted-date-modal
+  "GET /transactions/:id/posted-date-editor → #modal-root: manually override a transaction's
+   posted date — for providers (Lunchflow, CSV/manual) that never supply a genuine one
+   independent of the transaction date, so a statement crossing a boundary can still be
+   reconciled. `tx` is the family ROOT (a split part's editor opens on its parent — same
+   defensive resolve as the split/match editors), pulled with the derived fields. The
+   `type=date` input is bound to the $postedDateValue courier, which the handler seeds
+   server-side (patch-signals, not shown here) with the row's current EFFECTIVE date; a muted
+   line always shows the provider's own imported :transaction/posted-date ('—' when the
+   provider never supplied one) so the user can see exactly what they're overriding. Save
+   @put's the courier as-is; Clear (shown only when an override is already set) blanks it
+   first — the handler parses a blank value as \"clear the override\", falling back through
+   the effective chain. Cancel/Esc/backdrop close client-side."
+  [tx]
+  (let [tx-id (:db/id tx)
+        override? (some? (:transaction/user-posted-date tx))
+        imported (:transaction/posted-date tx)]
+    (form-modal "posted-date-modal-title"
+     [:h2#posted-date-modal-title "Posted date — " (or (not-empty (:transaction/payee tx)) "(no payee)")]
+     [:div.posted-date-modal-sub
+      [:span.numeric (fmt/amount (:transaction/amount tx))]]
+     [:div.form-group
+      [:label.form-label {:for "posted-date-input"} "Posted date"]
+      [:input.form-input {:id "posted-date-input" :type "date" "data-bind" "postedDateValue"}]]
+     [:p.form-modal-hint "Imported: " (if imported (fmt/date-short imported) "—")]
+     [:div.form-actions
+      (if override?
+        [:button.button.button-secondary
+         {:type "button"
+          "data-on:click" (str "$postedDateValue = ''; @put('/transactions/" tx-id "/posted-date')")}
+         "Clear override"]
+        [:span])
+      [:button.button.button-secondary {:type "button" "data-on:click" close-modal-js} "Cancel"]
+      [:button.button.button-primary
+       {:type "button" "data-on:click" (str "@put('/transactions/" tx-id "/posted-date')")}
+       "Save"]])))
 
 (defn- gate-line [ok? label]
   [:li {:class (str "gate-line " (if ok? "gate-line--ok" "gate-line--todo"))}

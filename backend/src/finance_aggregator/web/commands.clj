@@ -29,6 +29,11 @@
     :set-reviewed    (db/set-reviewed! conn tx-id (boolean value))
     :set-category    (db/update-category! conn tx-id value)
     :set-description (db/set-user-description! conn tx-id (or value ""))
+    ;; value is a java.util.Date (the manual override) or nil (clear it, falling back through
+    ;; the effective chain — data.ledger/effective-posted-date: posted-date, then the plain
+    ;; date). Family-uniform: set-user-posted-date! resolves tx-id to its split family root and
+    ;; writes/retracts on every live member, same as undo re-applying :before.
+    :set-posted-date (db/set-user-posted-date! conn tx-id value)
     ;; value is the full split vector ({:amount :category-id :memo?}); [] un-splits. Undo
     ;; re-applies :before (the prior parts, or [] when the row wasn't split). Full-replace.
     :set-splits      (db/set-splits! conn tx-id (vec value))

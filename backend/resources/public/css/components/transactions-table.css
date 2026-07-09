@@ -88,6 +88,15 @@
   margin: 0 0.35em;
 }
 
+/* A manually-set posted date (:transaction/user-posted-date present) reads visibly
+   different from the provider's own guess — a quiet accent tint + dotted underline,
+   not a loud badge. */
+.date-cell .posted-hint--manual {
+  color: var(--color-primary);
+  text-decoration: underline dotted;
+  text-underline-offset: 0.15em;
+}
+
 /* "Posted dates" display toggle (View menu → Display). */
 .table.hide-posted .date-cell .posted-hint {
   display: none;

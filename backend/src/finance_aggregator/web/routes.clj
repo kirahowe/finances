@@ -21,6 +21,8 @@
    ["/transactions/:id/match"          {:get {:handler (transactions/match-editor deps) :name ::match-editor}}]
    ["/transactions/:id/match/:partner" {:put {:handler (transactions/confirm-match deps) :name ::confirm-match}}]
    ["/transactions/:id/unmatch"        {:put {:handler (transactions/unmatch deps) :name ::unmatch}}]
+   ["/transactions/:id/posted-date-editor" {:get {:handler (transactions/posted-date-editor deps) :name ::posted-date-editor}}]
+   ["/transactions/:id/posted-date"        {:put {:handler (transactions/set-posted-date deps) :name ::posted-date}}]
    ["/transactions/review-transfers"        {:get {:handler (transactions/review-transfers deps) :name ::review-transfers}}]
    ["/transactions/review/:out/confirm/:in" {:put {:handler (transactions/review-confirm deps) :name ::review-confirm}}]
    ["/transactions/review/:a/reject/:b"     {:put {:handler (transactions/review-reject deps) :name ::review-reject}}]

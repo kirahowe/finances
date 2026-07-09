@@ -21,6 +21,9 @@
 (defn- reviewed? [tx-id]
   (true? (:transaction/reviewed (d/pull (d/db setup/*test-conn*) '[:transaction/reviewed] tx-id))))
 
+(defn- posted-date-override [tx-id]
+  (:transaction/user-posted-date (d/pull (d/db setup/*test-conn*) '[:transaction/user-posted-date] tx-id)))
+
 (defn- cat! [name]
   (d/transact! setup/*test-conn* [{:category/name name :category/type :expense}])
   (ffirst (d/q '[:find ?c :in $ ?n :where [?c :category/name ?n]] (d/db setup/*test-conn*) name)))
@@ -89,6 +92,36 @@
 
     (commands/redo! conn user)
     (is (= 2 (split-count tx-id)) "redo re-splits")))
+
+(deftest apply-undo-redo-posted-date
+  (let [conn setup/*test-conn*
+        tx-id (make-tx! "c-posted")
+        user :uposted
+        d1 #inst "2025-02-03"]
+    (is (nil? (posted-date-override tx-id)) "starts with no override")
+
+    (commands/apply! conn user {:type :set-posted-date :tx-id tx-id :before nil :after d1
+                                :label "Set posted date"})
+    (is (= d1 (posted-date-override tx-id)) "apply sets the override")
+    (is (= #{tx-id} (commands/linger user)) "an edit lingers its tx")
+    (is (= "Set posted date" (commands/undo-label user)))
+
+    (commands/undo! conn user)
+    (is (nil? (posted-date-override tx-id)) "undo retracts the override, falling back to imported")
+    (is (nil? (commands/undo-label user)) "nothing left to undo")
+
+    (commands/redo! conn user)
+    (is (= d1 (posted-date-override tx-id)) "redo re-applies")
+
+    ;; Clearing: a second command whose :after is nil, capturing the current override (d1) as
+    ;; :before so ITS OWN undo restores it (not the absence from the very first apply).
+    (commands/apply! conn user {:type :set-posted-date :tx-id tx-id :before d1 :after nil
+                                :label "Cleared posted date"})
+    (is (nil? (posted-date-override tx-id)) "apply clears the override")
+    (is (= "Cleared posted date" (commands/undo-label user)))
+
+    (commands/undo! conn user)
+    (is (= d1 (posted-date-override tx-id)) "undo restores the prior override")))
 
 (deftest apply-undo-redo-match
   (let [conn setup/*test-conn*

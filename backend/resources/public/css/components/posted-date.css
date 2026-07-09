@@ -1,0 +1,8 @@
+/* Posted-date override modal (GET /transactions/:id/posted-date-editor). Builds on the
+   shared .form-modal-content + .form-* classes (form-modal.css); only the payee/amount
+   context line below the title is feature-specific. */
+
+.posted-date-modal-sub {
+  margin: calc(-1 * var(--spacing-sm)) 0 var(--spacing-md);
+  color: var(--color-text-muted);
+}

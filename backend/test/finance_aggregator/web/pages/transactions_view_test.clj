@@ -250,23 +250,36 @@
     (testing "the hint says parts may be categorized now or later"
       (is (re-find #"categorized now or later" split-h)))))
 
-(deftest date-cell-shows-posted-hint-only-when-dates-differ
+(deftest date-cell-shows-posted-hint-only-when-effective-differs
   (testing "same-day: a single short date (no year), no posted hint"
     (let [h (html (tv/date-cell {:transaction/date #inst "2025-01-15"
-                                 :transaction/posted-date #inst "2025-01-15"}))]
+                                 :transaction/posted-date #inst "2025-01-15"
+                                 :transaction/effective-posted-date #inst "2025-01-15"}))]
       (is (re-find #"Jan 15" h))
-      (is (not (re-find #"posted" h)) "no hint when authorized == posted")
+      (is (not (re-find #"posted" h)) "no hint when the effective date == the shown date")
       (is (not (re-find #"2025" h)) "the row date drops the year (the header carries it)")))
-  (testing "posted later: transaction date leads, an inline 'posted <date>' follows"
+  (testing "posted later (no override): transaction date leads, an inline 'posted <date>' follows"
     (let [h (html (tv/date-cell {:transaction/date #inst "2025-01-30"
-                                 :transaction/posted-date #inst "2025-02-01"}))]
+                                 :transaction/posted-date #inst "2025-02-01"
+                                 :transaction/effective-posted-date #inst "2025-02-01"}))]
       (is (re-find #"Jan 30" h) "leads with the transaction date")
-      (is (re-find #"posted Feb 1" h) "carries the posted date inline")
-      (is (re-find #"posted-hint" h))))
+      (is (re-find #"posted Feb 1" h) "carries the effective (here, provider posted) date inline")
+      (is (re-find #"posted-hint" h))
+      (is (not (re-find #"posted-hint--manual" h)) "no override → not the manual class")))
   (testing "legacy row with no authorized date falls back cleanly (posted-date only)"
-    (let [h (html (tv/date-cell {:transaction/posted-date #inst "2025-01-20"}))]
+    (let [h (html (tv/date-cell {:transaction/posted-date #inst "2025-01-20"
+                                 :transaction/effective-posted-date #inst "2025-01-20"}))]
       (is (re-find #"Jan 20" h))
-      (is (not (re-find #"posted" h))))))
+      (is (not (re-find #"posted" h)))))
+  (testing "manual override: the hint renders the EFFECTIVE (overridden) date and is marked manual"
+    (let [h (html (tv/date-cell {:transaction/date #inst "2025-01-15"
+                                 :transaction/posted-date #inst "2025-01-15"
+                                 :transaction/effective-posted-date #inst "2025-01-20"
+                                 :transaction/user-posted-date #inst "2025-01-20"}))]
+      (is (re-find #"Jan 15" h) "the transaction date is unchanged")
+      (is (re-find #"posted Jan 20" h) "the hint shows the override, not the imported posted-date")
+      (is (re-find #"posted-hint--manual" h))
+      (is (re-find #"Posted date set manually" h) "carries the explanatory title"))))
 
 (deftest view-menu-carries-posted-toggle-and-columns
   (let [h (html (tv/column-picker))]
@@ -307,3 +320,25 @@
     (testing "edit mode: titled Edit and offers Delete"
       (is (re-find #"Edit statement" edit))
       (is (re-find #"Delete" edit)))))
+
+(deftest posted-date-modal-no-override-vs-override
+  (let [no-override (html (tv/posted-date-modal
+                            {:db/id 42 :transaction/payee "Superstore" :transaction/amount -85.00M
+                             :transaction/posted-date #inst "2025-01-05"}))
+        override    (html (tv/posted-date-modal
+                            {:db/id 42 :transaction/payee "Superstore" :transaction/amount -85.00M
+                             :transaction/posted-date #inst "2025-01-05"
+                             :transaction/user-posted-date #inst "2025-01-08"}))]
+    (testing "title carries the payee; body puts to this row's posted-date route"
+      (is (re-find #"Posted date .*Superstore" no-override))
+      (is (re-find #"/transactions/42/posted-date" no-override)))
+    (testing "no override yet: shows the imported date, no Clear button"
+      (is (re-find #"Imported: Jan 5" no-override))
+      (is (not (re-find #"Clear override" no-override))))
+    (testing "an override exists: still shows the imported (provider) date, plus Clear"
+      (is (re-find #"Imported: Jan 5" override))
+      (is (re-find #"Clear override" override))))
+  (testing "no imported posted-date at all reads as a dash"
+    (let [h (html (tv/posted-date-modal {:db/id 7 :transaction/amount 10.00M}))]
+      (is (re-find #"Imported: —" h))
+      (is (re-find #"\(no payee\)" h)))))
