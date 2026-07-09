@@ -394,14 +394,6 @@
   box-shadow: inset 2px 0 0 var(--color-primary);
 }
 
-.reconcile-statement-line {
-  display: flex;
-  align-items: baseline;
-  justify-content: space-between;
-  gap: var(--spacing-sm);
-  min-width: 0;
-}
-
 .reconcile-statement-dates {
   min-width: 0;
   font-size: var(--text-sm);
