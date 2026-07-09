@@ -118,10 +118,11 @@ multimethods over OO; **no** protocols/records/stateful registries for domain lo
 
 - **Tablecloth** — for genuinely **tabular / columnar** work: CSV parsing + column detection
   (`csv/data.clj`), dedup/grouping (`data/cleaning.clj`). **Do NOT** force it onto nested entity
-  maps or per-row rendering pipelines (`web.view` filters transactions-with-nested-splits — that
-  is `filter`/`sort-by` territory; a dataset there means stuffing maps into cells and writing
-  the same `get-in` predicates, slower). Columnar group-by-aggregate → Tablecloth; predicate
-  filtering of nested maps → the standard library.
+  maps or per-row rendering pipelines (`web.view` filters/sorts the flat transaction row set —
+  split parts are first-class rows in it, not nested sub-entities — that is `filter`/`sort-by`
+  territory; a dataset there means stuffing maps into cells and writing the same `get-in`
+  predicates, slower). Columnar group-by-aggregate → Tablecloth; predicate filtering of nested
+  maps → the standard library.
 - **tick** — for date/time, especially **zone conversions**. Replace manual
   `.toInstant`/`.atZone`/`.toLocalDate` interop *chains* with tick. The Date→UTC-calendar-date
   rule lives once in `utils/date->local-date`. **But** keep trivial field reads (`.getYear`,

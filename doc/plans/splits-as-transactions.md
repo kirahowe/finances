@@ -1,7 +1,7 @@
 # Splits as transactions
 
 **Date:** 2026-06-14, expanded 2026-07-07
-**Status:** Designed — ready to implement (phases below)
+**Status:** Implemented (all 7 phases), 2026-07-08
 
 ## Problem
 
