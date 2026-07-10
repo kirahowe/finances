@@ -23,8 +23,9 @@
    [finance-aggregator.web.month :as month]
    [finance-aggregator.web.pages.transactions-view :as tv
     :refer [active-filters counts-fragment error-banner funnel-list match-modal page-body
-            pagination-bar posted-date-modal review-list review-modal review-status-message
-            rollup-pane split-editor-modal sr-status tbody undo-redo-controls]]
+            pagination-bar posted-date-modal review-modal review-status-message
+            rollup-pane split-editor-modal sr-status suggestion-row-stale tbody
+            undo-redo-controls]]
    [finance-aggregator.web.render :as r]
    [finance-aggregator.web.view :as view]
    [finance-aggregator.web.view-state :as vs]
@@ -433,17 +434,29 @@
                        (db-transfers/match-candidates db-conn tx-id))]
       (sse-response req (fn [sse] (patch! sse (match-modal tx candidates)))))))
 
+(defn- match-command
+  "The :set-match command linking `tx-id` to `partner`. When exactly one leg is categorized
+   it carries a :category-effect copying that category onto the blank leg — the decision is
+   commands/category-effect; this glue only pulls the two legs' current category ids — so a
+   single undo reverses both the link and the copy."
+  [db-conn tx-id partner]
+  (let [effect (commands/category-effect
+                {:tx-id tx-id :category-id (db-transactions/category-id db-conn tx-id)}
+                {:tx-id partner :category-id (db-transactions/category-id db-conn partner)})]
+    (cond-> {:type :set-match :tx-id tx-id :before nil :after partner :label "Matched transfer"}
+      effect (assoc :category-effect effect))))
+
 (defn confirm-match
-  "PUT /transactions/:id/match/:partner — link the two legs as a transfer (a :set-match command,
-   so undo unlinks), then re-render and close the modal."
+  "PUT /transactions/:id/match/:partner — link the two legs as a transfer (a :set-match command
+   — see match-command, which copies a lone category to the blank leg — so undo unlinks and
+   reverts the copy), then re-render and close the modal."
   [{:keys [db-conn]}]
   (fn [req]
     (handle-edit req
      (fn []
        (let [tx-id (path-id req :id)
              partner (path-id req :partner)]
-         (commands/apply! db-conn auth/user-id
-                          {:type :set-match :tx-id tx-id :before nil :after partner :label "Matched transfer"})
+         (commands/apply! db-conn auth/user-id (match-command db-conn tx-id partner))
          (edit-response db-conn req (r/read-signals req) :close-modal? true))))))
 
 (defn unmatch
@@ -496,37 +509,55 @@
                            :label (if after "Set posted date" "Cleared posted date")})
          (edit-response db-conn req signals :close-modal? true))))))
 
+(defn- review-range
+  "The period the review modal scopes its suggestions to (db.transfers/suggest-matches'
+   :range — {:from Date :to Date}, inclusive calendar days): the statement lens's span when
+   it's narrowing the table (reconcile-range), else the month being viewed."
+  [signals view-st]
+  (if-let [{:keys [from to]} (reconcile-range signals view-st)]
+    {:from from :to to}
+    (let [month (signals-month signals)]
+      {:from (:start-date (u/month-date-range month))
+       :to (db-snapshots/month-end-date month)})))
+
 (defn review-transfers
   "GET /transactions/review-transfers — render the bulk transfer-review modal (auto-suggested
-   pairs) into #modal-root."
+   pairs) into #modal-root, scoped to the period on screen (review-range: the statement lens
+   when active, else the viewed month — the GET carries the live signals, as rows does)."
   [{:keys [db-conn]}]
   (fn [req]
-    (let [suggestions (db-transfers/suggest-matches db-conn)]
+    (let [signals (r/read-signals req)
+          view-st (vs/signals->view-state signals)
+          suggestions (db-transfers/suggest-matches
+                       db-conn {:range (review-range signals view-st)})]
       (sse-response req (fn [sse] (patch! sse (review-modal suggestions)))))))
 
-(defn- refresh-review-list!
-  "Re-patch #review-list with the recomputed suggestions (after a confirm/reject, the acted-on
-   pair drops out and the modal stays open)."
-  [db-conn sse]
-  (patch! sse (review-list (db-transfers/suggest-matches db-conn))))
+(defn- patch-stale-suggestion!
+  "Morph the acted-on suggestion row (by its stable id) into its stale variant — the pair
+   stays visible under the cursor and the rest of the list never moves. A fresh GET
+   recomputes the list, so the pair drops out naturally next open."
+  [db-conn sse out in verdict]
+  (patch! sse (suggestion-row-stale (db-transactions/by-id db-conn out)
+                                    (db-transactions/by-id db-conn in)
+                                    verdict)))
 
 (defn review-confirm
-  "PUT /transactions/review/:out/confirm/:in — confirm a suggested pair (:set-match command),
-   then re-render the table + refresh the suggestion list in place."
+  "PUT /transactions/review/:out/confirm/:in — confirm a suggested pair (a :set-match command
+   via match-command, so undo unlinks — and reverts a copied category), then re-render the
+   table + morph just that suggestion row stale in place."
   [{:keys [db-conn]}]
   (fn [req]
     (handle-edit req
      (fn []
        (let [out (path-id req :out)
              in (path-id req :in)]
-         (commands/apply! db-conn auth/user-id
-                          {:type :set-match :tx-id out :before nil :after in :label "Matched transfer"})
+         (commands/apply! db-conn auth/user-id (match-command db-conn out in))
          (edit-response db-conn req (r/read-signals req)
-                        :after-patch (fn [sse] (refresh-review-list! db-conn sse))))))))
+                        :after-patch (fn [sse] (patch-stale-suggestion! db-conn sse out in :matched))))))))
 
 (defn review-reject
   "PUT /transactions/review/:a/reject/:b — reject a suggested pair (:reject-match command, so
-   undo un-rejects), then re-render the table + refresh the suggestion list in place."
+   undo un-rejects), then re-render the table + morph just that suggestion row stale in place."
   [{:keys [db-conn]}]
   (fn [req]
     (handle-edit req
@@ -536,7 +567,7 @@
          (commands/apply! db-conn auth/user-id
                           {:type :reject-match :tx-id a :partner b :before false :after true :label "Rejected transfer"})
          (edit-response db-conn req (r/read-signals req)
-                        :after-patch (fn [sse] (refresh-review-list! db-conn sse))))))))
+                        :after-patch (fn [sse] (patch-stale-suggestion! db-conn sse a b :rejected))))))))
 
 (defn undo
   "POST /transactions/undo — reverse the last edit (keeping the row lingering), then re-render."

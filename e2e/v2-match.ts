@@ -1,6 +1,9 @@
 // Real-Chromium proof of the per-row transfer match/unmatch modal: row-actions menu →
-// candidate list → confirm links the pair → the row reads "Matched transfer" → unmatch →
-// undo re-links. Pure Datastar (no island): clicking a candidate @put's the confirm.
+// the modal shows the transaction being matched above its candidate list → confirm links
+// the pair → the row reads "Matched transfer" → unmatch → undo re-links. Also proves the
+// auto-category effect: matching a categorized leg to an uncategorized one copies the
+// category, and ONE undo reverts both the link and the copy. Pure Datastar (no island):
+// clicking a candidate @put's the confirm.
 //
 //   BASE_URL=http://localhost:8100 node e2e/v2-match.ts
 import { chromium } from '@playwright/test';
@@ -28,6 +31,7 @@ const modal = page.locator('.transfer-modal-content');
 const modalGone = () =>
   page.waitForFunction(() => document.querySelectorAll('.transfer-modal-content').length === 0,
     null, { timeout: 5000 }).catch(() => {});
+const categoryOf = (text) => row(text).locator('.category-button').innerText();
 
 async function openMenu(text) {
   await row(text).hover();
@@ -36,11 +40,16 @@ async function openMenu(text) {
   await page.waitForTimeout(80); // let data-text settle from $_rowMenuMatched
 }
 
-// (A) Unmatched row → "Match transfer" → its counterpart is offered → confirm links it.
+// (A) Unmatched row → "Match transfer" → the modal shows the source transaction above
+//     its offered counterpart → confirm links it.
 await openMenu('Transfer to Savings');
 check('unmatched row offers "Match transfer"', (await matchItem.innerText()).trim() === 'Match transfer');
 await matchItem.click();
 await modal.waitFor({ state: 'visible' });
+check('modal shows the transaction being matched as a static leg',
+  (await modal.locator('.transfer-candidate.is-static', { hasText: 'Transfer to Savings' }).count()) === 1);
+check('the source and candidate groups each get a quiet label',
+  (await modal.locator('.transfer-modal-section-label').count()) === 2);
 const candidate = modal.locator('.transfer-candidate', { hasText: 'Transfer from Chequing' });
 check('the +500 savings counterpart is offered', (await candidate.count()) === 1);
 await candidate.first().click();
@@ -65,8 +74,33 @@ await page.locator('#undo-redo button[aria-label="Undo"]').click();
 await page.waitForTimeout(400);
 await openMenu('Transfer to Savings');
 check('undo re-matches the pair', (await matchItem.innerText()).trim() === 'Matched transfer');
+await page.keyboard.press('Escape');
+
+// (D) Auto-category: match the Transfer-categorized -750 leg to its uncategorized +750
+//     counterpart → the blank leg gets the category; ONE undo unlinks AND reverts it.
+check('the counterpart starts uncategorized', (await categoryOf('Transfer In Later')).trim() === 'Uncategorized');
+await openMenu('Transfer Out');
+check('the -750 transfer row offers "Match transfer"', (await matchItem.innerText()).trim() === 'Match transfer');
+await matchItem.click();
+await modal.waitFor({ state: 'visible' });
+const counterpart = modal.locator('.transfer-candidate:not(.is-static)', { hasText: 'Transfer In Later' });
+check('the outside-auto-window +750 counterpart is offered manually', (await counterpart.count()) === 1);
+await counterpart.first().click();
+await modalGone();
+await page.waitForTimeout(300);
+check('matching copied the Transfer category onto the blank leg',
+  (await categoryOf('Transfer In Later')).trim() === 'Transfer');
+await page.locator('#undo-redo button[aria-label="Undo"]').click();
+await page.waitForTimeout(400);
+check('undo reverts the copied category', (await categoryOf('Transfer In Later')).trim() === 'Uncategorized');
+await openMenu('Transfer Out');
+check('and unlinks the pair in the same step', (await matchItem.innerText()).trim() === 'Match transfer');
+
+check('still no page errors', !logs.length, logs.join('; '));
 
 await browser.close();
+// Leave a clean slate (DB + in-memory undo log) for whatever spec runs next.
+await fetch(`${BASE}/e2e/reset`, { method: 'POST' }).catch(() => {});
 
 let pass = 0;
 for (const r of results) {

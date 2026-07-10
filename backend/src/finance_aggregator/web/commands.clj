@@ -21,10 +21,25 @@
 
 (defn- state [user] (get @log user empty-state))
 
+(defn category-effect
+  "The optional :category-effect a :set-match command carries when exactly ONE of the two
+   legs is categorized: {:tx-id <the blank leg> :before nil :after <the other leg's category
+   id>} — linking copies the category onto the blank leg, and undo/redo of the match
+   reverse/re-apply the copy in the same step (see mutate!). Returns nil when both or
+   neither leg is categorized: a match never overwrites an existing category, and with
+   nothing to copy the command stays plain. `a`/`b` are {:tx-id long :category-id long?}
+   (the handler pulls the current ids — db.transactions/category-id). Pure, plain data, so
+   the effect log-persists like any other command field."
+  [{a-id :tx-id a-cat :category-id} {b-id :tx-id b-cat :category-id}]
+  (cond
+    (and a-cat (nil? b-cat)) {:tx-id b-id :before nil :after a-cat}
+    (and b-cat (nil? a-cat)) {:tx-id a-id :before nil :after b-cat}
+    :else nil))
+
 (defn- mutate!
   "Apply command `cmd`'s mutation, setting the field to `value` (the :after on apply, the
    :before on undo)."
-  [conn {:keys [type tx-id partner]} value]
+  [conn {:keys [type tx-id partner category-effect]} value]
   (case type
     :set-reconciled  (db/set-reconciled! conn tx-id (boolean value))
     :set-category    (db/update-category! conn tx-id value)
@@ -39,9 +54,20 @@
     :set-splits      (db/set-splits! conn tx-id (vec value))
     ;; value is the partner tx-id (link this leg) or nil (unlink). A match touches both legs;
     ;; undo flips it (after=partner ⇄ before=nil for a match, the reverse for an unmatch).
-    :set-match       (if value
-                       (db-transfers/confirm-match! conn tx-id value)
-                       (db-transfers/unmatch! conn tx-id))
+    ;; A MATCH command may also carry :category-effect (see category-effect): applying the
+    ;; link (value truthy) copies the category onto the blank leg (:after); undoing it
+    ;; (value nil) restores :before — always nil, since the effect only ever fills a blank —
+    ;; so one undo reverses both the link and the copy, and redo re-applies both. Plain
+    ;; unmatch commands never carry the key. Runs after confirm-match!/unmatch! so a
+    ;; validation throw leaves the category untouched.
+    :set-match       (do (if value
+                           (db-transfers/confirm-match! conn tx-id value)
+                           (db-transfers/unmatch! conn tx-id))
+                         (when category-effect
+                           (db/update-category! conn (:tx-id category-effect)
+                                                (if value
+                                                  (:after category-effect)
+                                                  (:before category-effect)))))
     ;; "Not a transfer" for a suggested pair: value true = reject (don't re-suggest), false =
     ;; un-reject (undo). The partner id rides in :partner (value is just the direction).
     :reject-match    (if value
@@ -99,7 +125,10 @@
   "Does command `cmd` act on or point at transaction `id`? Its :tx-id, its :partner
    (reject-match), or — for a transfer match — its before/after partner leg (only
    :set-match's before/after hold tx-ids; other commands' hold category ids / strings /
-   split vectors, so they're not matched)."
+   split vectors, so they're not matched). A :set-match's :category-effect needs no
+   clause of its own: its target is by construction one of the match's two legs
+   (category-effect fills the blank leg of the pair being linked), which :tx-id or
+   before/after already cover."
   [id {:keys [type tx-id partner before after]}]
   (or (= tx-id id)
       (= partner id)

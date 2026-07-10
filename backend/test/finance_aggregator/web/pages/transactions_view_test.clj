@@ -4,6 +4,7 @@
    browser (e2e); these cover branches an e2e can't cheaply reach (a closed month,
    drift since close)."
   (:require
+   [clojure.string :as str]
    [clojure.test :refer [deftest is testing]]
    [finance-aggregator.web.pages.transactions-view :as tv]
    [finance-aggregator.web.render :as r]))
@@ -481,3 +482,84 @@
       (is (not (re-find #"data-bind=\"txDate\"" h))))
     (testing "the Save gate expression still reads the three required signals"
       (is (re-find #"\$txAccount &amp;&amp; \$txAmount &amp;&amp; \$txDate" h)))))
+
+;; --- Match modal: the source transaction leads the unmatched branch ----------
+
+(def ^:private match-source-tx
+  {:db/id 61 :transaction/payee "Transfer Out" :transaction/amount -750.00M
+   :transaction/posted-date #inst "2025-01-18"
+   :transaction/account {:db/id 100 :account/external-name "Chequing"
+                         :account/institution {:db/id 1 :institution/name "Bank"}}})
+
+(def ^:private match-candidate-tx
+  {:db/id 62 :transaction/payee "Transfer In Later" :transaction/amount 750.00M
+   :transaction/posted-date #inst "2025-01-25"
+   :transaction/account {:db/id 101 :account/external-name "Savings"
+                         :account/institution {:db/id 1 :institution/name "Bank"}}})
+
+(deftest match-modal-unmatched-shows-the-source-transaction
+  (let [h (html (tv/match-modal match-source-tx [match-candidate-tx]))]
+    (testing "the transaction being matched renders as an inert static leg (payee · date meta)"
+      (is (re-find #"transfer-candidate is-static" h))
+      (is (re-find #"Transfer Out · Jan 18, 2025" h)))
+    (testing "two quiet section labels separate the source from its candidates"
+      (is (re-find #"This transaction" h))
+      (is (re-find #"Candidates" h))
+      (is (= 2 (count (re-seq #"transfer-modal-section-label" h)))))
+    (testing "the source leg sits ABOVE the candidate list"
+      (is (< (str/index-of h "This transaction") (str/index-of h "Transfer In Later"))))
+    (testing "candidates remain clickable confirm buttons targeting the source's route"
+      (is (re-find #"/transactions/61/match/62" h)))))
+
+(deftest match-modal-unmatched-empty-candidates-still-shows-source
+  (let [h (html (tv/match-modal match-source-tx []))]
+    (is (re-find #"Transfer Out" h) "the source leg renders even with no candidates")
+    (is (re-find #"No matching transactions found" h))))
+
+(deftest match-modal-matched-branch-has-no-section-labels
+  (let [h (html (tv/match-modal
+                 (assoc match-source-tx :transaction/transfer-pair
+                        {:db/id 62 :transaction/amount 750.00M
+                         :transaction/posted-date #inst "2025-01-18"
+                         :transaction/account {:db/id 101 :account/external-name "Savings"}})
+                 nil))]
+    (is (re-find #"Matched transfer" h))
+    (is (re-find #"transfer-candidate is-static" h) "the partner still renders as a static leg")
+    (is (not (re-find #"transfer-modal-section-label" h)) "labels belong to the unmatched branch")))
+
+;; --- Review suggestions: stable ids + the stale in-place variant --------------
+
+(def ^:private review-suggestion
+  {:outflow {:db/id 71 :transaction/amount -500.00M :transaction/posted-date #inst "2025-01-10"
+             :transaction/account {:db/id 100 :account/external-name "Chequing"}}
+   :inflow {:db/id 72 :transaction/amount 500.00M :transaction/posted-date #inst "2025-01-11"
+            :transaction/account {:db/id 101 :account/external-name "Savings"}}
+   :amount 500.00M
+   :day-diff 1})
+
+(deftest suggestion-row-carries-a-stable-pair-id
+  (let [h (html (tv/suggestion-row review-suggestion))]
+    (is (re-find #"id=\"suggestion-71-72\"" h) "the morph target a review action patches by")
+    (is (re-find #"Confirm" h))
+    (is (re-find #"Not a transfer" h))))
+
+(deftest suggestion-row-stale-morphs-in-place
+  (let [matched (html (tv/suggestion-row-stale (:outflow review-suggestion)
+                                               (:inflow review-suggestion) :matched))
+        rejected (html (tv/suggestion-row-stale (:outflow review-suggestion)
+                                                (:inflow review-suggestion) :rejected))]
+    (testing "same id as the fresh row, so the patch morphs it in place"
+      (is (re-find #"id=\"suggestion-71-72\"" matched)))
+    (testing "de-emphasised, with a quiet status instead of the action buttons"
+      (is (re-find #"is-stale" matched))
+      (is (re-find #"transfer-suggestion-status" matched))
+      (is (re-find #"✓ Matched" matched))
+      (is (not (re-find #"transfer-confirm-button" matched)))
+      (is (not (re-find #"transfer-reject-button" matched))))
+    (testing "the rejected verdict reads as a status, not a button"
+      (is (re-find #"Not a transfer" rejected))
+      (is (not (re-find #"<button" rejected))))
+    (testing "route + amount render from just the two pulled legs"
+      (is (re-find #"Chequing" matched))
+      (is (re-find #"Savings" matched))
+      (is (re-find #"500" matched)))))

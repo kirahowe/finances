@@ -141,6 +141,67 @@
     (commands/redo! conn user)
     (is (= in (partner out)) "redo relinks")))
 
+(defn- category-of [tx-id]
+  (get-in (d/pull (d/db setup/*test-conn*) '[{:transaction/category [:db/id]}] tx-id)
+          [:transaction/category :db/id]))
+
+(deftest category-effect-fills-only-a-blank-leg
+  (testing "exactly one leg categorized → the effect targets the blank leg with that category"
+    (is (= {:tx-id 2 :before nil :after 9}
+           (commands/category-effect {:tx-id 1 :category-id 9} {:tx-id 2 :category-id nil})))
+    (is (= {:tx-id 1 :before nil :after 9}
+           (commands/category-effect {:tx-id 1 :category-id nil} {:tx-id 2 :category-id 9}))
+        "either side may be the categorized one"))
+  (testing "both legs categorized → nil (a match never overwrites an existing category)"
+    (is (nil? (commands/category-effect {:tx-id 1 :category-id 9} {:tx-id 2 :category-id 8}))))
+  (testing "neither leg categorized → nil (nothing to copy; the command stays plain)"
+    (is (nil? (commands/category-effect {:tx-id 1 :category-id nil} {:tx-id 2 :category-id nil})))))
+
+(deftest apply-undo-redo-match-with-category-effect
+  ;; A match whose command carries :category-effect copies the categorized leg's category
+  ;; onto the blank one; ONE undo then reverses both the link and the copy, and redo
+  ;; re-applies both.
+  (let [conn setup/*test-conn*
+        out (make-tx! "c-eff-out")                ; -100.00, will be categorized
+        in (counterpart-tx! "c-eff-in" 100.00M)   ; +100.00, uncategorized
+        cat (cat! "Transfers")
+        user :ueffect]
+    (d/transact! conn [{:db/id out :transaction/category cat}])
+
+    (commands/apply! conn user {:type :set-match :tx-id out :before nil :after in
+                                :label "Matched transfer"
+                                :category-effect {:tx-id in :before nil :after cat}})
+    (is (= in (partner out)) "apply links the pair")
+    (is (= cat (category-of in)) "and copies the category onto the blank leg")
+    (is (= cat (category-of out)) "the categorized leg is untouched")
+
+    (commands/undo! conn user)
+    (is (nil? (partner out)) "one undo unlinks")
+    (is (nil? (category-of in)) "AND reverts the copied category (back to blank)")
+    (is (= cat (category-of out)) "the source leg keeps its own category")
+
+    (commands/redo! conn user)
+    (is (= in (partner out)) "redo relinks")
+    (is (= cat (category-of in)) "and re-copies the category")))
+
+(deftest apply-undo-redo-match-without-effect-never-touches-categories
+  ;; A plain :set-match (no :category-effect key) leaves both legs' categories alone —
+  ;; exactly the both-categorized / neither-categorized handler outcome.
+  (let [conn setup/*test-conn*
+        out (make-tx! "c-plain-out")
+        in (counterpart-tx! "c-plain-in" 100.00M)
+        cat (cat! "Housekeeping")
+        user :uplain]
+    (d/transact! conn [{:db/id out :transaction/category cat}
+                       {:db/id in :transaction/category cat}])
+    (commands/apply! conn user {:type :set-match :tx-id out :before nil :after in
+                                :label "Matched transfer"})
+    (is (= cat (category-of out)))
+    (is (= cat (category-of in)) "both keep their categories")
+    (commands/undo! conn user)
+    (is (= cat (category-of out)))
+    (is (= cat (category-of in)) "undo only unlinks")))
+
 (deftest apply-undo-reject
   (let [conn setup/*test-conn*
         a (make-tx! "c-rej-a")

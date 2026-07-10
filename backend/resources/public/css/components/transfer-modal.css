@@ -17,6 +17,22 @@
   font-size: var(--text-base);
 }
 
+/* Quiet small-caps section label: separates "This transaction" from its candidates in
+   the match modal. Mirrors reconciliation.css's .reconcile-subhead. */
+.transfer-modal-section-label {
+  margin: var(--spacing-md) 0 var(--spacing-xs);
+  font-size: var(--text-2xs);
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.1em;
+  color: var(--color-text-muted);
+}
+
+/* The hint's own bottom margin already provides the gap above the first label. */
+.transfer-modal-hint + .transfer-modal-section-label {
+  margin-top: 0;
+}
+
 .transfer-suggestion-list {
   display: flex;
   flex-direction: column;
@@ -41,6 +57,20 @@
 
 .transfer-suggestion.is-rejected .transfer-suggestion-route {
   text-decoration: line-through;
+}
+
+/* A just-acted-on suggestion goes stale IN PLACE (morphed by its stable id) instead of
+   vanishing under the cursor — the same de-emphasis as the table's lingering rows
+   (edit-controls.css `.table tr.is-stale`), so the two stale treatments read identically. */
+.transfer-suggestion.is-stale {
+  opacity: 0.5;
+}
+
+/* The quiet status that replaces the Confirm / "Not a transfer" buttons on a stale row. */
+.transfer-suggestion-status {
+  font-size: var(--text-sm);
+  color: var(--color-text-muted);
+  white-space: nowrap;
 }
 
 .transfer-suggestion-check {

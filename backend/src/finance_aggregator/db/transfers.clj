@@ -47,14 +47,42 @@
    :rejected (set (map :db/id (:transaction/transfer-rejected tx)))})
 
 (defn suggest-matches
-  "Compute suggested transfer pairs across all transactions. Returns a vector of
+  "Compute suggested transfer pairs. opts:
+
+     :window-days — max day gap between a pair's legs (the pure matcher's option,
+                    default 3 — see transfers/suggest-matches).
+     :range       — optional {:from Date :to Date}, INCLUSIVE calendar days: scope the
+                    suggestions to the period on screen. Two rules:
+                      1. the candidate POOL is transactions whose effective day falls in
+                         [from − window, to + window] — a leg just outside the period can
+                         still complete a pair whose other leg is inside;
+                      2. a pair is KEPT only when AT LEAST ONE leg's effective day falls
+                         inside [from, to] — a Jan-31 → Feb-2 transfer surfaces while
+                         reviewing January, but a pair living entirely outside the period
+                         never does. (Rule 1 never drops a pair rule 2 would keep: an
+                         in-range leg's partner is within `window` of it, hence in the pool.)
+                    Scoping also shrinks the O(n²) matcher's candidate pool from the whole
+                    history to the period plus window slack.
+
+   Days are effective posted days (data.ledger/effective-posted-date). Returns a vector of
    {:outflow <pulled tx> :inflow <pulled tx> :amount bigdec :day-diff long}."
   ([conn] (suggest-matches conn {}))
-  ([conn opts]
+  ([conn {:keys [range window-days] :as opts}]
    (let [db (d/db conn)
          txns (all-transactions db)
          by-id (into {} (map (juxt :db/id identity)) txns)
-         pairs (transfers/suggest-matches (map normalize txns) opts)]
+         window (or window-days 3)
+         from-day (some-> (:from range) utils/date->epoch-day)
+         to-day (some-> (:to range) utils/date->epoch-day)
+         pool? (fn [{:keys [day]}]
+                 (and day (<= (- from-day window) day (+ to-day window))))
+         normalized (cond->> (map normalize txns)
+                      range (filter pool?))
+         day-of (into {} (map (juxt :id :day)) normalized)
+         in-range? (fn [id] (when-let [day (day-of id)] (<= from-day day to-day)))
+         pairs (cond->> (transfers/suggest-matches normalized (dissoc opts :range))
+                 range (filter (fn [{:keys [outflow-id inflow-id]}]
+                                 (or (in-range? outflow-id) (in-range? inflow-id)))))]
      (mapv (fn [{:keys [outflow-id inflow-id amount day-diff]}]
              {:outflow (by-id outflow-id)
               :inflow (by-id inflow-id)

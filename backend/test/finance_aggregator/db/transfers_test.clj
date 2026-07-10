@@ -350,6 +350,43 @@
           "with the override, self's effective day (10) is within 5 days of the candidate's (11);
            the raw imported day (90) would have excluded it"))))
 
+;; --- Range scoping (:range {:from Date :to Date}, inclusive calendar days) ----
+;; Each scenario gets its own deftest (the :each fixture; suggest scans everything).
+
+(deftest suggest-matches-range-in-range-test
+  (testing "a pair inside [from, to] is suggested; a range that excludes both legs drops it"
+    (let [checking (make-account! "crg1" "Checking")
+          savings (make-account! "srg1" "Savings")
+          out (make-tx! "out-rg1" checking -100.00M 10)
+          in (make-tx! "in-rg1" savings 100.00M 11)]
+      (is (= #{[out in]} (pair-ids (transfers/suggest-matches
+                                    setup/*test-conn* {:range {:from (day 1) :to (day 31)}})))
+          "both legs inside the range → suggested")
+      (is (empty? (transfers/suggest-matches
+                   setup/*test-conn* {:range {:from (day 40) :to (day 60)}}))
+          "both legs outside the range → dropped, even though they'd pair unscoped"))))
+
+(deftest suggest-matches-range-one-leg-in-test
+  (testing "a pair straddling the range's edge surfaces while reviewing the period ONE leg is in"
+    (let [checking (make-account! "crg2" "Checking")
+          savings (make-account! "srg2" "Savings")
+          out (make-tx! "out-rg2" checking -100.00M 31)   ; the period's last day
+          in (make-tx! "in-rg2" savings 100.00M 33)]      ; 2 days into the next period
+      (is (= #{[out in]} (pair-ids (transfers/suggest-matches
+                                    setup/*test-conn* {:range {:from (day 1) :to (day 31)}})))
+          "a Jan-31 → Feb-2 style transfer is kept while reviewing January"))))
+
+(deftest suggest-matches-range-window-slack-test
+  (testing "the candidate pool extends `window` days beyond the range, so a leg just
+            outside it can still complete an in-range leg's pair"
+    (let [checking (make-account! "crg3" "Checking")
+          savings (make-account! "srg3" "Savings")
+          out (make-tx! "out-rg3" checking -100.00M 8)    ; 2 days before from (window is 3)
+          in (make-tx! "in-rg3" savings 100.00M 11)]      ; inside the range
+      (is (= #{[out in]} (pair-ids (transfers/suggest-matches
+                                    setup/*test-conn* {:range {:from (day 10) :to (day 40)}})))
+          "the out-leg sits in the pool's [from − window, from) slack and pairs"))))
+
 (deftest suggest-matches-tolerates-missing-date-test
   (testing "a transfer-eligible leg with no posted-date doesn't crash suggestions"
     (let [a (make-account! "amd" "A")

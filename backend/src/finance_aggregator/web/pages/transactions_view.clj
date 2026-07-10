@@ -820,19 +820,23 @@
 (defn match-modal
   "The transfer match/unmatch modal, patched into #modal-root by GET /transactions/:id/match.
    No island needed: a matched row shows its partner + an Unmatch button; an unmatched row
-   lists candidate counterparts (each a button that @put's the confirm). Both @put's apply a
-   :set-match command (so undo/redo works) and close the modal (re-patch #modal-root empty).
-   Cancel/Esc/backdrop close client-side."
+   shows the transaction BEING matched (a static leg under a quiet section label) above its
+   candidate counterparts (each a button that @put's the confirm, under their own label).
+   Both @put's apply a :set-match command (so undo/redo works) and close the modal
+   (re-patch #modal-root empty). Cancel/Esc/backdrop close client-side."
   [tx candidates]
   (let [tx-id (:db/id tx)
         partner (:transaction/transfer-pair tx)
-        leg (fn [t static?]
+        ;; :static? = an inert display row (the matched partner, or the source transaction);
+        ;; :payee? = lead the meta with the payee (the source + candidates carry one; the
+        ;; matched-partner pull doesn't, so it stays date-only).
+        leg (fn [t {:keys [static? payee?]}]
               (let [body [:span.transfer-suggestion-body
                           [:span.transfer-suggestion-route (account-name t)]
                           [:span.transfer-suggestion-meta
-                           (if static?
-                             (fmt/date (:transaction/posted-date t))
-                             (str (:transaction/payee t) " · " (fmt/date (:transaction/posted-date t))))]]
+                           (if payee?
+                             (str (:transaction/payee t) " · " (fmt/date (:transaction/posted-date t)))
+                             (fmt/date (:transaction/posted-date t)))]]
                     amt [:span.transfer-suggestion-amount.numeric (fmt/amount (:transaction/amount t))]]
                 (if static?
                   [:div.transfer-candidate.is-static body amt]
@@ -848,7 +852,7 @@
          (list
           [:h2#match-modal-title "Matched transfer"]
           [:p.transfer-modal-hint "This transaction is linked to its counterpart on another account."]
-          (leg partner true)
+          (leg partner {:static? true})
           [:div.transfer-modal-actions
            [:button.button.button-secondary.transfer-unmatch-button
             {:type "button" "data-on:click" (str "@put('/transactions/" tx-id "/unmatch')")}
@@ -857,39 +861,70 @@
          (list
           [:h2#match-modal-title "Match transfer"]
           [:p.transfer-modal-hint "Pick the matching transaction on another account."]
+          [:p.transfer-modal-section-label "This transaction"]
+          (leg tx {:static? true :payee? true})
+          [:p.transfer-modal-section-label "Candidates"]
           (if (empty? candidates)
             [:div.transfer-empty "No matching transactions found."]
-            (into [:div.transfer-suggestion-list {:role "list"}] (map #(leg % false) candidates)))
+            (into [:div.transfer-suggestion-list {:role "list"}]
+                  (map #(leg % {:payee? true}) candidates)))
           [:div.transfer-modal-actions
            [:span]
            [:button.button.button-secondary {:type "button" "data-on:click" close-modal-js} "Close"]]))]]]))
 
 ;; --- Bulk transfer-review modal --------------------------------------------
 
+(defn- suggestion-id
+  "The stable per-pair DOM id a review action's response morphs by."
+  [out-id in-id]
+  (str "suggestion-" out-id "-" in-id))
+
+(defn- suggestion-body
+  "The route + meta block shared by a fresh suggestion row and its stale variant."
+  [outflow inflow meta-line]
+  [:div.transfer-suggestion-body
+   [:div.transfer-suggestion-route
+    [:span (account-name outflow)] [:span.transfer-arrow "→"] [:span (account-name inflow)]]
+   [:div.transfer-suggestion-meta meta-line]])
+
 (defn suggestion-row
   "One suggested pair: Confirm links it; \"Not a transfer\" rejects it. Both @put a review
-   action that refreshes #review-list in place (the acted-on pair drops out)."
+   action whose response morphs THIS row — by its stable suggestion-<out>-<in> id — into
+   its stale variant (suggestion-row-stale) in place, so the acted-on pair stays visible
+   under the cursor and the rest of the list never moves."
   [{:keys [outflow inflow amount day-diff]}]
   (let [out-id (:db/id outflow)
         in-id (:db/id inflow)]
-    [:div.transfer-suggestion
+    [:div.transfer-suggestion {:id (suggestion-id out-id in-id)}
      [:button.button.button-primary.transfer-confirm-button
       {:type "button" "data-on:click" (str "@put('/transactions/review/" out-id "/confirm/" in-id "')")}
       "Confirm"]
-     [:div.transfer-suggestion-body
-      [:div.transfer-suggestion-route
-       [:span (account-name outflow)] [:span.transfer-arrow "→"] [:span (account-name inflow)]]
-      [:div.transfer-suggestion-meta
-       (str (fmt/date (:transaction/posted-date outflow)) " · "
-            day-diff (if (= 1 day-diff) " day apart" " days apart"))]]
+     (suggestion-body outflow inflow
+                      (str (fmt/date (:transaction/posted-date outflow)) " · "
+                           day-diff (if (= 1 day-diff) " day apart" " days apart")))
      [:span.transfer-suggestion-amount.numeric (fmt/amount amount)]
      [:button.transfer-reject-button
       {:type "button" "data-on:click" (str "@put('/transactions/review/" out-id "/reject/" in-id "')")}
       "Not a transfer"]]))
 
+(defn suggestion-row-stale
+  "The stale variant a review action morphs over its suggestion-row (same id, same layout):
+   `.is-stale` de-emphasises the row in place — mirroring the table's lingering-row
+   treatment — and a quiet status span replaces the Confirm / \"Not a transfer\" buttons
+   (`verdict` is :matched or :rejected). Rendered from just the two pulled legs (the
+   handler re-pulls them by id, like match-editor does); the amount shown is the inflow's,
+   which is what a fresh row's :amount carries too."
+  [outflow inflow verdict]
+  [:div.transfer-suggestion.is-stale {:id (suggestion-id (:db/id outflow) (:db/id inflow))}
+   [:span.transfer-suggestion-status
+    (if (= :matched verdict) "✓ Matched" "Not a transfer")]
+   (suggestion-body outflow inflow (fmt/date (:transaction/posted-date outflow)))
+   [:span.transfer-suggestion-amount.numeric (fmt/amount (:transaction/amount inflow))]])
+
 (defn review-list
-  "The suggestion list (its own #review-list id is the morph target so a confirm/reject can
-   re-patch the now-smaller list in place without closing the modal)."
+  "The suggestion list. Fresh on every GET (a confirmed/rejected pair naturally drops out
+   of a recomputed list); while the modal stays open, review actions morph individual rows
+   stale in place (suggestion-row-stale) rather than re-patching this list."
   [suggestions]
   [:div {:id "review-list"}
    (if (empty? suggestions)
