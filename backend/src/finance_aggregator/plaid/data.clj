@@ -9,6 +9,7 @@
    - Returns database-ready entity maps"
   (:require
    [clojure.set :as set]
+   [clojure.string :as str]
    [finance-aggregator.utils :as u]))
 
 ;;; Parse Functions
@@ -20,7 +21,11 @@
 
    Returns: {:institution/id string
             :institution/name string
-            :institution/url string (optional, omitted if nil)}
+            :institution/url string (optional, omitted if nil)
+            :institution/logo string (optional, omitted if nil) - a data: URI wrapping
+                                      Plaid's base64 PNG, so the view treats every
+                                      provider's logo uniformly as an <img> src (Lunchflow's
+                                      :institution/logo is an https URL instead)}
 
    Note: Filters out nil values to avoid 'Cannot store nil as a value' errors."
   [institution]
@@ -29,6 +34,9 @@
       (set/rename-keys {:institution_id :institution/id
                         :name :institution/name
                         :url :institution/url})
+      (cond->
+       (not (str/blank? (:logo institution)))
+       (assoc :institution/logo (str "data:image/png;base64," (:logo institution))))
       ;; Remove nil values to avoid database errors
       (->> (remove (fn [[_ v]] (nil? v)))
            (into {}))))

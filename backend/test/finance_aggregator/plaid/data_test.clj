@@ -32,6 +32,16 @@
       (is (= "Bank of America" (:institution/name result)))
       (is (nil? (:institution/url result))))))
 
+(deftest test-parse-institution-logo
+  (testing "A present logo becomes a base64 PNG data URI"
+    (let [institution {:institution_id "ins_123" :name "Chase" :logo "base64-logo"}
+          result (data/parse-institution institution)]
+      (is (= "data:image/png;base64,base64-logo" (:institution/logo result)))))
+  (testing "A nil logo is omitted, not stored as nil"
+    (let [institution {:institution_id "ins_456" :name "Bank of America" :logo nil}
+          result (data/parse-institution institution)]
+      (is (not (contains? result :institution/logo))))))
+
 (deftest test-parse-account
   (testing "Transforms Plaid account to database format with lookup refs"
     (let [account {:account_id "acc-plaid-123"

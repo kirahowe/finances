@@ -17,8 +17,8 @@
    [com.plaid.client.model LinkTokenCreateRequest
     LinkTokenCreateRequestUser LinkTokenTransactions
     ItemPublicTokenExchangeRequest AccountsGetRequest
-    ItemGetRequest InstitutionsGetByIdRequest TransactionsSyncRequest
-    TransactionsSyncRequestOptions]
+    ItemGetRequest InstitutionsGetByIdRequest InstitutionsGetByIdRequestOptions
+    TransactionsSyncRequest TransactionsSyncRequestOptions]
    [com.plaid.client.request PlaidApi]
    [java.util HashMap]
    [okhttp3 ResponseBody]
@@ -264,11 +264,15 @@
    institution-id: string from fetch-item
    country-codes: vector of CountryCode enums or strings (default [\"US\"])
 
+   Requests optional metadata (options.include_optional_metadata) - without it Plaid
+   omits logo/url/primary_color entirely.
+
    Returns: {:institution_id string
             :name string
             :url string (or nil)
             :primary_color string (or nil)
-            :logo string (or nil)}"
+            :logo string (or nil) - base64-encoded PNG, returned only because we ask
+                                    for optional metadata}"
   ([plaid-config institution-id]
    (fetch-institution plaid-config institution-id ["US"]))
   ([plaid-config institution-id country-codes]
@@ -277,7 +281,9 @@
          country-enums (mapv #(ensure-enum % types/country-codes "country code") country-codes)
          request (-> (InstitutionsGetByIdRequest.)
                      (.institutionId institution-id)
-                     (.countryCodes country-enums))
+                     (.countryCodes country-enums)
+                     (.options (-> (InstitutionsGetByIdRequestOptions.)
+                                   (.includeOptionalMetadata true))))
          result (execute! (.institutionsGetById plaid-api request)
                           {:operation :fetch-institution :institution-id institution-id})
          institution (.getInstitution result)]
