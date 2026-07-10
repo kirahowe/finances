@@ -26,7 +26,7 @@ check('no page errors', !logs.length, logs.join('; '));
 
 const row = (text: string) => page.locator('#tx-tbody tr', { hasText: text }).first();
 const menu = page.locator('#row-actions-menu');
-// [0]=Split transaction, [1]=Match transfer, [2]=Set posted date…, [3]=Delete (hidden, manual only)
+// [0]=Split transaction, [1]=Match transfer, [2]=Set posted date, [3]=Delete (hidden, manual only)
 const postedItem = menu.locator('.row-actions-item').nth(2);
 const modal = page.locator('#modal-root [role="dialog"]');
 const modalGone = () =>
@@ -42,7 +42,7 @@ async function openMenu(text: string) {
 
 async function openPostedDateModal(text: string) {
   await openMenu(text);
-  check(`"${text}" row menu offers Set posted date…`, (await postedItem.innerText()).trim() === 'Set posted date…');
+  check(`"${text}" row menu offers Set posted date`, (await postedItem.innerText()).trim() === 'Set posted date');
   await postedItem.click();
   await modal.waitFor({ state: 'visible' });
 }

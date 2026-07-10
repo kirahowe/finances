@@ -943,7 +943,7 @@
    row is a split part\") and $_rowMenuMatched flip the item labels — \"Edit split\" vs
    \"Split transaction\" and \"Matched transfer\" vs \"Match transfer\"; $_rowMenuSplitTarget
    is the id the split editor opens on (a part's PARENT, else the row itself); $_rowMenuManual
-   gates a \"Delete transaction\" item shown only for manual rows. \"Set posted date…\" @get's
+   gates a \"Delete transaction\" item shown only for manual rows. \"Set posted date\" @get's
    plain $_rowMenu — the server resolves a split part to its family root itself
    (split-editor-root), so no dedicated target signal is needed there. Each item @get's the
    relevant modal (the url is built before the signals are cleared)."
@@ -969,7 +969,7 @@
     [:button.row-actions-item
      {:type "button" :role "menuitem"
       "data-on:click" "@get('/transactions/' + $_rowMenu + '/posted-date-editor'); $_rowMenu = 0"}
-     "Set posted date…"]]
+     "Set posted date"]]
    ;; Manual transactions only (the user's own entries) can be deleted — the menu item
    ;; is hidden for imported rows via $_rowMenuManual.
    [:li {:role "none" "data-show" "$_rowMenuManual"}
