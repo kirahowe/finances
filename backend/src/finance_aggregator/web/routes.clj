@@ -44,7 +44,7 @@
    ["/setup/sync"     {:post {:handler (setup/sync-now deps) :name ::setup-sync}}]
    ["/setup/resync"   {:post {:handler (setup/resync-connection deps) :name ::setup-resync}}]
    ["/setup/sync-account" {:post {:handler (setup/sync-account deps) :name ::setup-sync-account}}]
-   ["/setup/account/name" {:post {:handler (setup/set-account-name deps) :name ::setup-account-name}}]
+   ["/setup/account/:external-id/name" {:put {:handler (setup/set-account-name deps) :name ::setup-account-name}}]
    ["/setup/lunchflow" {:get  {:handler (setup/lunchflow-page deps) :name ::setup-lunchflow}
                         :post {:handler (setup/lunchflow-connect deps) :name ::setup-lunchflow-connect}}]
    ["/setup/plaid/link-token" {:get  {:handler (setup/plaid-link-token deps) :name ::setup-plaid-link-token}}]

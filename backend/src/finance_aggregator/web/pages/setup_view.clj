@@ -10,6 +10,7 @@
   (:require
    [clojure.string :as str]
    [finance-aggregator.web.format :as fmt]
+   [finance-aggregator.web.inline-edit :as inline-edit]
    [finance-aggregator.web.shell :as shell]))
 
 (defn- stat-card [value label]
@@ -30,20 +31,45 @@
    [:button.button {:id "plaid-link-btn"} "Link Bank Account"]
    [:a.button.button-secondary {:href "/setup/lunchflow"} "Connect Lunchflow"]])
 
-(defn- account-rename-form
-  "A one-row plain HTML form (full-page POST, no Datastar) renaming an account: a text
-   input prefilled with the current override (blank when none, placeholder = the
-   provider's own name) + Save. When an override is set, the provider's original name
-   shows muted alongside so the mapping stays visible."
-  [{:keys [external-id external-name display-name]}]
+;; --- Inline account rename (server-confirmed) -------------------------------
+;; The Name cell reuses the transactions description cell's click-to-edit grammar
+;; (web.inline-edit): resting text, click swaps in an input sharing the same box, Enter/blur
+;; @put's the new name and the server morphs this cell back. Not a grid page (no grid-nav
+;; here), so Escape just closes the editor — no gridedit dispatch to hand focus back to.
+
+(def ^:private name-opts
+  {:cell-class "account-name-cell" :courier "nameValue" :grid? false
+   :button-class "account-name-button" :input-class "account-name-input"
+   :add-aria-label nil})
+
+(defn account-name-cell
+  "The Name cell's content: the editable button+input pair (resting text = the rename
+   override when set, else the provider's own name — same fallback web.accounts/
+   account-label already computes into `:name`), plus a transient saved-confirmation ✓ when
+   `saved?` (true ONLY on the setup.clj SSE response right after a successful save, never on
+   a full page render) and the muted provider-name caption once an override is active, so
+   the mapping to the provider's own name stays visible. A blank commit clears the override
+   (existing db.accounts/set-display-name! semantics) — the resting text and the optimistic
+   client-side fallback both then read the provider name, never a bare dash, so `empty-label`
+   carries it rather than the generic inline-edit default."
+  [{:keys [external-name display-name name name-url]} & {:keys [saved?]}]
   (list
-   [:form.account-rename-form {:method "post" :action "/setup/account/name"}
-    [:input {:type "hidden" :name "external-id" :value external-id}]
-    [:input.form-input {:type "text" :name "display-name" :value display-name
-                        :placeholder external-name :aria-label (str "Rename " external-name)}]
-    [:button.button.button-secondary.button-small {:type "submit"} "Save"]]
+   (inline-edit/editable-cell
+    (assoc name-opts :put-url name-url :empty-label (or external-name "—")
+           :input-aria-label (str "Rename " external-name))
+    name)
+   (when saved? [:span.name-saved-check {:aria-hidden "true"} "✓"])
    (when-not (str/blank? display-name)
      [:span.account-original-name {:title (str "Provider name: " external-name)} external-name])))
+
+(defn account-name-td
+  "The `<td>` wrapping one account's Name cell: the `.account-name-cell` class the
+   inline-edit CSS/JS keys off, plus a stable id (`account-name-<external-id>`) that's the
+   setup.clj rename handler's SSE morph target — the smallest fragment a save needs to
+   re-render. `saved?` forwards to account-name-cell (see there)."
+  [{:keys [external-id] :as account} & {:keys [saved?]}]
+  [:td.account-name-cell {:id (str "account-name-" external-id)}
+   (account-name-cell account :saved? saved?)])
 
 (defn- account-sync-button
   "The per-row Lunchflow Sync action (Datastar @post, live-patches the card — same
@@ -64,7 +90,7 @@
    [:tbody
     (for [{:keys [type mask currency] :as account} accounts]
       [:tr
-       [:td.account-name-cell (account-rename-form account)]
+       (account-name-td account)
        [:td type]
        [:td [:span.numeric mask]]
        [:td currency]

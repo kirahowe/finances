@@ -64,18 +64,29 @@
   [external-id]
   (str "/setup/sync-account?external-id=" (java.net.URLEncoder/encode (str external-id) "UTF-8")))
 
-(defn- account-display
-  "Flatten an account entity into the structural map the dumb setup view lays out:
-   the shown label + the two rename-form fields (the current override, blank when
-   none, and the provider's own name as the fallback/placeholder + muted caption),
-   the provider-native type/mask/currency, and — for a Lunchflow account only — the
-   per-row Sync button's target url and whether its connection is mid-sync
-   (`syncing?`, supplied by the caller, which owns the connection-level status)."
+(defn- account-name-url
+  "PUT URL for the account-rename inline-edit commit — the external-id rides as a path
+   segment (URL-encoded, so a provider id with odd characters still round-trips; reitit's
+   router decodes it back into :path-params on the way in)."
+  [external-id]
+  (str "/setup/account/" (java.net.URLEncoder/encode (str external-id) "UTF-8") "/name"))
+
+(defn account-display
+  "Flatten an account entity into the structural map the dumb setup view lays out: the
+   shown label, the current rename override (blank when none) + the provider's own name
+   (the fallback shown once the override is cleared, and the muted caption alongside an
+   active override) + the rename cell's @put url, the provider-native type/mask/currency,
+   and — for a Lunchflow account only — the per-row Sync button's target url and whether
+   its connection is mid-sync (`syncing?`, supplied by the caller, which owns the
+   connection-level status). Public (not just an internal connection-groups step) — the
+   rename SSE handler (web.pages.setup/set-account-name) also calls this to re-present a
+   single freshly-written account for its patch, rather than duplicating this shape."
   [syncing? {:account/keys [external-name display-name mask currency external-id provider] :as acct}]
   {:name          (account-label acct)
    :display-name  (or display-name "")
    :external-name (or external-name "—")
    :external-id   external-id
+   :name-url      (account-name-url external-id)
    :type          (display-type acct)
    :mask          (if mask (str "••••" mask) "—")
    :currency      (or currency "—")

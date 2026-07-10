@@ -129,7 +129,11 @@
                   :now         (Date.)})]
       {:status 200
        :headers {"Content-Type" "text/html"}
-       :body (layout/document {:title "Setup · Finance Aggregator" :islands ["plaid-link"]}
+       :body (layout/document {:title "Setup · Finance Aggregator" :islands ["plaid-link"]
+                               ;; The account-rename cell's courier signal (web.inline-edit,
+                               ;; via setup-view/account-name-cell) — Datastar needs it seeded
+                               ;; before the first $nameValue = ... assignment.
+                               :signals {:nameValue ""}}
                               (view/body model))})))
 
 (defn plaid-link-token
@@ -201,16 +205,22 @@
     (redirect-to-setup)))
 
 (defn set-account-name
-  "Factory: POST /setup/account/name — set or clear an account's display-name overlay
-   from the accounts-table rename form (plain HTML POST, wrap-params style like
-   lunchflow-connect): external-id names the account, display-name is the new label
-   (blank retracts the override, falling back to the provider name — db.accounts/
-   set-display-name! does the trim + blank-check). Full-page redirect, the established
-   setup pattern."
+  "Factory: PUT /setup/account/:external-id/name — the account-rename inline-edit commit
+   (web.inline-edit, via setup-view/account-name-cell): read the new name off the
+   $nameValue courier, set or clear the display-name overlay (db.accounts/set-display-name!
+   does the trim + blank-check — a blank commit retracts the override, falling back to the
+   provider name), then SSE-patch just that account's name cell back in with a transient
+   saved-confirmation (the smallest fragment a save needs to re-render, not the whole card).
+   An external-id that doesn't resolve to an account patches nothing."
   [{:keys [db-conn]}]
   (fn [req]
-    (let [external-id (not-empty (get-in req [:params "external-id"]))
-          display-name (get-in req [:params "display-name"])]
-      (when external-id
-        (db-accounts/set-display-name! db-conn external-id display-name)))
-    (redirect-to-setup)))
+    (let [external-id (get-in req [:path-params :external-id])
+          display-name (:nameValue (r/read-signals req))]
+      (db-accounts/set-display-name! db-conn external-id display-name)
+      (sse req
+           (fn [sse-chan]
+             (when-let [account (db-accounts/by-external-id db-conn external-id)]
+               (d*/patch-elements!
+                sse-chan
+                (r/render (view/account-name-td
+                           (accounts/account-display false account) :saved? true)))))))))

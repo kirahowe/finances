@@ -8,6 +8,7 @@
    [clojure.string :as str]
    [finance-aggregator.web.accounts :as accounts]
    [finance-aggregator.web.format :as fmt]
+   [finance-aggregator.web.inline-edit :as inline-edit]
    [finance-aggregator.web.month :as month]
    [finance-aggregator.web.period :as period]
    [finance-aggregator.web.render :as r]
@@ -90,44 +91,21 @@
 ;; .description-cell.editing CSS). Enter/blur optimistically set the button text, copy the
 ;; input value into the single $editValue courier signal, and @put it; the server applies a
 ;; command and morphs the row back (reconciling blank → imported description). Escape reverts
-;; the input to its server value. No per-row signals — the input holds its own text.
+;; the input to its server value. No per-row signals — the input holds its own text. The
+;; click-to-edit grammar itself (open/commit/keydown/blur + the button+input pair) is shared
+;; with the /setup account-rename cell, so it lives in web.inline-edit; this is just the
+;; transactions page's own styling hooks + endpoint plugged into it.
 
-(def desc-open-js
-  (str "el.closest('.description-cell').classList.add('editing');"
-       " el.nextElementSibling.focus(); el.nextElementSibling.select()"))
-
-(defn desc-commit-js [tx-id]
-  (str "el.previousElementSibling.textContent = el.value || '—',"
-       " $editValue = el.value, @put('/transactions/" tx-id "/description'),"
-       " el.closest('.description-cell').classList.remove('editing')"))
-
-(defn desc-keydown-js [tx-id]
-  ;; Escape reverts the input and closes the editor, then hands the keyboard back to grid-nav:
-  ;; the `gridedit` cancel event returns focus to the cell (otherwise the hidden input blurs to
-  ;; <body> and arrow-key navigation dies — grid-nav's keydown listener only fires within the
-  ;; scroll container). stopPropagation keeps this same Escape from also bubbling to grid-nav's
-  ;; navigation handler, which would clear the active cell now that the editor is closed.
-  (str "evt.key === 'Enter' && (" (desc-commit-js tx-id) "); "
-       "evt.key === 'Escape' && (evt.stopPropagation(), el.value = el.defaultValue,"
-       " el.closest('.description-cell').classList.remove('editing'),"
-       " el.closest('[data-cell]').dispatchEvent(new CustomEvent('gridedit',"
-       " {detail: {action: 'cancel'}, bubbles: true})))"))
-
-(defn desc-blur-js [tx-id]
-  ;; A genuine click-away commits; Enter/Escape already removed `editing`, so their trailing
-  ;; blur is a no-op (guards the double-commit).
-  (str "el.closest('.description-cell').classList.contains('editing') && (" (desc-commit-js tx-id) ")"))
+(def ^:private desc-opts
+  {:cell-class "description-cell" :courier "editValue" :grid? true
+   :button-class "description-button" :input-class "description-input"
+   :input-aria-label "Edit description" :add-aria-label "Add description"
+   :empty-label "—"})
 
 (defn editable-description [tx-id text]
-  (list
-   [:button.description-button
-    {:type "button" :tabindex "-1" "data-on:click" desc-open-js
-     :aria-label (when (str/blank? text) "Add description")}
-    (if (str/blank? text) "—" text)]
-   [:input.description-input
-    {:type "text" :value text :aria-label "Edit description"
-     "data-on:keydown" (desc-keydown-js tx-id)
-     "data-on:blur" (desc-blur-js tx-id)}]))
+  (inline-edit/editable-cell
+   (assoc desc-opts :put-url (str "/transactions/" tx-id "/description"))
+   text))
 
 ;; --- Inline category edit (Zag combobox island + server-confirmed command) -------------
 ;; The category cell keeps a .category-button.combo-cell (the combobox island opens it on

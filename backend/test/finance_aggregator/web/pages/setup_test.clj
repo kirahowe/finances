@@ -12,7 +12,11 @@
    [finance-aggregator.provider :as provider]
    [finance-aggregator.resync :as resync]
    [finance-aggregator.test-utils.setup :as setup]
-   [finance-aggregator.web.pages.setup :as setup-page])
+   [finance-aggregator.web.pages.setup :as setup-page]
+   [finance-aggregator.web.pages.setup-view :as view]
+   [finance-aggregator.web.render :as r]
+   [starfederation.datastar.clojure.adapter.http-kit :as hk]
+   [starfederation.datastar.clojure.adapter.test :as sse-test])
   (:import
    [java.util Date]))
 
@@ -49,14 +53,21 @@
         (is (str/includes? body "/setup/resync?connection-id="))
         (is (not (str/includes? body "action=\"/setup/resync\""))
             "the old reload-causing form is gone"))
-      (testing "the Name cell is a plain HTML rename form posting to /setup/account/name"
-        (is (str/includes? body "action=\"/setup/account/name\""))
-        (is (str/includes? body "name=\"external-id\""))
-        (is (str/includes? body "value=\"acc-1\""))
-        (is (str/includes? body "name=\"display-name\""))
-        (is (str/includes? body "placeholder=\"Chequing\""))
+      (testing "the Name cell is an inline-edit cell (web.inline-edit), not a form"
+        (is (not (str/includes? body "<form")) "no rename form remains")
+        (is (not (str/includes? body "action=\"/setup/account")))
+        (is (not (str/includes? body ">Save<")) "no per-row Save button")
+        (is (str/includes? body "id=\"account-name-acc-1\"")
+            "a stable morph target for the rename SSE patch")
+        (is (str/includes? body "account-name-button"))
+        (is (str/includes? body "account-name-input"))
+        (is (str/includes? body ">Chequing<") "resting text is the account's shown name")
+        (is (str/includes? body "value=\"Chequing\"") "the editing input carries the current name")
+        (is (str/includes? body "/setup/account/acc-1/name") "commit @put's the rename endpoint")
         (is (not (str/includes? body "account-original-name"))
-            "no override yet -> no muted provider-name caption"))
+            "no override yet -> no muted provider-name caption")
+        (is (not (str/includes? body "name-saved-check"))
+            "the saved check never renders on a full page load"))
       (testing "a Plaid account gets no per-row Sync button (that's Lunchflow-only)"
         (is (not (str/includes? body "/setup/sync-account?external-id=")))))))
 
@@ -70,8 +81,9 @@
                         :account/connection [:connection/id "lunchflow"]
                         :account/user [:user/id "test-user"]}])
     (let [body (:body ((setup-page/page {:db-conn conn}) {}))]
-      (testing "the rename input is prefilled with the override; the provider's own
+      (testing "the resting text + editing input show the override; the provider's own
                 name shows muted alongside so the mapping stays visible"
+        (is (str/includes? body ">My Everyday Account<") "resting text is the override, not the provider name")
         (is (str/includes? body "value=\"My Everyday Account\""))
         (is (str/includes? body "account-original-name"))
         (is (str/includes? body "Chequing")))
@@ -103,27 +115,74 @@
       (is (= 303 (:status resp)))
       (is (nil? (connections/get-connection setup/*test-conn* "lunchflow"))))))
 
-(deftest set-account-name-sets-trims-and-clears
-  (let [conn setup/*test-conn*
-        display-name #(:account/display-name (d/pull (d/db conn) '[:account/display-name]
-                                                      [:account/external-id "acc-1"]))]
+;; --- Inline account rename (SSE) -------------------------------------------
+;; setup-page/set-account-name is a Datastar PUT handler (SSE, not a redirect): run it
+;; through the SDK's own fake adapter (starfederation.datastar.clojure.adapter.test) so the
+;; real @put/SSE-patch path executes against a recording generator instead of a live
+;; http-kit channel — no mocking of our own code, just swapping the transport.
+
+(defn- put-account-name! [conn external-id name-value]
+  (with-redefs [hk/->sse-response sse-test/->sse-response]
+    ((setup-page/set-account-name {:db-conn conn})
+     {:path-params {:external-id external-id} :body-params {:nameValue name-value}})))
+
+(defn- display-name-of [conn external-id]
+  (:account/display-name (d/pull (d/db conn) '[:account/display-name] [:account/external-id external-id])))
+
+(deftest set-account-name-sets-trims-and-patches-the-cell
+  (let [conn setup/*test-conn*]
     (d/transact! conn [{:account/external-id "acc-1" :account/external-name "Chequing"
                         :account/provider :plaid}])
-    (testing "sets a trimmed override and redirects back to /setup"
-      (let [resp ((setup-page/set-account-name {:db-conn conn})
-                  {:params {"external-id" "acc-1" "display-name" "  My Chequing  "}})]
-        (is (= 303 (:status resp)))
-        (is (= "/setup" (get-in resp [:headers "Location"])))
-        (is (= "My Chequing" (display-name)))))
-    (testing "blank input retracts the override"
-      ((setup-page/set-account-name {:db-conn conn})
-       {:params {"external-id" "acc-1" "display-name" ""}})
-      (is (nil? (display-name))))))
+    (let [resp (put-account-name! conn "acc-1" "  My Chequing  ")
+          events (apply str @(:body resp))]
+      (testing "sets a trimmed override (db.accounts/set-display-name! semantics)"
+        (is (= "My Chequing" (display-name-of conn "acc-1"))))
+      (testing "SSE-patches just the name cell, with the transient saved check"
+        (is (str/includes? events "account-name-acc-1"))
+        (is (str/includes? events "My Chequing"))
+        (is (str/includes? events "name-saved-check"))))))
 
-(deftest set-account-name-no-op-without-external-id
-  (let [resp ((setup-page/set-account-name {:db-conn setup/*test-conn*})
-              {:params {"display-name" "Whatever"}})]
-    (is (= 303 (:status resp)))))
+(deftest set-account-name-blank-commit-clears-the-override
+  (let [conn setup/*test-conn*]
+    (d/transact! conn [{:account/external-id "acc-1" :account/external-name "Chequing"
+                        :account/display-name "Old Name" :account/provider :plaid}])
+    (put-account-name! conn "acc-1" "")
+    (is (nil? (display-name-of conn "acc-1")) "blank retracts the override")))
+
+(deftest set-account-name-unknown-external-id-patches-nothing
+  (let [resp (put-account-name! setup/*test-conn* "does-not-exist" "X")]
+    (is (= [] @(:body resp)))))
+
+;; --- setup-view/account-name-cell (pure — the new cell's own render checks) -----------
+
+(def ^:private plain-account
+  {:external-id "acc-1" :external-name "Chequing" :display-name ""
+   :name "Chequing" :name-url "/setup/account/acc-1/name"})
+
+(def ^:private overridden-account
+  (assoc plain-account :display-name "My Chequing" :name "My Chequing"))
+
+(deftest account-name-cell-resting-state-has-no-form-or-save
+  (let [h (str (r/render (view/account-name-cell plain-account)))]
+    (is (not (str/includes? h "<form")))
+    (is (not (str/includes? h ">Save<")))
+    (is (str/includes? h "account-name-button"))
+    (is (str/includes? h "account-name-input"))
+    (is (str/includes? h ">Chequing<"))
+    (is (not (str/includes? h "account-original-name")) "no override -> no muted caption")
+    (is (not (str/includes? h "name-saved-check")) "saved? defaults to false")))
+
+(deftest account-name-cell-override-shows-muted-provider-name
+  (let [h (str (r/render (view/account-name-cell overridden-account)))]
+    (is (str/includes? h ">My Chequing<") "resting text is the override")
+    (is (str/includes? h "account-original-name"))
+    (is (str/includes? h "Provider name: Chequing"))))
+
+(deftest account-name-cell-saved-flag-renders-check-only-when-set
+  (is (str/includes? (str (r/render (view/account-name-cell plain-account :saved? true)))
+                      "name-saved-check"))
+  (is (not (str/includes? (str (r/render (view/account-name-cell plain-account :saved? false)))
+                           "name-saved-check"))))
 
 (deftest plaid-link-token-returns-json-token
   (with-redefs [plaid-client/create-link-token (fn [_ _] "link-tok-123")]
