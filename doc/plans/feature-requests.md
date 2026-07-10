@@ -10,7 +10,14 @@
   respects the stored order, but nothing in the current stack lets you *edit* it; the values
   predate the React frontend's removal)
 
-# Done — July 2026 polish batch (branch ui-polish)
+# To Do
+## Transactions table
+
+- When a transaction has an overridden posted date, include "Clear posted date override" as a menu option in the "extras" menu
+
+
+
+# Done
 
 ## Transactions table
 - ✅ category dropdown looks the same (minus the checkboxes) for header filter and category assignment — funnel renders the combobox's hierarchy/order/skin
