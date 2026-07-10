@@ -325,7 +325,12 @@
           model (table-and-facets db-conn p signals view-st
                                   {:categories (db-categories/list-all db-conn)})
           close-model (close-or-note db-conn p view-st)
-          result (:result model)]
+          result (:result model)
+          ;; The statement lens (month view only, one account focused, $reconFrom/$reconTo set)
+          ;; narrows the table AND the header dateline/picker footer to its own span.
+          lens (when (period/month? p) (reconcile-range signals view-st))
+          lens-from-iso (some-> lens :from u/date->local-date str)
+          lens-to-iso (some-> lens :to u/date->local-date str)]
       (sse-response req
        (fn [sse]
          ;; A view change (filter/sort/paginate) dismisses any error a prior action left up.
@@ -335,15 +340,68 @@
                                      (if (= 1 (:total result)) " transaction" " transactions"))))
          (patch! sse (tbody (:rows result)))
          (patch! sse (pagination-bar result))
-         ;; Keep the header dateline in sync with the narrowing lens: show the statement span
-         ;; when narrowed to one (month view only — range view has no lens), else fall back to
-         ;; the whole period's own label.
-         (let [{:keys [from to]} (when (period/month? p) (reconcile-range signals view-st))]
-           (patch! sse (tv/period-display (tv/period-label p from to))))
-         (patch-view! sse model view-st (boolean (and (period/month? p) (reconcile-range signals view-st))))
+         ;; Keep the header dateline AND the picker footer in sync with the narrowing lens: show
+         ;; the statement span when narrowed to one (month view only — range view has no lens),
+         ;; else fall back to the whole period's own bounds — which also RESTORES the footer to
+         ;; the period's own bounds when the lens clears.
+         (patch! sse (tv/period-display (tv/period-label p (:from lens) (:to lens))))
+         (patch! sse (tv/period-picker-footer p lens-from-iso lens-to-iso))
+         (patch-view! sse model view-st (boolean lens))
          (patch! sse (tv/close-panel close-model))
-         (d*/patch-signals! sse (r/signals (merge {:page (:page result)}
-                                                  (recon-signals close-model)))))))))
+         (d*/patch-signals!
+          sse (r/signals
+               (merge {:page (:page result)}
+                      (let [{:keys [picker-from picker-to]} (period/picker-seed p)]
+                        {:_pickerFrom (or lens-from-iso picker-from)
+                         :_pickerTo (or lens-to-iso picker-to)})
+                      (recon-signals close-model)))))))))
+
+(defn period
+  "GET /transactions/period — a period change (arrow / rail quick-link / month-cell / × /
+   custom-range Apply, all via period-nav-js or picker-apply-js): re-run the view for the NEW
+   period and morph the page in place over SSE, `table-and-facets` + `close-or-note` exactly like
+   `rows`, but three differences follow from it being a PERIOD change rather than a filter change:
+   the statement lens is ignored outright (it's a month-view-only affordance keyed to the account
+   being drilled into — see reconcile-range — and doesn't carry meaning across a period change, so
+   any $reconFrom/$reconTo still sitting in the live signals from a prior visit is blanked before
+   table-and-facets ever sees it, and the couriers are reset in the signal patch below); the WHOLE
+   navigator fragment re-renders (period-navigator — its dateline moves along with everything
+   else, so there's no separate period-display patch); and the rollup re-patches too, since —
+   unlike a filter/sort/paginate change — a period change moves the whole-period totals it sums.
+   The final signal patch re-seeds $month/$from/$to from the period's OWN canonical signal-seed
+   (period/parse may canonicalize an applied from/to range to its containing month — see
+   period/canonicalize — so this is what makes that canonical shape stick client-side) and
+   $_pickerFrom/$_pickerTo from its picker-seed, restoring the footer to the new period's bounds."
+  [{:keys [db-conn]}]
+  (fn [req]
+    (commands/clear-linger! auth/user-id)
+    (let [signals (r/read-signals req)
+          p (signals-period signals)
+          view-st (vs/signals->view-state signals)
+          model (table-and-facets db-conn p (assoc signals :reconFrom "" :reconTo "") view-st
+                                  {:categories (db-categories/list-all db-conn)})
+          close-model (close-or-note db-conn p view-st)
+          result (:result model)
+          today (java.time.LocalDate/now java.time.ZoneOffset/UTC)]
+      (sse-response req
+       (fn [sse]
+         (patch! sse (error-banner))
+         (patch! sse (sr-status (str (:total result)
+                                     (if (= 1 (:total result)) " transaction" " transactions"))))
+         (patch! sse (tbody (:rows result)))
+         (patch! sse (pagination-bar result))
+         (patch! sse (tv/period-navigator p today))
+         (patch-view! sse model view-st false)
+         (patch! sse (tv/close-panel close-model))
+         ;; A period change moves the whole-period rollup (unlike a plain filter change).
+         (patch! sse (rollup-pane (:rollup model)))
+         (d*/patch-signals!
+          sse (r/signals
+               (merge {:page (:page result) :reconFrom "" :reconTo ""}
+                      (period/signal-seed p)
+                      (let [{:keys [picker-from picker-to]} (period/picker-seed p)]
+                        {:_pickerFrom picker-from :_pickerTo picker-to})
+                      (recon-signals close-model)))))))))
 
 (defn- edit-response
   "Shared SSE response after any edit/undo/redo: re-render the tbody (lingering the touched

@@ -416,24 +416,31 @@
   [:span#period-navigator-display.month-navigator-display label])
 
 (defn- period-nav-js
-  "Full navigation to period `target` (render-time data like the href it backs up) that
+  "In-place navigation to period `target` (render-time data like the href it backs up) that
    PRESERVES the rest of the view state: read the URL as it stands (the url island keeps it
    live, so this always sees the current filters/sort/etc.), swap in `target`'s query params
    (period/url-params) — DELETING the other shape's keys first, since the two are mutually
    exclusive in the URL (navigating to a month clears from/to; to a range, clears month) — and
-   drop `page` (a different period's row set restarts at page 0). A real navigation (not an SSE
-   round-trip) — a period change reloads the whole span's data anyway, and the page handler's
-   `period/parse` + `query->view-state` is the read side for every one of these params."
+   drop `page` (a different period's row set restarts at page 0). `history.replaceState` (not
+   pushState) rewrites the address bar without a real navigation — the same convention every
+   other piece of view state riding the URL already follows (no history spam). Then seed the
+   period signals from `target`'s own signal-seed and @get the period endpoint: the fresh
+   handler morphs the table/navigator/panel in place over SSE, an in-place view change like
+   every other filter/sort/paginate action instead of a full reload — the read side
+   (`period/parse` in the page handler) is unchanged for full loads."
   [target]
-  (let [params (period/url-params target)]
+  (let [params (period/url-params target)
+        {:keys [month from to]} (period/signal-seed target)]
     (str "evt.preventDefault();"
-         " const p = new URLSearchParams(location.search);"
+         " const q = new URLSearchParams(location.search);"
          (if (contains? params "month")
-           (str " p.delete('from'); p.delete('to'); p.set('month', '" (get params "month") "');")
-           (str " p.delete('month'); p.set('from', '" (get params "from") "');"
-                " p.set('to', '" (get params "to") "');"))
-         " p.delete('page');"
-         " location.href = '/?' + p")))
+           (str " q.delete('from'); q.delete('to'); q.set('month', '" (get params "month") "');")
+           (str " q.delete('month'); q.set('from', '" (get params "from") "');"
+                " q.set('to', '" (get params "to") "');"))
+         " q.delete('page');"
+         " history.replaceState(null, '', '/?' + q);"
+         " $_periodOpen = false; $month = '" month "'; $from = '" from "'; $to = '" to "'; $page = 0;"
+         " @get('/transactions/period')")))
 
 (defn- period-href
   "The anchor href naming period `p` — the no-JS fallback period-nav-js's data-on:click
@@ -446,7 +453,9 @@
 ;; YTD, last 90 days), a year-steppable month grid, and a custom-range footer. Every
 ;; destination navigates exactly like the prev/next arrows (period-href fallback +
 ;; period-nav-js state-preserving click), so the picker is just more ways to say the same
-;; thing. Only the month grid round-trips (SSE re-patch on year step); the rest is static.
+;; thing — every one of them is an in-place SSE view change (period-nav-js/picker-apply-js
+;; both @get /transactions/period); the month grid's year steppers are the one exception,
+;; SSE re-patching just the #period-picker-months pane without touching the viewed period.
 
 (defn- period-link
   "One picker destination as an anchor: `period-href` fallback + `period-nav-js`
@@ -505,36 +514,50 @@
 (def ^:private picker-apply-js
   ;; Navigate to the custom range the $_pickerFrom/$_pickerTo couriers hold — the same
   ;; state-preserving URL rewrite as period-nav-js, but built from the live signals instead
-  ;; of a render-time target (delete the month shape's key + page, set from/to).
-  (str "const p = new URLSearchParams(location.search);"
-       " p.delete('month'); p.delete('page');"
-       " p.set('from', $_pickerFrom); p.set('to', $_pickerTo);"
-       " location.href = '/?' + p"))
+  ;; of a render-time target (delete the month shape's key + page, set from/to), then the
+  ;; same in-place SSE view change: $month is seeded provisionally from $_pickerTo's
+  ;; containing month (a range whose bounds span one calendar month canonicalizes away —
+  ;; see period/canonicalize — so this guess doesn't have to be exact); the
+  ;; /transactions/period response's signal patch re-seeds the canonical period either way.
+  (str "const q = new URLSearchParams(location.search);"
+       " q.delete('month'); q.delete('page');"
+       " q.set('from', $_pickerFrom); q.set('to', $_pickerTo);"
+       " history.replaceState(null, '', '/?' + q);"
+       " $_periodOpen = false; $month = $_pickerTo.slice(0, 7); $from = $_pickerFrom; $to = $_pickerTo; $page = 0;"
+       " @get('/transactions/period')"))
 
-(defn- period-picker-footer
+(defn period-picker-footer
   "The custom-range footer: two NATIVE date inputs (deliberate — the browser gives both its
    single-date picker and segmented typing, the exact pairing asked for) seeded server-side
-   from period/picker-seed and pushed one-way into the $_pickerFrom/$_pickerTo couriers on
-   change (data-bind's write-back would clobber segment editing mid-keystroke — see the
-   form/date-input convention on add-transaction-modal). Apply stays disabled until both are
-   set and from <= to (ISO yyyy-MM-dd compares correctly as plain strings)."
-  [p]
-  (let [{:keys [picker-from picker-to]} (period/picker-seed p)]
-    [:div.period-picker-footer
-     [:p.period-picker-footer-label "Custom range"]
-     [:div.period-picker-footer-row
-      [:input#picker-from.form-input.period-picker-date
-       {:type "date" :value picker-from :aria-label "Range start"
-        "data-on:change" "$_pickerFrom = evt.target.value"}]
-      [:span.period-picker-range-sep {:aria-hidden "true"} "–"]
-      [:input#picker-to.form-input.period-picker-date
-       {:type "date" :value picker-to :aria-label "Range end"
-        "data-on:change" "$_pickerTo = evt.target.value"}]
-      [:button.button.button-primary.period-picker-apply
-       {:type "button"
-        "data-attr" "{disabled: !$_pickerFrom || !$_pickerTo || $_pickerFrom > $_pickerTo}"
-        "data-on:click" picker-apply-js}
-       "Apply"]]]))
+   and pushed one-way into the $_pickerFrom/$_pickerTo couriers on change (data-bind's
+   write-back would clobber segment editing mid-keystroke — see the form/date-input
+   convention on add-transaction-modal). The footer always seeds from the span ON SCREEN: by
+   default that's the period's own bounds (period/picker-seed) — but when the table is
+   narrowed to a statement lens, the caller (the `rows` handler) passes the lens's own
+   `from-iso`/`to-iso` instead, so Apply naturally converts what you're looking at into a
+   real range period. `#period-picker-footer` is a stable SSE morph target. Apply stays
+   disabled until both are set and from <= to (ISO yyyy-MM-dd compares correctly as plain
+   strings)."
+  ([p] (period-picker-footer p nil nil))
+  ([p from-iso to-iso]
+   (let [{:keys [picker-from picker-to]} (if (and from-iso to-iso)
+                                           {:picker-from from-iso :picker-to to-iso}
+                                           (period/picker-seed p))]
+     [:div#period-picker-footer.period-picker-footer
+      [:p.period-picker-footer-label "Custom range"]
+      [:div.period-picker-footer-row
+       [:input#picker-from.form-input.period-picker-date
+        {:type "date" :value picker-from :aria-label "Range start"
+         "data-on:change" "$_pickerFrom = evt.target.value"}]
+       [:span.period-picker-range-sep {:aria-hidden "true"} "–"]
+       [:input#picker-to.form-input.period-picker-date
+        {:type "date" :value picker-to :aria-label "Range end"
+         "data-on:change" "$_pickerTo = evt.target.value"}]
+       [:button.button.button-primary.period-picker-apply
+        {:type "button"
+         "data-attr" "{disabled: !$_pickerFrom || !$_pickerTo || $_pickerFrom > $_pickerTo}"
+         "data-on:click" picker-apply-js}
+        "Apply"]]])))
 
 (defn period-picker
   "The period-picker popover, anchored under the dateline inside .month-navigator (which is
@@ -562,14 +585,19 @@
    morph target). `today` (LocalDate) feeds the picker — see period-picker. Month view reads
    \"Previous/Next month\"; range view reads the actual target span (\"Previous: Jun 3 –
    Jun 9, 2026\") since a step's length varies (see period/prev's docstring), and gets a
-   trailing × back to the range's containing month — the one way to leave range view."
+   trailing × back to the range's containing month — the one way to leave range view.
+   `#period-navigator` on the root is a stable SSE morph target: the period handler
+   (GET /transactions/period) re-renders this whole fragment wholesale on every period
+   change — arrows, dateline label, ×, and the entire picker inside it (rail selection, grid
+   year + selected cell, footer seeds) all come back correct in one morph. `$_periodOpen` is
+   an ephemeral (client-only) signal, so it keeps working across the morph."
   ([p today] (period-navigator p today nil nil))
   ([p today lens-from lens-to]
    (let [range? (not (period/month? p))
          prev (period/prev p)
          next (period/next p)
          nav-label (fn [dir target] (if range? (str dir ": " (period-label target)) (str dir " month")))]
-     [:div.month-navigator
+     [:div#period-navigator.month-navigator
       [:div.month-navigator-controls
        [:a.button.button-secondary.month-nav-button
         {:href (period-href prev) :title (nav-label "Previous" prev) :aria-label (nav-label "Previous" prev)

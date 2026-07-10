@@ -13,6 +13,7 @@
   [""
    ["/"        {:get {:handler (transactions/page deps) :name ::transactions}}]
    ["/transactions/rows"            {:get  {:handler (transactions/rows deps) :name ::rows}}]
+   ["/transactions/period"          {:get  {:handler (transactions/period deps) :name ::period}}]
    ["/transactions/period-picker/months" {:get {:handler (transactions/picker-months deps) :name ::picker-months}}]
    ["/transactions/:id/reconciled/:v" {:put  {:handler (transactions/toggle-reconciled deps) :name ::reconciled}}]
    ["/transactions/:id/description" {:put  {:handler (transactions/set-description deps) :name ::description}}]

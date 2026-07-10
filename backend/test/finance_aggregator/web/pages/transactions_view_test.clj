@@ -407,10 +407,22 @@
     (testing "data-on:click preserves the current query string and resets page, not a bare nav"
       (is (re-find #"evt.preventDefault\(\)" h))
       (is (re-find #"new URLSearchParams\(location.search\)" h))
-      (is (re-find #"p.delete\(&apos;from&apos;\); p.delete\(&apos;to&apos;\); p.set\(&apos;month&apos;, &apos;2025-05&apos;\)" h))
-      (is (re-find #"p.delete\(&apos;from&apos;\); p.delete\(&apos;to&apos;\); p.set\(&apos;month&apos;, &apos;2025-07&apos;\)" h))
-      (is (re-find #"p.delete\(&apos;page&apos;\)" h))
-      (is (re-find #"location.href = &apos;/\?&apos; \+ p" h)))
+      (is (re-find #"q.delete\(&apos;from&apos;\); q.delete\(&apos;to&apos;\); q.set\(&apos;month&apos;, &apos;2025-05&apos;\)" h))
+      (is (re-find #"q.delete\(&apos;from&apos;\); q.delete\(&apos;to&apos;\); q.set\(&apos;month&apos;, &apos;2025-07&apos;\)" h))
+      (is (re-find #"q.delete\(&apos;page&apos;\)" h)))
+    (testing "in-place SSE view change: history.replaceState (no history spam, unlike pushState), then the period signals seeded from the TARGET's own signal-seed, then @get the period endpoint — no full reload"
+      (is (re-find #"history.replaceState\(null, &apos;&apos;, &apos;/\?&apos; \+ q\)" h))
+      (is (re-find #"\$_periodOpen = false; \$month = &apos;2025-05&apos;; \$from = &apos;&apos;; \$to = &apos;&apos;; \$page = 0" h)
+          "previous target's signal-seed")
+      (is (re-find #"\$_periodOpen = false; \$month = &apos;2025-07&apos;; \$from = &apos;&apos;; \$to = &apos;&apos;; \$page = 0" h)
+          "next target's signal-seed")
+      ;; Scoped to each arrow's own <a> tag — the navigator embeds the whole picker, whose
+      ;; rail/grid/Apply destinations all @get the same endpoint, so a global count says nothing.
+      (doseq [dir ["Previous month" "Next month"]]
+        (is (re-find #"@get\(&apos;/transactions/period&apos;\)"
+                     (or (re-find (re-pattern (str "<a[^>]*aria-label=\"" dir "\"[^>]*>")) h) ""))
+            (str "the " dir " arrow @gets the period endpoint in place")))
+      (is (not (re-find #"location.href" h)) "no full-page navigation left anywhere"))
     (testing "month view: plain 'Previous/Next month' titles, no × back-to-month affordance"
       (is (re-find #"Previous month" h))
       (is (re-find #"Next month" h))
@@ -427,16 +439,20 @@
       (is (re-find (re-pattern (str "Next: " next-label)) h))
       (is (not (re-find #"Previous month" h)))
       (is (not (re-find #"Next month" h))))
-    (testing "the × back-to-month affordance is present, deletes from/to and sets month"
+    (testing "the × back-to-month affordance is present, deletes from/to and sets month, and @gets the period endpoint in place"
       (is (re-find #"month-nav-clear" h))
       (is (re-find (re-pattern (str "Back to " containing)) h))
       (is (re-find #"href=\"/\?month=2026-07\"" h))
-      (is (re-find #"p.delete\(&apos;from&apos;\); p.delete\(&apos;to&apos;\); p.set\(&apos;month&apos;, &apos;2026-07&apos;\)" h)))))
+      (is (re-find #"q.delete\(&apos;from&apos;\); q.delete\(&apos;to&apos;\); q.set\(&apos;month&apos;, &apos;2026-07&apos;\)" h))
+      (is (re-find #"\$month = &apos;2026-07&apos;; \$from = &apos;&apos;; \$to = &apos;&apos;" h))
+      (is (re-find #"@get\(&apos;/transactions/period&apos;\)" h)))))
 
 ;; --- Period picker (the popover under the dateline) ---------------------------
 
 (deftest period-navigator-dateline-toggles-the-period-picker
   (let [h (html (tv/period-navigator {:kind :month :year 2026 :month 7} (LocalDate/of 2026 7 9)))]
+    (testing "the root is a stable SSE morph target for the period handler"
+      (is (re-find #"id=\"period-navigator\"" h)))
     (testing "the dateline is a toggle button carrying the live morph target unchanged"
       (is (re-find #"id=\"period-toggle\"" h))
       (is (re-find #"aria-haspopup=\"dialog\"" h))
@@ -484,9 +500,10 @@
       (is (re-find #"period-picker-month is-future[^>]*>Aug<" h))
       (is (re-find #"period-picker-month is-future[^>]*>Dec<" h))
       (is (re-find #"period-picker-month\"[^>]*>Jan<" h) "a plain past month carries no modifier"))
-    (testing "a month cell navigates to its month (href fallback + state-preserving click)"
+    (testing "a month cell navigates to its month (href fallback + state-preserving in-place click)"
       (is (re-find #"href=\"/\?month=2026-08\"" h))
-      (is (re-find #"p.set\(&apos;month&apos;, &apos;2026-08&apos;\)" h)))
+      (is (re-find #"q.set\(&apos;month&apos;, &apos;2026-08&apos;\)" h))
+      (is (re-find #"@get\(&apos;/transactions/period&apos;\)" h)))
     (testing "a different shown year: nothing selected/current, everything before now unmuted"
       (let [h2 (html (tv/period-picker-months 2024 p {:year 2026 :month 7}))]
         (is (not (re-find #"is-selected" h2)))
@@ -494,6 +511,9 @@
         (is (not (re-find #"is-future" h2)))))))
 
 (deftest period-picker-footer-custom-range
+  (testing "the footer is its own stable SSE morph target"
+    (let [h (html (tv/period-picker-footer {:kind :month :year 2026 :month 7}))]
+      (is (re-find #"id=\"period-picker-footer\"" h))))
   (testing "month view seeds the inputs with the month's own bounds"
     (let [h (html (tv/period-picker {:kind :month :year 2026 :month 7} (LocalDate/of 2026 7 9)))]
       (is (re-find #"id=\"picker-from\"[^>]*value=\"2026-07-01\"" h))
@@ -507,12 +527,25 @@
                                     (LocalDate/of 2026 7 9)))]
       (is (re-find #"value=\"2026-06-10\"" h))
       (is (re-find #"value=\"2026-07-09\"" h))))
-  (testing "Apply is disabled until both dates are set and from <= to, then navigates"
+  (testing "a from/to override wins over the period's own bounds (the statement-lens span the rows handler passes) — the footer seeds from the span ON SCREEN"
+    (let [h (html (tv/period-picker-footer {:kind :month :year 2026 :month 7}
+                                           "2026-06-28" "2026-07-27"))]
+      (is (re-find #"id=\"picker-from\"[^>]*value=\"2026-06-28\"" h))
+      (is (re-find #"id=\"picker-to\"[^>]*value=\"2026-07-27\"" h))
+      (is (not (re-find #"value=\"2026-07-01\"" h)))))
+  (testing "a nil override falls back to the period's own bounds (restores the footer when the lens clears)"
+    (let [h (html (tv/period-picker-footer {:kind :month :year 2026 :month 7} nil nil))]
+      (is (re-find #"id=\"picker-from\"[^>]*value=\"2026-07-01\"" h))
+      (is (re-find #"id=\"picker-to\"[^>]*value=\"2026-07-31\"" h))))
+  (testing "Apply is disabled until both dates are set and from <= to, then changes period in place"
     (let [h (html (tv/period-picker {:kind :month :year 2026 :month 7} (LocalDate/of 2026 7 9)))]
       (is (re-find #"disabled: !\$_pickerFrom \|\| !\$_pickerTo \|\| \$_pickerFrom &gt; \$_pickerTo" h))
-      (is (re-find #"p.delete\(&apos;month&apos;\); p.delete\(&apos;page&apos;\)" h))
-      (is (re-find #"p.set\(&apos;from&apos;, \$_pickerFrom\); p.set\(&apos;to&apos;, \$_pickerTo\)" h))
-      (is (re-find #"location.href = &apos;/\?&apos; \+ p" h)))))
+      (is (re-find #"q.delete\(&apos;month&apos;\); q.delete\(&apos;page&apos;\)" h))
+      (is (re-find #"q.set\(&apos;from&apos;, \$_pickerFrom\); q.set\(&apos;to&apos;, \$_pickerTo\)" h))
+      (is (re-find #"history.replaceState\(null, &apos;&apos;, &apos;/\?&apos; \+ q\)" h))
+      (is (re-find #"\$_periodOpen = false; \$month = \$_pickerTo.slice\(0, 7\); \$from = \$_pickerFrom; \$to = \$_pickerTo; \$page = 0" h))
+      (is (re-find #"@get\(&apos;/transactions/period&apos;\)" h))
+      (is (not (re-find #"location.href" h))))))
 
 ;; --- Active-filter chips + Clear all (Task C) --------------------------------
 
