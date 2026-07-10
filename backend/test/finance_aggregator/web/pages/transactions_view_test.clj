@@ -108,6 +108,25 @@
     (is (re-find #"hidden" h) "but it's hidden when there's nothing to show")
     (is (not (re-find #"Reconciliation" h)) "no title/content rendered")))
 
+(deftest close-panel-basis-view-shows-a-quiet-switch-to-posted-note
+  ;; The :transaction basis lens replaces the real panel with this note (close-or-note in
+  ;; transactions.clj) — reconciliation works on posted dates everywhere, even in month view.
+  (let [h (html (tv/close-panel {:basis-back true}))]
+    (testing "the stable #reconciliation morph target is kept, never empty/hidden"
+      (is (re-find #"id=\"reconciliation\"" h))
+      (is (not (re-find #"hidden=\"hidden\"" h))))
+    (testing "renders the note and a Switch-to-posted-dates action, not the real panel"
+      (is (re-find #"reconcile-range-note" h) "reuses the same note style as the range-back note")
+      (is (re-find #"Monthly close works on posted dates\." h))
+      (is (re-find #"reconcile-basis-back" h))
+      (is (re-find #"Switch to posted dates" h))
+      (is (re-find #"\$basis = &apos;&apos;" h) "clears the basis signal back to posted")
+      (is (re-find #"@get\(&apos;/transactions/period&apos;\)" h)))
+    (testing "no overview rows/gate, no focused card"
+      (is (not (re-find #"reconcile-rows" h)))
+      (is (not (re-find #"reconcile-focus" h)))
+      (is (not (re-find #"Close month" h))))))
+
 (deftest close-panel-range-view-shows-a-quiet-back-to-month-note
   ;; Range view replaces the real panel with this note (close-or-note in transactions.clj) —
   ;; monthly close is a calendar-month concept, not an arbitrary span's.
@@ -526,7 +545,12 @@
       (is (re-find #"id=\"period-picker\"" h))
       (is (re-find #"data-show=\"\$_periodOpen\"" h))
       (is (re-find #"\$_periodOpen &amp;&amp; \(\$_periodOpen = false\)" h))
-      (is (re-find #"evt.key === &apos;Escape&apos; &amp;&amp; \(\$_periodOpen = false\)" h)))))
+      (is (re-find #"evt.key === &apos;Escape&apos; &amp;&amp; \(\$_periodOpen = false\)" h)))
+    (testing "the dateline carries the client-driven basis tag, purely $basis-shown (no server
+              threading — every render ships it, visibility is pure client)"
+      (is (re-find #"period-basis-tag" h))
+      (is (re-find #"data-show=\"\$basis === &apos;transaction&apos;\"" h))
+      (is (re-find #"transaction dates" h)))))
 
 (deftest period-picker-rail-quick-links
   (let [today (LocalDate/of 2026 7 9)
@@ -571,6 +595,22 @@
         (is (not (re-find #"is-selected" h2)))
         (is (not (re-find #"is-current" h2)))
         (is (not (re-find #"is-future" h2)))))))
+
+(deftest period-picker-basis-toggle
+  (let [h (html (tv/period-picker {:kind :month :year 2026 :month 7} (LocalDate/of 2026 7 9)))]
+    (testing "a labeled segmented control for the date-basis lens sits in the popover"
+      (is (re-find #"period-picker-basis" h))
+      (is (re-find #"role=\"group\"" h))
+      (is (re-find #"aria-label=\"Date basis\"" h)))
+    (testing "Posted resets $basis to blank (the default) and re-fetches in place"
+      (is (re-find #"\$basis = &apos;&apos;; \$page = 0; @get\(&apos;/transactions/period&apos;\)" h)))
+    (testing "Transaction sets $basis to the literal token and re-fetches in place"
+      (is (re-find #"\$basis = &apos;transaction&apos;; \$page = 0; @get\(&apos;/transactions/period&apos;\)" h)))
+    (testing "both buttons carry the shared is-active + aria-pressed convention"
+      (is (re-find #"data-class=\"\{&apos;is-active&apos;: \$basis === &apos;&apos;\}\"" h))
+      (is (re-find #"data-class=\"\{&apos;is-active&apos;: \$basis === &apos;transaction&apos;\}\"" h)))
+    (testing "buttons are type=button (no accidental form submit)"
+      (is (= 2 (count (re-seq #"period-picker-basis-btn" h)))))))
 
 (deftest period-picker-footer-custom-range
   (testing "the footer is its own stable SSE morph target"

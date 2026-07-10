@@ -526,3 +526,19 @@
   font-size: var(--text-sm);
   text-decoration: underline;
 }
+
+/* --- Basis lens: the same quiet-note treatment, a <button> instead of an <a> (there's no
+   href to name — it just flips $basis back to posted in place), so it needs the plain-link
+   look reset onto button chrome. */
+.reconcile-basis-back {
+  display: inline-block;
+  margin-top: var(--spacing-sm);
+  padding: 0;
+  background: none;
+  border: none;
+  font: inherit;
+  color: var(--color-primary);
+  font-size: var(--text-sm);
+  text-decoration: underline;
+  cursor: pointer;
+}

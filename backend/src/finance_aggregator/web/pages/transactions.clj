@@ -208,15 +208,19 @@
 (defn- reconcile-range
   "The active reconcile span {:account :from :to} narrowing the table to a statement — both
    $reconFrom/$reconTo set AND exactly one account focused — else nil. The statement lens is a
-   MONTH-VIEW-ONLY affordance (it opens from the monthly-close panel, which range view replaces
-   with a quiet note — see close-or-note), so every caller guards this with `(period/month? p)`
-   first; a range view always treats it as inactive, regardless of what's still sitting in the
-   $reconFrom/$reconTo couriers from a prior month-view visit."
+   POSTED-BASIS, MONTH-VIEW-ONLY affordance: it opens from the monthly-close panel, which
+   range view replaces with a quiet note (see close-or-note) and which the :transaction basis
+   suspends the same way (close-or-note again) — so every caller guards this with
+   `(period/month? p)` first; a range view always treats it as inactive, regardless of what's
+   still sitting in the $reconFrom/$reconTo couriers from a prior month-view visit. The basis
+   guard here is the same defense: stale $reconFrom/$reconTo couriers left over from a
+   posted-basis visit must not narrow a transaction-basis view, whose table isn't even bucketed
+   by the dates the lens's span names."
   [signals view-st]
   (let [from (courier-date (:reconFrom signals))
         to   (courier-date (:reconTo signals))
         acct (focus-account-eid view-st)]
-    (when (and from to acct) {:account acct :from from :to to})))
+    (when (and (= :posted (:basis view-st)) from to acct) {:account acct :from from :to to})))
 
 (defn- table-and-facets
   "The presented view-model for a view change. The FUNNEL OPTION LISTS and the ROLLUP are
@@ -231,7 +235,7 @@
    period behind the lens."
   [db-conn p signals view-st present-opts]
   (let [{:keys [start-date end-date]} (period/date-range p)
-        period-txs (db-transactions/list-for-span db-conn start-date end-date)
+        period-txs (db-transactions/list-for-span db-conn start-date end-date (:basis view-st))
         model (view/present period-txs view-st present-opts)]
     (if-let [{:keys [account from to]} (and (period/month? p) (reconcile-range signals view-st))]
       ;; The narrowing lens shows the statement's printed span [from, to] inclusive; shift the
@@ -244,16 +248,27 @@
       model)))
 
 (defn- close-or-note
-  "The monthly-close panel model for the viewed period `p`: the real close-model-for a month
-   view builds today, keyed by month; or, for a range (an analysis lens layered over calendar
-   months — monthly close doesn't apply to an arbitrary span), a quiet {:range-back {:month-str
-   :label}} note pointing back to the range's containing month, which close-panel renders as a
-   Back link instead of the real panel."
+  "The monthly-close panel model for the viewed period `p` and `view-st`: the real
+   close-model-for a month view builds today, keyed by month; or a quiet note instead, in
+   either of two cases where the real panel doesn't apply. For a range (an analysis lens
+   layered over calendar months — monthly close doesn't apply to an arbitrary span), a
+   {:range-back {:month-str :label}} note pointing back to the range's containing month. For
+   the :transaction basis lens (even in month view) — reconciliation works on POSTED dates
+   everywhere, so a table re-bucketed by transaction date can't drive the close panel's
+   coverage math either — a {:basis-back true} note. close-panel renders both as a quiet
+   explanation + a link back to the real thing (Back to the month / Switch to posted dates)
+   instead of the live panel."
   [db-conn p view-st]
-  (if (period/month? p)
-    (close-model-for db-conn (month/serialize p) view-st)
+  (cond
+    (not (period/month? p))
     (let [cm (period/containing-month p)]
-      {:range-back {:month-str (month/serialize cm) :label (month/display cm)}})))
+      {:range-back {:month-str (month/serialize cm) :label (month/display cm)}})
+
+    (= :transaction (:basis view-st))
+    {:basis-back true}
+
+    :else
+    (close-model-for db-conn (month/serialize p) view-st)))
 
 
 (defn page
@@ -265,9 +280,9 @@
     (let [qp (:query-params req)
           p (period/parse {:month (get qp "month") :from (get qp "from") :to (get qp "to")})
           {:keys [start-date end-date]} (period/date-range p)
-          txs (db-transactions/list-for-span db-conn start-date end-date)
-          categories (db-categories/list-all db-conn)
           view-st (vs/query->view-state qp)
+          txs (db-transactions/list-for-span db-conn start-date end-date (:basis view-st))
+          categories (db-categories/list-all db-conn)
           ;; The reconciliation panel is assembled here (it needs the account filter + the
           ;; snapshot history): the all-accounts overview, or the focused card when the URL
           ;; filters to a single account — in range view, a quiet note instead (close-or-note).

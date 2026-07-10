@@ -55,6 +55,21 @@
   color: var(--color-ink);
 }
 
+/* The date-basis lens indicator: small and muted, so it reads as a qualifier on the
+   dateline, not a second heading. Visibility belongs entirely to data-show ($basis ===
+   'transaction'), which toggles the element's INLINE display — so no display rule here (a
+   stylesheet `display: none` would win over data-show's cleared inline style and pin the
+   tag hidden forever; the period-picker popover carries none for the same reason). Hidden
+   it costs no layout space, so the dateline's centering is undisturbed. */
+.period-basis-tag {
+  margin-left: var(--spacing-xs);
+  font-family: var(--font-body);
+  font-size: var(--text-xs);
+  font-weight: 400;
+  letter-spacing: normal;
+  color: var(--color-text-muted);
+}
+
 /* Range view only: a quiet × back to the containing month, after the dateline. Same
    square footprint as .month-nav-button (--toolbar-control-height) but no button chrome —
    it's an escape hatch out of the analysis lens, not a primary nav action, so it stays

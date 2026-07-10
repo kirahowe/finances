@@ -405,9 +405,16 @@
        (fmt/date-span from to)))))
 
 (defn period-display
-  "The dateline element, id'd so the rows handler can re-patch it when narrowing changes."
+  "The dateline element, id'd so the rows handler can re-patch it when narrowing changes.
+   Carries a small `.period-basis-tag` after the label — statically rendered on every
+   render/morph of this fragment, its visibility driven purely by the live `$basis` client
+   signal (`data-show`), so the basis lens (a client-side toggle, see period-picker) needs no
+   server threading here at all: whichever basis is currently selected, the tag just shows or
+   hides in place."
   [label]
-  [:span#period-navigator-display.month-navigator-display label])
+  [:span#period-navigator-display.month-navigator-display
+   label
+   [:span.period-basis-tag {"data-show" "$basis === 'transaction'"} "transaction dates"]])
 
 (defn- period-nav-js
   "In-place navigation to period `target` (render-time data like the href it backs up) that
@@ -553,13 +560,44 @@
          "data-on:click" picker-apply-js}
         "Apply"]]])))
 
+(defn- period-picker-basis-btn
+  "One segmented-control button for the date-basis row: `active-expr` (a `$basis === …`
+   Datastar expression string) drives both the visual `.is-active` class and the mirrored
+   `aria-pressed` (string 'true'/'false' — a bare boolean would drop the attr entirely on
+   false, the aria-expanded convention elsewhere in this ns). `basis-js` sets $basis (blank =
+   posted, 'transaction' = the lens), resets to page 0, and re-fetches the period in place —
+   same shape as scope-toggle's buttons."
+  [label basis-js active-expr]
+  [:button.period-picker-basis-btn
+   {:type "button"
+    "data-on:click" (str basis-js "; $page = 0; @get('/transactions/period')")
+    "data-class" (str "{'is-active': " active-expr "}")
+    "data-attr" (str "{'aria-pressed': (" active-expr ") ? 'true' : 'false'}")}
+   label])
+
+(defn- period-picker-basis
+  "The date-basis lens row: a small label + a two-button segmented control (Posted /
+   Transaction) toggling the $basis signal. Deliberately does NOT close the popover
+   ($_periodOpen untouched, unlike a period-nav-js destination) — the user watches the table
+   re-bucket live under the still-open picker; the /transactions/period morph re-renders the
+   whole navigator (this row included) and the ephemeral $_periodOpen signal survives that
+   morph, so the popover stays open (see period-navigator's docstring for the same precedent)."
+  []
+  [:div.period-picker-basis {:role "group" :aria-label "Date basis"}
+   [:span.period-picker-basis-label "Dates"]
+   (period-picker-basis-btn "Posted" "$basis = ''" "$basis === ''")
+   (period-picker-basis-btn "Transaction" "$basis = 'transaction'" "$basis === 'transaction'")])
+
 (defn period-picker
   "The period-picker popover, anchored under the dateline inside .month-navigator (which is
    position: relative). $_periodOpen drives visibility; click-outside and Escape close it
    (keydown__window — the row-actions-menu convention, so Escape works wherever focus sits).
    `today` is the handler's one clock read (LocalDate, UTC), passed down so the quick links,
    the grid's initial year, and the current-month ring all agree with the server's idea of
-   now — this view never reads the clock itself."
+   now — this view never reads the clock itself. Between the rail/grid panes and the
+   custom-range footer sits the date-basis row (period-picker-basis) — a different axis
+   (which date field buckets the table) than the period itself, so it's laid out as its own
+   row rather than folded into either pane."
   [p ^LocalDate today]
   [:div#period-picker.period-picker
    {"data-show" "$_periodOpen"
@@ -570,6 +608,7 @@
     (period-picker-rail (period/quick-links today) p)
     (period-picker-months (:year (period/containing-month p)) p
                           {:year (.getYear today) :month (.getMonthValue today)})]
+   (period-picker-basis)
    (period-picker-footer p)])
 
 (defn period-navigator
@@ -816,13 +855,13 @@
   []
   [:div {:hidden true
          "data-on-signal-patch-filter"
-         "{include: /^(search|scope|hideTransfers|uncat|showPosted|instLogo|sortCol|sortDir|sortCol2|sortDir2|page|pageSize)$|^(cols|filter)\\./}"
+         "{include: /^(search|scope|hideTransfers|uncat|showPosted|instLogo|basis|sortCol|sortDir|sortCol2|sortDir2|page|pageSize)$|^(cols|filter)\\./}"
          "data-on-signal-patch"
          (str "window.__syncUrl && window.__syncUrl({q: $search, scope: $scope,"
               " ht: $hideTransfers, uncat: $uncat, sortCol: $sortCol, sortDir: $sortDir,"
               " sortCol2: $sortCol2, sortDir2: $sortDir2,"
               " page: $page, pageSize: $pageSize, cols: $cols, showPosted: $showPosted,"
-              " instLogo: $instLogo,"
+              " instLogo: $instLogo, basis: $basis,"
               " fa: $filter.account, fi: $filter.institution, fc: $filter.category})")}])
 
 (defn funnel-list
@@ -1684,10 +1723,27 @@
      "data-on:click" (period-nav-js (assoc (month/parse month-str) :kind :month))}
     (str "Back to " label)]])
 
+(defn- basis-back-note
+  "The panel's content when the :transaction basis lens is active (model carries :basis-back
+   true, built by transactions/close-or-note): reconciliation works on POSTED dates
+   everywhere, even in month view, so the basis lens gets the same quiet-note treatment as the
+   range lens (reuses .reconcile-range-note's styling) — a note plus a one-click Switch that
+   resets $basis back to posted and re-fetches the period in place (mirrors the picker's own
+   Posted button — see period-picker-basis-btn)."
+  []
+  [:div.reconcile-body.summary-card-body {:id "reconcile-body"}
+   [:p.reconcile-range-note "Monthly close works on posted dates."]
+   [:button.reconcile-basis-back
+    {:type "button"
+     "data-on:click" "$basis = ''; $page = 0; @get('/transactions/period')"}
+    "Switch to posted dates"]])
+
 (defn close-panel
-  "The monthly-close panel (#reconciliation). THREE modes: in range view, model carries
+  "The monthly-close panel (#reconciliation). FOUR modes: in range view, model carries
    :range-back (see close-or-note) and the panel is a quiet range-back-note instead of the real
-   thing — monthly close doesn't apply to an arbitrary span. In month view, two modes driven by
+   thing — monthly close doesn't apply to an arbitrary span; under the :transaction basis lens
+   (model carries :basis-back), a quiet basis-back-note instead — reconciliation works on
+   posted dates everywhere. In month view under the default posted basis, two modes driven by
    whether the table is filtered to a single account (model carries :focus): the OVERVIEW of
    every active account's reconcile status — each row a button that drills in — plus the
    completeness gate + Close / Reopen; or the FOCUSED reconcile card for one account
@@ -1696,12 +1752,12 @@
    clobber it; re-patched by its own reconcile/close/reopen actions, by manual create/delete, and
    by any filter/period change (drill/back go through /transactions/rows). The wrapper is ALWAYS
    rendered (a stable SSE morph target); in overview with no activity it's `:hidden` — but a
-   focused card or a range-back note is never empty.
+   focused card or a quiet note (range-back or basis-back) is never empty.
 
    A collapsible summary card: the header toggles $_reconcileOpen (an ephemeral body signal
    that survives these morphs)."
-  [{:keys [rows focus range-back] :as model}]
-  (let [empty? (and (nil? focus) (nil? range-back) (not (seq rows)))]
+  [{:keys [rows focus range-back basis-back] :as model}]
+  (let [empty? (and (nil? focus) (nil? range-back) (not basis-back) (not (seq rows)))]
     [:section.reconcile-panel.summary-card
      (cond-> {:id "reconciliation" :aria-label "Monthly close"
               "data-class" "{'summary-collapsed': !$_reconcileOpen}"}
@@ -1711,6 +1767,9 @@
          range-back
          (list (summary-toggle "Reconciliation" "$_reconcileOpen" "reconcile-body")
                (range-back-note range-back))
+         basis-back
+         (list (summary-toggle "Reconciliation" "$_reconcileOpen" "reconcile-body")
+               (basis-back-note))
          focus
          (list
           (summary-toggle "Reconciliation" "$_reconcileOpen" "reconcile-body")

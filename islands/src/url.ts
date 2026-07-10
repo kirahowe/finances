@@ -23,6 +23,7 @@ interface ViewState {
   cols?: Record<string, boolean>;
   showPosted?: boolean;
   instLogo?: boolean;
+  basis?: string;
   fa?: unknown[];
   fi?: unknown[];
   fc?: unknown[];
@@ -59,6 +60,8 @@ const csv = (a: unknown[] | undefined): string => (a ?? []).filter(Boolean).join
   set('posted', s.showPosted === false ? '0' : '');
   // Institution column shows names by default → persist only the logo-mode exception.
   set('instlogo', s.instLogo ? '1' : '');
+  // Date-basis lens: posted is the default → persist only the transaction-basis exception.
+  set('basis', s.basis ?? '');
   // Header funnels.
   set('fa', csv(s.fa));
   set('fi', csv(s.fi));
