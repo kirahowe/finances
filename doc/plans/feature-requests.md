@@ -6,45 +6,41 @@
 - Magic date inputs, e.g. type "April 5", and have the system know that means "2026-04-05"
 - localization
   - dates, currency, and language
+- Setup UI for reordering categories (drag to set :category/sort-order — every surface now
+  respects the stored order, but nothing in the current stack lets you *edit* it; the values
+  predate the React frontend's removal)
 
-# ToDo
+# Done — July 2026 polish batch (branch ui-polish)
 
 ## Transactions table
-- category dropdown should look the same (minus the checkboxes) for header filter and category assignment
-- should be sorted by date by default
-- filters/sorts etc should persist across month change
-- badge counts don't update when filtered by statement period
-- need a "clear all" button to remove all filters at once
-- can we allow multi-column sort? not necessarily tracking multiple columns, but if I e.g. sort by "Payee", and then by "Date", ideally I'd see transactions sorted by date and within each day sorted by Payee
+- ✅ category dropdown looks the same (minus the checkboxes) for header filter and category assignment — funnel renders the combobox's hierarchy/order/skin
+- ✅ sorted by date by default (blank sortCol = date asc, shown on the header)
+- ✅ filters/sorts persist across month change (month navigator swaps only `month` in the URL)
+- ✅ badge counts update when filtered by statement period (lens swaps :counts with :result)
+- ✅ "Clear all" button on the chips row (filters + lens; never sort or scope)
+- ✅ two-level sort: clicking a second column demotes the first to a tie-break (payee-then-date = date-ordered, ties by payee)
 
 ### Add transactions modal
-- account should use combobox search
-- category dropdown should use combobox search like elsewhere
-- spacing is all weird between fields
-- typing in a month clears the date field, very annoying
+- ✅ account uses combobox search (flat-list mode of the shared Zag island)
+- ✅ category uses the same combobox as everywhere else
+- ✅ field spacing fixed (shared .form-fields stack rhythm across all form modals)
+- ✅ typing in a date no longer clears the field (date inputs are one-way; an invalid date surfaces the error bar instead of a 500)
 
 ## Transfers
-- When one side of a transfer is matched, the other should be auto-given the same category (if it doesn't already have one)
+- ✅ matching copies a lone category onto the uncategorized leg (one undo reverses link + copy)
+- ✅ match modal shows the transaction being matched above its candidates
+- ✅ review modal rows go stale in place when confirmed/rejected instead of disappearing
+- ✅ suggestions scoped to the current date filter (viewed month, or the statement lens)
 
-### Match transfer modal
-- show the transaction being matched (in addition to the candidates)
+### Splits
+- ✅ split marker is a recognizable branching-path icon, accent-colored at rest
+- ✅ typing on a split row's category button opens the dropdown (seeded by the keystroke)
 
-### Review transfers modal
-- confirmed rows should look stale, not disappear from under you
-- transfer candidates should be filtered to the current date filter
-
-### Split modal
-- start typing should open the category dropdown here, too
-
-## Reconciliatoin
-- add statement modal spacing is off. In general the spacing across all forms is inconsistent. Audit all forms and inputs and make a consistent design system for these that they all share.
+## Reconciliation
+- ✅ statement modal spacing fixed; one form design system (.form-fields + shared tokens) across all modals
+- ✅ (also landed: a statement's printed start day now counts inside its own period — adjacent statements tile without a coverage gap)
 
 ## Setup
-
-### Categories
-- preserve user-specified order (from setup, use in combobox, rollup, anywhere else categories show up)
-
-### Accounts
-- sync individual lunchflow accounts, not just all of them at once
-- add a custom name for accounts that is used throughout the UI rather than the one that comes from the providers. Be sure not to mess up syncing.
-
+- ✅ user category order respected everywhere categories render (funnel, combobox, rollup, modal picker)
+- ✅ per-account Lunchflow sync (scoped resync; per-account backfill window)
+- ✅ custom account names used throughout the UI (:account/display-name overlay; provider name stays canonical for syncing, rename from /setup)
