@@ -6,7 +6,9 @@
   (:require
    [clojure.string :as str]
    [clojure.test :refer [deftest is testing]]
+   [finance-aggregator.web.month :as month]
    [finance-aggregator.web.pages.transactions-view :as tv]
+   [finance-aggregator.web.period :as period]
    [finance-aggregator.web.render :as r]))
 
 (defn- html [hiccup] (str (r/render hiccup)))
@@ -74,6 +76,25 @@
     (is (re-find #"id=\"reconciliation\"" h) "the morph target still exists")
     (is (re-find #"hidden" h) "but it's hidden when there's nothing to show")
     (is (not (re-find #"Reconciliation" h)) "no title/content rendered")))
+
+(deftest close-panel-range-view-shows-a-quiet-back-to-month-note
+  ;; Range view replaces the real panel with this note (close-or-note in transactions.clj) —
+  ;; monthly close is a calendar-month concept, not an arbitrary span's.
+  (let [h (html (tv/close-panel {:range-back {:month-str "2026-07" :label "July 2026"}}))]
+    (testing "the stable #reconciliation morph target is kept"
+      (is (re-find #"id=\"reconciliation\"" h)))
+    (testing "never empty/hidden — there's always a note + a back link to show"
+      (is (not (re-find #"hidden=\"hidden\"" h))))
+    (testing "renders the note and a Back link to the containing month, not the real panel"
+      (is (re-find #"reconcile-range-note" h))
+      (is (re-find #"Monthly close works on calendar months\." h))
+      (is (re-find #"reconcile-range-back" h))
+      (is (re-find #"Back to July 2026" h))
+      (is (re-find #"href=\"/\?month=2026-07\"" h)))
+    (testing "no overview rows/gate, no focused card"
+      (is (not (re-find #"reconcile-rows" h)))
+      (is (not (re-find #"reconcile-focus" h)))
+      (is (not (re-find #"Close month" h))))))
 
 (deftest close-panel-focused-card
   (let [h (html (tv/close-panel
@@ -349,20 +370,41 @@
     (is (re-find #"th-sort-indicator--secondary" h))
     (is (re-find #"\$sortCol2 === &apos;payee&apos;" h))))
 
-;; --- Month navigation preserves view state (Task B) -------------------------
+;; --- Period navigation preserves view state (Task B); range view adds a back-to-month × -----
 
-(deftest month-navigator-keeps-href-fallback-and-preserves-state-on-click
-  (let [h (html (tv/month-navigator {:year 2025 :month 6}))]
+(deftest period-navigator-month-view-keeps-href-fallback-and-preserves-state-on-click
+  (let [h (html (tv/period-navigator {:kind :month :year 2025 :month 6}))]
     (testing "hrefs remain the no-JS fallback, unchanged month math"
       (is (re-find #"href=\"/\?month=2025-05\"" h) "previous")
       (is (re-find #"href=\"/\?month=2025-07\"" h) "next"))
     (testing "data-on:click preserves the current query string and resets page, not a bare nav"
       (is (re-find #"evt.preventDefault\(\)" h))
       (is (re-find #"new URLSearchParams\(location.search\)" h))
-      (is (re-find #"p.set\(&apos;month&apos;, &apos;2025-05&apos;\)" h))
-      (is (re-find #"p.set\(&apos;month&apos;, &apos;2025-07&apos;\)" h))
+      (is (re-find #"p.delete\(&apos;from&apos;\); p.delete\(&apos;to&apos;\); p.set\(&apos;month&apos;, &apos;2025-05&apos;\)" h))
+      (is (re-find #"p.delete\(&apos;from&apos;\); p.delete\(&apos;to&apos;\); p.set\(&apos;month&apos;, &apos;2025-07&apos;\)" h))
       (is (re-find #"p.delete\(&apos;page&apos;\)" h))
-      (is (re-find #"location.href = &apos;/\?&apos; \+ p" h)))))
+      (is (re-find #"location.href = &apos;/\?&apos; \+ p" h)))
+    (testing "month view: plain 'Previous/Next month' titles, no × back-to-month affordance"
+      (is (re-find #"Previous month" h))
+      (is (re-find #"Next month" h))
+      (is (not (re-find #"month-nav-clear" h))))))
+
+(deftest period-navigator-range-view-shows-computed-titles-and-a-back-to-month-x
+  (let [p (period/parse {:from "2026-06-10" :to "2026-07-09"})
+        h (html (tv/period-navigator p))
+        prev-label (tv/period-label (period/prev p))
+        next-label (tv/period-label (period/next p))
+        containing (month/display (period/containing-month p))]
+    (testing "prev/next titles carry the computed target span, not 'Previous/Next month'"
+      (is (re-find (re-pattern (str "Previous: " prev-label)) h))
+      (is (re-find (re-pattern (str "Next: " next-label)) h))
+      (is (not (re-find #"Previous month" h)))
+      (is (not (re-find #"Next month" h))))
+    (testing "the × back-to-month affordance is present, deletes from/to and sets month"
+      (is (re-find #"month-nav-clear" h))
+      (is (re-find (re-pattern (str "Back to " containing)) h))
+      (is (re-find #"href=\"/\?month=2026-07\"" h))
+      (is (re-find #"p.delete\(&apos;from&apos;\); p.delete\(&apos;to&apos;\); p.set\(&apos;month&apos;, &apos;2026-07&apos;\)" h)))))
 
 ;; --- Active-filter chips + Clear all (Task C) --------------------------------
 
@@ -396,13 +438,27 @@
       (is (re-find #"active-chip\"" h))
       (is (not (re-find #"active-chips-clear" h))))))
 
-(deftest period-label-month-vs-narrowed-span
-  (is (= "January 2025" (tv/period-label {:year 2025 :month 1}))
-      "no narrowing → the whole month, with the year for reference")
-  (is (= "Dec 28 – Jan 27, 2025"
-         (tv/period-label {:year 2025 :month 1}
-                          #inst "2025-12-28" #inst "2025-01-27"))
-      "narrowed → the actual span shown, not the calendar month"))
+(deftest empty-state-copy-per-period-kind
+  (testing "month view keeps today's copy verbatim"
+    (let [h (html (tv/empty-state {:kind :month :year 2026 :month 7}))]
+      (is (re-find #"No transactions this month" h))
+      (is (re-find #"Use the month controls to browse another period, or import from Setup\." h))))
+  (testing "range view gets period-flavored copy instead"
+    (let [h (html (tv/empty-state (period/parse {:from "2026-06-10" :to "2026-07-09"})))]
+      (is (re-find #"No transactions in this period" h))
+      (is (re-find #"Use the period controls to browse another span, or import from Setup\." h)))))
+
+(deftest period-label-month-vs-range-vs-narrowed-span
+  (testing "a month period → the whole month, with the year for reference"
+    (is (= "July 2026" (tv/period-label {:kind :month :year 2026 :month 7}))))
+  (testing "a range period → its own from–to span (web.format/date-span)"
+    (is (= "Jun 10 – Jul 9, 2026"
+           (tv/period-label (period/parse {:from "2026-06-10" :to "2026-07-09"})))))
+  (testing "a month period narrowed by the statement lens → the actual span shown, not the
+            calendar month (a range view never has this lens — see table-and-facets)"
+    (is (= "Dec 28 – Jan 27, 2025"
+           (tv/period-label {:kind :month :year 2025 :month 1}
+                            #inst "2025-12-28" #inst "2025-01-27")))))
 
 (deftest statement-modal-add-vs-edit
   (let [add  (html (tv/statement-modal false {}))

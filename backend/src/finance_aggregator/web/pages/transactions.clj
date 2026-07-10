@@ -22,6 +22,7 @@
    [finance-aggregator.web.commands :as commands]
    [finance-aggregator.web.layout :as layout]
    [finance-aggregator.web.month :as month]
+   [finance-aggregator.web.period :as period]
    [finance-aggregator.web.pages.transactions-view :as tv
     :refer [active-filters counts-fragment error-banner funnel-list match-modal page-body
             pagination-bar posted-date-modal review-modal review-status-message
@@ -46,10 +47,20 @@
   [req k]
   (-> req :path-params k parse-long))
 
-(defn- signals-month
-  "The canonical YYYY-MM month string the Datastar signals carry."
+(defn- signals-period
+  "The PERIOD the live Datastar signals carry — $month/$from/$to, straight off the signals
+   map read on every @get/@put (mirrors the URL's month-XOR-range shape; see web.period/parse)."
   [signals]
-  (month/serialize (month/parse (:month signals))))
+  (period/parse {:month (:month signals) :from (:from signals) :to (:to signals)}))
+
+(defn- signals-month
+  "The canonical YYYY-MM month string the Datastar signals carry — ALWAYS the containing
+   month, even mid-range-view (period/containing-month), so the month-bound handlers below
+   (reconcile/statement/close/posted-date/manual-add) keep working unchanged: in month view
+   this is identical to today; in range view they're unreachable anyway (the panel that
+   would trigger them renders as a quiet back-to-month note instead — see close-or-note)."
+  [signals]
+  (month/serialize (period/containing-month (signals-period signals))))
 
 (defn- patch!
   "Render a hiccup fragment and patch it into the live SSE response (morphed by id)."
@@ -196,7 +207,11 @@
 
 (defn- reconcile-range
   "The active reconcile span {:account :from :to} narrowing the table to a statement — both
-   $reconFrom/$reconTo set AND exactly one account focused — else nil."
+   $reconFrom/$reconTo set AND exactly one account focused — else nil. The statement lens is a
+   MONTH-VIEW-ONLY affordance (it opens from the monthly-close panel, which range view replaces
+   with a quiet note — see close-or-note), so every caller guards this with `(period/month? p)`
+   first; a range view always treats it as inactive, regardless of what's still sitting in the
+   $reconFrom/$reconTo couriers from a prior month-view visit."
   [signals view-st]
   (let [from (courier-date (:reconFrom signals))
         to   (courier-date (:reconTo signals))
@@ -205,17 +220,20 @@
 
 (defn- table-and-facets
   "The presented view-model for a view change. The FUNNEL OPTION LISTS and the ROLLUP are
-   always computed over the whole MONTH — so the account funnel never collapses to the focused
-   account (which would clear the $filter.account binding that drives the focus) and those
-   figures stay stable. The reconcile narrowing is a LENS, not a real filter: :result AND
-   :counts (the toolbar badges — scope/uncategorized/hide-transfers) are swapped for the
-   narrowed span slice when a reconcile range is active (a single account + $reconFrom/
-   $reconTo, which may cross a calendar-month boundary), so the badges the user sees always
-   describe the rows on screen, not the whole month behind the lens."
-  [db-conn month signals view-st present-opts]
-  (let [month-txs (db-transactions/list-for-month db-conn month)
-        model (view/present month-txs view-st present-opts)]
-    (if-let [{:keys [account from to]} (reconcile-range signals view-st)]
+   always computed over the whole PERIOD (the calendar month, or the analysis-lens range) — so
+   the account funnel never collapses to the focused account (which would clear the
+   $filter.account binding that drives the focus) and those figures stay stable. The reconcile
+   narrowing is a LENS, not a real filter, and applies in MONTH VIEW ONLY (a range period has no
+   monthly-close panel to open it from): :result AND :counts (the toolbar badges —
+   scope/uncategorized/hide-transfers) are swapped for the narrowed span slice when a reconcile
+   range is active (a single account + $reconFrom/$reconTo, which may cross a calendar-month
+   boundary), so the badges the user sees always describe the rows on screen, not the whole
+   period behind the lens."
+  [db-conn p signals view-st present-opts]
+  (let [{:keys [start-date end-date]} (period/date-range p)
+        period-txs (db-transactions/list-for-span db-conn start-date end-date)
+        model (view/present period-txs view-st present-opts)]
+    (if-let [{:keys [account from to]} (and (period/month? p) (reconcile-range signals view-st))]
       ;; The narrowing lens shows the statement's printed span [from, to] inclusive; shift the
       ;; exclusive lower boundary back a day so from's own activity is in the slice (the header
       ;; dateline keeps the unshifted printed `from`). Mirrors the reconcile sum in statement-models.
@@ -225,21 +243,35 @@
         (assoc model :result (:result slice-model) :counts (:counts slice-model)))
       model)))
 
+(defn- close-or-note
+  "The monthly-close panel model for the viewed period `p`: the real close-model-for a month
+   view builds today, keyed by month; or, for a range (an analysis lens layered over calendar
+   months — monthly close doesn't apply to an arbitrary span), a quiet {:range-back {:month-str
+   :label}} note pointing back to the range's containing month, which close-panel renders as a
+   Back link instead of the real panel."
+  [db-conn p view-st]
+  (if (period/month? p)
+    (close-model-for db-conn (month/serialize p) view-st)
+    (let [cm (period/containing-month p)]
+      {:range-back {:month-str (month/serialize cm) :label (month/display cm)}})))
+
 
 (defn page
-  "GET / — full page. Seeds the view-state from the URL; a fresh load clears lingering."
+  "GET / — full page. Seeds the view-state (and the viewed PERIOD — a month, or a from/to
+   analysis range) from the URL; a fresh load clears lingering."
   [{:keys [db-conn]}]
   (fn [req]
     (commands/clear-linger! auth/user-id)
-    (let [m (month/parse (get-in req [:query-params "month"]))
-          month-str (month/serialize m)
-          txs (db-transactions/list-for-month db-conn month-str)
+    (let [qp (:query-params req)
+          p (period/parse {:month (get qp "month") :from (get qp "from") :to (get qp "to")})
+          {:keys [start-date end-date]} (period/date-range p)
+          txs (db-transactions/list-for-span db-conn start-date end-date)
           categories (db-categories/list-all db-conn)
-          view-st (vs/query->view-state (:query-params req))
+          view-st (vs/query->view-state qp)
           ;; The reconciliation panel is assembled here (it needs the account filter + the
           ;; snapshot history): the all-accounts overview, or the focused card when the URL
-          ;; filters to a single account.
-          close-model (close-model-for db-conn month-str view-st)
+          ;; filters to a single account — in range view, a quiet note instead (close-or-note).
+          close-model (close-or-note db-conn p view-st)
           model (assoc (view/present txs view-st {:categories categories}) :close close-model)]
       {:status 200
        :headers {"Content-Type" "text/html"}
@@ -247,9 +279,9 @@
        (layout/document
         {:title "Finance Aggregator"
          :islands ["combobox" "url" "grid-nav" "resize" "split-editor" "modal"]
-         :signals (merge (vs/client-signals view-st month-str (:result model) (:query-params req))
+         :signals (merge (vs/client-signals view-st (period/signal-seed p) (:result model) qp)
                          (recon-signals close-model))}
-        (page-body {:month m :stats (db-stats/entity-counts db-conn) :categories categories
+        (page-body {:period p :stats (db-stats/entity-counts db-conn) :categories categories
                     :view-st view-st :model model :undo (undo-labels auth/user-id)
                     :empty? (empty? txs)}))})))
 
@@ -262,14 +294,14 @@
   (fn [req]
     (commands/clear-linger! auth/user-id)
     (let [signals (r/read-signals req)
-          month (signals-month signals)
+          p (signals-period signals)
           view-st (vs/signals->view-state signals)
           ;; :categories keeps the category funnel in user sort-order on every re-patch (see
-          ;; category-funnel-options); present also computes a whole-month rollup this response
+          ;; category-funnel-options); present also computes a whole-period rollup this response
           ;; never reads — accepted at single-user scale rather than splitting present's shape.
-          model (table-and-facets db-conn month signals view-st
+          model (table-and-facets db-conn p signals view-st
                                   {:categories (db-categories/list-all db-conn)})
-          close-model (close-model-for db-conn month view-st)
+          close-model (close-or-note db-conn p view-st)
           result (:result model)]
       (sse-response req
        (fn [sse]
@@ -281,10 +313,11 @@
          (patch! sse (tbody (:rows result)))
          (patch! sse (pagination-bar result))
          ;; Keep the header dateline in sync with the narrowing lens: show the statement span
-         ;; when narrowed to one, else fall back to the whole month.
-         (let [{:keys [from to]} (reconcile-range signals view-st)]
-           (patch! sse (tv/period-display (tv/period-label (month/parse month) from to))))
-         (patch-view! sse model view-st (some? (reconcile-range signals view-st)))
+         ;; when narrowed to one (month view only — range view has no lens), else fall back to
+         ;; the whole period's own label.
+         (let [{:keys [from to]} (when (period/month? p) (reconcile-range signals view-st))]
+           (patch! sse (tv/period-display (tv/period-label p from to))))
+         (patch-view! sse model view-st (boolean (and (period/month? p) (reconcile-range signals view-st))))
          (patch! sse (tv/close-panel close-model))
          (d*/patch-signals! sse (r/signals (merge {:page (:page result)}
                                                   (recon-signals close-model)))))))))
@@ -297,12 +330,12 @@
    in place instead of closing)."
   [db-conn req signals & {:keys [close-modal? after-patch]}]
   (let [user auth/user-id
-        month (signals-month signals)
+        p (signals-period signals)
         view-st (vs/signals->view-state signals)
-        model (table-and-facets db-conn month signals view-st
+        model (table-and-facets db-conn p signals view-st
                                 {:linger (commands/linger user)
                                  :categories (db-categories/list-all db-conn)})
-        close-model (close-model-for db-conn month view-st)
+        close-model (close-or-note db-conn p view-st)
         {:keys [stale-ids] :as result} (:result model)]
     (sse-response req
      (fn [sse]
@@ -312,9 +345,9 @@
        (patch! sse (sr-status (review-status-message (:counts model))))
        (patch! sse (tbody (:rows result) stale-ids))
        (patch! sse (pagination-bar result))
-       (patch-view! sse model view-st (some? (reconcile-range signals view-st)))
+       (patch-view! sse model view-st (boolean (and (period/month? p) (reconcile-range signals view-st))))
        (patch! sse (undo-redo-controls (undo-labels user)))
-       ;; A recategorize/split moves money between rollup rows, so re-patch the whole-month pane.
+       ;; A recategorize/split moves money between rollup rows, so re-patch the whole-period pane.
        (patch! sse (rollup-pane (:rollup model)))
        ;; Keep the reconciliation panel live too: reconciling/categorizing moves the completeness
        ;; gate, and adding/removing a manual row moves an account's tracked delta + focused verdict.
@@ -511,20 +544,27 @@
          (edit-response db-conn req signals :close-modal? true))))))
 
 (defn- review-range
-  "The period the review modal scopes its suggestions to (db.transfers/suggest-matches'
-   :range — {:from Date :to Date}, inclusive calendar days): the statement lens's span when
-   it's narrowing the table (reconcile-range), else the month being viewed."
+  "The span the review modal scopes its suggestions to (db.transfers/suggest-matches'
+   :range — {:from Date :to Date}, inclusive calendar days). In month view: the statement
+   lens's span when it's narrowing the table (reconcile-range), else the whole month being
+   viewed. In range view: the lens never applies (see table-and-facets) — the range's own
+   [from, to] (period/range-dates), which is already the same {:from :to} inclusive-Date
+   shape this fn returns for a month."
   [signals view-st]
-  (if-let [{:keys [from to]} (reconcile-range signals view-st)]
-    {:from from :to to}
-    (let [month (signals-month signals)]
-      {:from (:start-date (u/month-date-range month))
-       :to (db-snapshots/month-end-date month)})))
+  (let [p (signals-period signals)]
+    (if-not (period/month? p)
+      (period/range-dates p)
+      (if-let [{:keys [from to]} (reconcile-range signals view-st)]
+        {:from from :to to}
+        (let [month (signals-month signals)]
+          {:from (:start-date (u/month-date-range month))
+           :to (db-snapshots/month-end-date month)})))))
 
 (defn review-transfers
   "GET /transactions/review-transfers — render the bulk transfer-review modal (auto-suggested
    pairs) into #modal-root, scoped to the period on screen (review-range: the statement lens
-   when active, else the viewed month — the GET carries the live signals, as rows does)."
+   when active in month view, else the whole viewed period — the GET carries the live
+   signals, as rows does)."
   [{:keys [db-conn]}]
   (fn [req]
     (let [signals (r/read-signals req)

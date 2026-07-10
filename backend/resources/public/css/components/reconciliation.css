@@ -487,3 +487,24 @@
   font-size: var(--text-sm);
   color: var(--color-negative);
 }
+
+/* --- Range view: the quiet note replacing the real panel --------------------
+   Monthly close is a calendar-month concept; a range period (an analysis lens, possibly
+   spanning more than one month) gets this note + a Back link instead — the warn-pill
+   treatment shared by other "this doesn't apply here" callouts in the app. */
+.reconcile-range-note {
+  background: var(--color-pill-warn-bg);
+  color: var(--color-pill-warn-text);
+  border: 1px solid var(--color-pill-warn-border);
+  border-radius: var(--border-radius);
+  padding: var(--spacing-sm) var(--spacing-md);
+  font-size: var(--text-sm);
+}
+
+.reconcile-range-back {
+  display: inline-block;
+  margin-top: var(--spacing-sm);
+  color: var(--color-primary);
+  font-size: var(--text-sm);
+  text-decoration: underline;
+}

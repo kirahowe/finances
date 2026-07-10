@@ -133,13 +133,17 @@
 
 ;; --- view-state → signals (initial seed) ------------------------------------
 
+(def ^:private month-seed
+  "A period-signals seed for month view (web.period/signal-seed's :month shape) — blank from/to."
+  {:month "2025-01" :from "" :to ""})
+
 (deftest vs->signals-mapping
   (testing "page/page-size come from the clamped view result, not the requested view-state"
     (let [v      (vs/query->view-state {"q" "x" "scope" "to-reconcile"
                                         "sortCol" "amount" "sortDir" "desc"
                                         "page" "9" "pageSize" "50"})
           result {:page 2 :page-size 50}   ; clamped by the view engine
-          s      (vs/vs->signals v "2025-01" result)]
+          s      (vs/vs->signals v month-seed result)]
       (is (= "x" (:search s)))
       (is (= "to-reconcile" (:scope s)) "scope stringified")
       (is (= "amount" (:sortCol s)) "sort col → name string")
@@ -151,7 +155,7 @@
       (is (= "" (:catValue s)))))
   (testing "no sort param → the resolved default (date asc) signals back as BLANK sortCol/asc
             dir — the canonical encoding, not the literal 'date'/'asc' strings"
-    (let [s (vs/vs->signals (vs/query->view-state {}) "2025-02" {:page 0 :page-size 25})]
+    (let [s (vs/vs->signals (vs/query->view-state {}) month-seed {:page 0 :page-size 25})]
       (is (= "" (:sortCol s)))
       (is (= "asc" (:sortDir s)))
       (is (= "" (:sortCol2 s)) "no secondary sort by default")
@@ -160,7 +164,7 @@
   (testing "an explicit non-default sort signals back literally"
     (let [s (vs/vs->signals (vs/query->view-state {"sortCol" "amount" "sortDir" "desc"
                                                     "sortCol2" "payee" "sortDir2" "asc"})
-                            "2025-02" {:page 0 :page-size 25})]
+                            month-seed {:page 0 :page-size 25})]
       (is (= "amount" (:sortCol s)))
       (is (= "desc" (:sortDir s)))
       (is (= "payee" (:sortCol2 s)))
@@ -168,8 +172,20 @@
   (testing "an EXPLICIT date-asc primary still signals back blank — same resolved sort as the
             default, so the same canonical encoding applies either way"
     (let [s (vs/vs->signals (vs/query->view-state {"sortCol" "date" "sortDir" "asc"})
-                            "2025-02" {:page 0 :page-size 25})]
-      (is (= "" (:sortCol s))))))
+                            month-seed {:page 0 :page-size 25})]
+      (is (= "" (:sortCol s)))))
+  (testing "a RANGE seed lands its from/to in the signals, and :month is the containing month
+            (not blank) — month-bound handlers keep working even in range view"
+    (let [s (vs/vs->signals (vs/query->view-state {})
+                            {:month "2026-07" :from "2026-06-10" :to "2026-07-09"}
+                            {:page 0 :page-size 25})]
+      (is (= "2026-07" (:month s)))
+      (is (= "2026-06-10" (:from s)))
+      (is (= "2026-07-09" (:to s)))))
+  (testing "a MONTH seed lands blank from/to"
+    (let [s (vs/vs->signals (vs/query->view-state {}) month-seed {:page 0 :page-size 25})]
+      (is (= "" (:from s)))
+      (is (= "" (:to s))))))
 
 ;; --- column visibility ------------------------------------------------------
 
@@ -189,7 +205,7 @@
 (deftest posted-hint-display-signal
   (testing "showPosted defaults true (hint shown), flips false only when posted=0 is in the URL"
     (let [seed (fn [qp] (:showPosted (vs/client-signals (vs/query->view-state qp)
-                                                        "2025-03" {:page 0 :page-size 25} qp)))]
+                                                        month-seed {:page 0 :page-size 25} qp)))]
       (is (true? (seed {})) "no param → shown")
       (is (false? (seed {"posted" "0"})) "posted=0 → hidden")
       (is (true? (seed {"posted" "1"})) "any other value → shown (0 is the only hide token)"))))
@@ -200,8 +216,8 @@
   (testing "the full seed = view-state signals + cols + filter arrays + ephemeral _ signals"
     (let [v      (vs/query->view-state {"fa" "100" "fc" "10,11" "hidecols" "payee"})
           qp     {"fa" "100" "fc" "10,11" "hidecols" "payee"}
-          s      (vs/client-signals v "2025-03" {:page 0 :page-size 25} qp)]
-      (is (= "2025-03" (:month s)) "carries the vs->signals base")
+          s      (vs/client-signals v month-seed {:page 0 :page-size 25} qp)]
+      (is (= "2025-01" (:month s)) "carries the vs->signals base")
       (is (false? (get-in s [:cols :payee])) "column visibility folded in")
       (is (true? (:showPosted s)) "posted-date hint shows by default (no posted param)")
       (is (= ["100"] (get-in s [:filter :account])) "filter arrays are raw csv tokens")
@@ -223,7 +239,7 @@
                   "fa" "100" "fi" "1000" "fc" "10"}
           v      (vs/query->view-state qp)
           result {:page 0 :page-size 100}
-          s      (vs/client-signals v "2025-04" result qp)]
+          s      (vs/client-signals v {:month "2025-04" :from "" :to ""} result qp)]
       ;; The signal map a fresh load ships should describe the same view the URL asked for.
       (is (= "groceries" (:search s)))
       (is (= "to-reconcile" (:scope s)))
@@ -244,7 +260,7 @@
   (testing "the DEFAULT sort round-trips too: blank params → blank signals → back to the same
             resolved default view-state"
     (let [v (vs/query->view-state {})
-          s (vs/client-signals v "2025-04" {:page 0 :page-size 25} {})]
+          s (vs/client-signals v {:month "2025-04" :from "" :to ""} {:page 0 :page-size 25} {})]
       (is (= "" (:sortCol s)))
       (is (= "" (:sortCol2 s)))
       (is (= v (vs/signals->view-state (assoc s :filter {:account [] :institution [] :category []})))))))

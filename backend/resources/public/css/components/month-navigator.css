@@ -20,3 +20,31 @@
   text-align: center;
   color: var(--color-ink);
 }
+
+/* Range view only: a quiet × back to the containing month, after the dateline. Same
+   square footprint as .month-nav-button (--toolbar-control-height) but no button chrome —
+   it's an escape hatch out of the analysis lens, not a primary nav action, so it stays
+   muted until hovered rather than competing with the prev/next steppers. */
+.month-nav-clear {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: var(--toolbar-control-height);
+  height: var(--toolbar-control-height);
+  min-width: var(--toolbar-control-height);
+  font-size: var(--text-md);
+  line-height: 1;
+  color: var(--color-text-muted);
+  text-decoration: none;
+  border-radius: var(--radius-sm);
+  cursor: pointer;
+}
+
+.month-nav-clear:hover {
+  color: var(--color-text);
+}
+
+.month-nav-clear:focus-visible {
+  outline: none;
+  box-shadow: var(--focus-ring);
+}

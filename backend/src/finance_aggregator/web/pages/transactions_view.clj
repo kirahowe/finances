@@ -9,6 +9,7 @@
    [finance-aggregator.web.accounts :as accounts]
    [finance-aggregator.web.format :as fmt]
    [finance-aggregator.web.month :as month]
+   [finance-aggregator.web.period :as period]
    [finance-aggregator.web.render :as r]
    [finance-aggregator.web.shell :as shell]
    [finance-aggregator.web.view-state :as vs]))
@@ -395,46 +396,77 @@
 ;; ---------------------------------------------------------------------------
 
 (defn period-label
-  "The dateline label: the whole month (\"January 2025\") normally, or — when the table is
-   lensed to a statement period — the actual narrowed span (`from`/`to` Dates, which may cross
-   a calendar-month boundary, e.g. \"Dec 28 – Jan 27, 2025\")."
-  ([m] (month/display m))
-  ([m from to] (if (and from to) (fmt/date-span from to) (month/display m))))
+  "The dateline label for period `p`. Month view: the whole month's name (\"January 2025\"),
+   or — when the table is lensed to a statement period — the actual narrowed span
+   (`lens-from`/`lens-to` Dates, which may cross a calendar-month boundary, e.g.
+   \"Dec 28 – Jan 27, 2025\"; a range view never has this lens — see table-and-facets, so
+   callers only ever pass it in month view). Range view: the period's own from–to span
+   (web.format/date-span over period/range-dates), e.g. \"Jun 10 – Jul 9, 2026\"."
+  ([p] (period-label p nil nil))
+  ([p lens-from lens-to]
+   (if (period/month? p)
+     (if (and lens-from lens-to) (fmt/date-span lens-from lens-to) (month/display p))
+     (let [{:keys [from to]} (period/range-dates p)]
+       (fmt/date-span from to)))))
 
 (defn period-display
   "The dateline element, id'd so the rows handler can re-patch it when narrowing changes."
   [label]
   [:span#period-navigator-display.month-navigator-display label])
 
-(defn- month-nav-js
-  "Full navigation to `target` (a literal yyyy-MM server string, render-time data like the
-   href it backs up) that PRESERVES the rest of the view state: read the URL as it stands (the
-   url island keeps it live, so this always sees the current filters/sort/etc.), swap in the
-   new month, and drop `page` (a different month's row set restarts at page 0). A real
-   navigation (not an SSE round-trip) — a month change reloads the whole month's data anyway,
-   and the page handler's `query->view-state` is the read side for every one of these params."
+(defn- period-nav-js
+  "Full navigation to period `target` (render-time data like the href it backs up) that
+   PRESERVES the rest of the view state: read the URL as it stands (the url island keeps it
+   live, so this always sees the current filters/sort/etc.), swap in `target`'s query params
+   (period/url-params) — DELETING the other shape's keys first, since the two are mutually
+   exclusive in the URL (navigating to a month clears from/to; to a range, clears month) — and
+   drop `page` (a different period's row set restarts at page 0). A real navigation (not an SSE
+   round-trip) — a period change reloads the whole span's data anyway, and the page handler's
+   `period/parse` + `query->view-state` is the read side for every one of these params."
   [target]
-  (str "evt.preventDefault();"
-       " const p = new URLSearchParams(location.search);"
-       " p.set('month', '" target "'); p.delete('page');"
-       " location.href = '/?' + p"))
+  (let [params (period/url-params target)]
+    (str "evt.preventDefault();"
+         " const p = new URLSearchParams(location.search);"
+         (if (contains? params "month")
+           (str " p.delete('from'); p.delete('to'); p.set('month', '" (get params "month") "');")
+           (str " p.delete('month'); p.set('from', '" (get params "from") "');"
+                " p.set('to', '" (get params "to") "');"))
+         " p.delete('page');"
+         " location.href = '/?' + p")))
 
-(defn month-navigator
-  ;; The anchor href is the no-JS fallback; data-on:click preserves view state across the
-  ;; month change (month-nav-js) instead of the anchor's plain (state-dropping) navigation.
-  ([m] (month-navigator m nil nil))
-  ([m from to]
-   (let [prev (month/serialize (month/prev-month m))
-         next (month/serialize (month/next-month m))]
+(defn- period-href
+  "The anchor href naming period `p` — the no-JS fallback period-nav-js's data-on:click
+   overrides with a state-preserving navigation."
+  [p]
+  (str "/?" (str/join "&" (map (fn [[k v]] (str k "=" v)) (period/url-params p)))))
+
+(defn period-navigator
+  "The dateline + prev/next steppers for period `p` (period/prev / period/next). Month view
+   reads \"Previous/Next month\"; range view reads the actual target span (\"Previous: Jun 3 –
+   Jun 9, 2026\") since a step's length varies (see period/prev's docstring), and gets a
+   trailing × back to the range's containing month — the one way to leave range view."
+  ([p] (period-navigator p nil nil))
+  ([p lens-from lens-to]
+   (let [range? (not (period/month? p))
+         prev (period/prev p)
+         next (period/next p)
+         nav-label (fn [dir target] (if range? (str dir ": " (period-label target)) (str dir " month")))]
      [:div.month-navigator
       [:div.month-navigator-controls
        [:a.button.button-secondary.month-nav-button
-        {:href (str "/?month=" prev) :title "Previous month" :aria-label "Previous month"
-         "data-on:click" (month-nav-js prev)} (chevron-left)]
-       (period-display (period-label m from to))
+        {:href (period-href prev) :title (nav-label "Previous" prev) :aria-label (nav-label "Previous" prev)
+         "data-on:click" (period-nav-js prev)} (chevron-left)]
+       (period-display (period-label p lens-from lens-to))
        [:a.button.button-secondary.month-nav-button
-        {:href (str "/?month=" next) :title "Next month" :aria-label "Next month"
-         "data-on:click" (month-nav-js next)} (chevron-right)]]])))
+        {:href (period-href next) :title (nav-label "Next" next) :aria-label (nav-label "Next" next)
+         "data-on:click" (period-nav-js next)} (chevron-right)]
+       (when range?
+         (let [cm (assoc (period/containing-month p) :kind :month)]
+           [:a.month-nav-clear
+            {:href (period-href cm) :title (str "Back to " (month/display cm))
+             :aria-label (str "Back to " (month/display cm))
+             "data-on:click" (period-nav-js cm)}
+            "×"]))]])))
 
 (defn search-box []
   [:div.table-search
@@ -464,10 +496,10 @@
     "data-class" (str "{'is-active': $" signal "}")}
    label [:span.filter-count {:id span-id} count]])
 
-(defn toolbar [m counts undo]
+(defn toolbar [period counts undo]
   [:div.toolbar
    [:div.toolbar-controls
-    (month-navigator m)
+    (period-navigator period)
     [:span.toolbar-divider {:aria-hidden "true"}]
     (search-box)
     (scope-toggle counts)
@@ -583,10 +615,17 @@
      [:button.button.button-secondary.filter-dropdown-clear
       {:type "button" "data-on:click" "window.__resetWidths && window.__resetWidths()"}
       "Reset widths"]]]])
-(defn empty-state []
-  [:div.empty-state
-   [:div.empty-state-title "No transactions this month"]
-   [:p "Use the month controls to browse another period, or import from Setup."]])
+(defn empty-state
+  "The table's empty-state copy — worded per period kind, since \"this month\"/\"the month
+   controls\" would read oddly over an arbitrary range."
+  [period]
+  (if (period/month? period)
+    [:div.empty-state
+     [:div.empty-state-title "No transactions this month"]
+     [:p "Use the month controls to browse another period, or import from Setup."]]
+    [:div.empty-state
+     [:div.empty-state-title "No transactions in this period"]
+     [:p "Use the period controls to browse another span, or import from Setup."]]))
 
 (defn error-banner
   "The dismissable error banner — the stable #error-bar morph target. Empty on load (and
@@ -1463,32 +1502,53 @@
         (not (:ready? gate)) (assoc :disabled true))
       "Close month"]]))
 
+(defn- range-back-note
+  "The panel's content in range view (model carries :range-back, built by
+   transactions/close-or-note): monthly close is a calendar-month concept, so a range period —
+   an analysis lens layered over months, possibly spanning more than one — gets a quiet
+   explanation instead of a real panel, plus a state-preserving Back link to its containing
+   month (period-nav-js, so leaving range view doesn't drop the filters/sort/etc. still live)."
+  [{:keys [month-str label]}]
+  [:div.reconcile-body.summary-card-body {:id "reconcile-body"}
+   [:p.reconcile-range-note "Monthly close works on calendar months."]
+   [:a.reconcile-range-back
+    {:href (str "/?month=" month-str)
+     "data-on:click" (period-nav-js (assoc (month/parse month-str) :kind :month))}
+    (str "Back to " label)]])
+
 (defn close-panel
-  "The monthly-close panel (#reconciliation). Two modes, driven by whether the table is
-   filtered to a single account (model carries :focus): the OVERVIEW of every active
-   account's reconcile status — each row a button that drills in — plus the completeness
-   gate + Close / Reopen; or the FOCUSED reconcile card for one account (opening/closing
-   entry + verdict + Back), where the real cleanup happens. Its own #reconciliation
-   element, kept OUTSIDE #category-rollup so the rollup's edit re-patches never clobber it;
-   re-patched by its own reconcile/close/reopen actions, by manual create/delete, and by
-   any filter change (drill/back go through /transactions/rows). The wrapper is ALWAYS
-   rendered (a stable SSE morph target); in overview with no activity it's `:hidden` — but
-   a focused card is never empty.
+  "The monthly-close panel (#reconciliation). THREE modes: in range view, model carries
+   :range-back (see close-or-note) and the panel is a quiet range-back-note instead of the real
+   thing — monthly close doesn't apply to an arbitrary span. In month view, two modes driven by
+   whether the table is filtered to a single account (model carries :focus): the OVERVIEW of
+   every active account's reconcile status — each row a button that drills in — plus the
+   completeness gate + Close / Reopen; or the FOCUSED reconcile card for one account
+   (opening/closing entry + verdict + Back), where the real cleanup happens. Its own
+   #reconciliation element, kept OUTSIDE #category-rollup so the rollup's edit re-patches never
+   clobber it; re-patched by its own reconcile/close/reopen actions, by manual create/delete, and
+   by any filter/period change (drill/back go through /transactions/rows). The wrapper is ALWAYS
+   rendered (a stable SSE morph target); in overview with no activity it's `:hidden` — but a
+   focused card or a range-back note is never empty.
 
    A collapsible summary card: the header toggles $_reconcileOpen (an ephemeral body signal
    that survives these morphs)."
-  [{:keys [rows focus] :as model}]
-  (let [empty? (and (nil? focus) (not (seq rows)))]
+  [{:keys [rows focus range-back] :as model}]
+  (let [empty? (and (nil? focus) (nil? range-back) (not (seq rows)))]
     [:section.reconcile-panel.summary-card
      (cond-> {:id "reconciliation" :aria-label "Monthly close"
               "data-class" "{'summary-collapsed': !$_reconcileOpen}"}
        empty? (assoc :hidden true))
      (when-not empty?
-       (if focus
+       (cond
+         range-back
+         (list (summary-toggle "Reconciliation" "$_reconcileOpen" "reconcile-body")
+               (range-back-note range-back))
+         focus
          (list
           (summary-toggle "Reconciliation" "$_reconcileOpen" "reconcile-body")
           [:div.reconcile-body.summary-card-body {:id "reconcile-body"}
            (focus-card focus)])
+         :else
          (list
           (summary-toggle "Reconciliation" "$_reconcileOpen" "reconcile-body")
           [:div.reconcile-body.summary-card-body {:id "reconcile-body"}
@@ -1515,10 +1575,10 @@
 
 (defn page-body
   "The full transactions workspace body (everything inside layout/document). Dumb: the handler
-   supplies the `month`, masthead `stats`, `categories` (for the combobox model), `view-st`
-   (funnel selections), the presented `model`, the `undo` labels, and whether the month is
-   `empty?` of transactions."
-  [{:keys [month stats categories view-st model undo empty?]}]
+   supplies the `period` (a month, or a from/to analysis range — see web.period), masthead
+   `stats`, `categories` (for the combobox model), `view-st` (funnel selections), the presented
+   `model`, the `undo` labels, and whether the period is `empty?` of transactions."
+  [{:keys [period stats categories view-st model undo empty?]}]
   ;; `cat-opts` is the model's category *funnel* option list — kept distinct from the
   ;; `category-options` view fn (the hidden combobox source list) it would otherwise shadow.
   (let [{:keys [result counts account-options institution-options rollup]
@@ -1529,13 +1589,13 @@
      (sr-status)
      [:div.transactions-layout
       [:div.card
-       (toolbar month counts undo)
+       (toolbar period counts undo)
        (active-filters account-options institution-options cat-opts view-st
                        ;; A fresh full-page load never has the statement lens active (its
                        ;; $reconFrom/$reconTo couriers aren't URL-persisted — see url.ts).
                        (vs/clear-all-active? view-st false))
        (if empty?
-         (empty-state)
+         (empty-state period)
          (list (table (:rows result)) (pagination-bar result)))]
       ;; The summary column: the reconciliation readout stacked above the category
       ;; rollup. Kept as siblings (not nested in #category-rollup) so edit re-patches

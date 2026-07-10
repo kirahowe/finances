@@ -186,8 +186,14 @@
    clamped view result so the signal matches what's rendered. The primary sort signals stay
    blank/asc when the resolved sort is the canonical default (date asc) — mirroring the URL's
    \"blank means default\" convention on the client too, so a fresh table's signals (and the
-   URL the url island reflects them into) stay clean."
-  [vs month-str result]
+   URL the url island reflects them into) stay clean.
+
+   `period-signals` is the page's period seed (web.period/signal-seed — this ns stays a pure
+   codec and never requires web.period itself, so the caller supplies the seed map): :month is
+   ALWAYS the containing month (so month-bound handlers keep working even in range view);
+   :from/:to are blank in month view, the ISO bounds of the range in range view — the client's
+   own cue for which lens is currently active."
+  [vs {:keys [month from to]} result]
   {:search        (:search vs)
    :scope         (if (= :to-reconcile (:scope vs)) "to-reconcile" "all")
    :hideTransfers (:hide-transfers vs)
@@ -198,7 +204,9 @@
    :sortDir2      (if-let [s2 (:sort2 vs)] (name (:dir s2)) "asc")
    :page          (:page result)
    :pageSize      (:page-size result)
-   :month         month-str
+   :month         month
+   :from          from
+   :to            to
    :editValue     ""
    :catValue      ""
    :splitValue    ""
@@ -227,9 +235,10 @@
 
 (defn client-signals
   "Full initial signal set: persistent view-state + column visibility + header-funnel
-   selections (persistent) + ephemeral UI signals (underscore-prefixed → never sent)."
-  [vs month-str result qp]
-  (assoc (vs->signals vs month-str result)
+   selections (persistent) + ephemeral UI signals (underscore-prefixed → never sent).
+   `period-signals` passes straight through to vs->signals — see its docstring."
+  [vs period-signals result qp]
+  (assoc (vs->signals vs period-signals result)
          :cols (parse-cols qp)
          ;; Display option (View menu): the inline posted-date hint shows by default; the URL
          ;; carries the exception (`posted=0` = hidden), like `hidecols` for column visibility.
