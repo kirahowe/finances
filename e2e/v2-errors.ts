@@ -76,6 +76,12 @@ check('a successful edit auto-clears the error bar',
 
 check('no uncaught page errors', !logs.length, logs.join('; '));
 
+// Trailing reset (the shared-DB convention, as in v2-desc/v2-grid/v2-category): the
+// error-clearing edit above genuinely reconciled Superstore, and with the table's default
+// date sort that row sits near the top for whichever spec runs next (v2-grid's Space-toggle
+// assumes an unreconciled second row).
+await fetch(`${BASE}/e2e/reset`, { method: 'POST' }).catch(() => {});
+
 await browser.close();
 
 let pass = 0;
