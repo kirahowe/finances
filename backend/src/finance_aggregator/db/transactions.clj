@@ -84,27 +84,27 @@
   [tx]
   (-> tx with-effective-description with-effective-posted-date with-split-drift db-transfers/with-transfer-hidden))
 
-(defn list-for-month
+(defn list-for-span
   "All transactions whose EFFECTIVE posted date (data.ledger/effective-posted-date — the
    user's manual override when present, else the provider's posted-date guess, else the
-   transaction date) falls in `month` (a YYYY-MM string), pulled with the canonical
-   pattern and annotated with the derived API fields. Excludes any transaction that has
-   split parts — the parts replace it at the row grain (see
-   doc/plans/splits-as-transactions.md). Shared by the JSON list endpoint and the
-   server-rendered transactions page.
+   transaction date) falls in [`start-date`, `end-date`) (end EXCLUSIVE), pulled with the
+   canonical pattern and annotated with the derived API fields. Excludes any transaction
+   that has split parts — the parts replace it at the row grain (see
+   doc/plans/splits-as-transactions.md). Shared by list-for-month (the calendar-month
+   special case) and any other span a view layer names (see web.period — a flexible
+   from/to range is an analysis lens over the same query).
 
    Queries by external-id + not-split-parent only (the same shape as list-all) and
-   month-filters in Clojure, AFTER annotating — the effective date isn't a datom
+   span-filters in Clojure, AFTER annotating — the effective date isn't a datom
    Datalevin can bound a query on, since it may fall back through three attributes or be
    moved by a manual override. This is no real perf change: the OLD query already pulled
-   every external-id'd transaction dated before end-of-month and post-filtered the start
+   every external-id'd transaction dated before the end bound and post-filtered the start
    bound in Clojure at single-user scale. Filtering post-annotation (rather than
-   pre-filtering on the stored posted-date) is what lets an override move a row across
-   the month boundary in EITHER direction — into a month it wasn't imported into, or out
-   of the one it was."
-  [conn month]
-  (let [{:keys [start-date end-date]} (utils/month-date-range month)
-        raw (d/q '[:find [(pull ?e pattern) ...]
+   pre-filtering on the stored posted-date) is what lets an override move a row across a
+   span boundary in EITHER direction — into a span it wasn't imported into, or out of the
+   one it was."
+  [conn ^Date start-date ^Date end-date]
+  (let [raw (d/q '[:find [(pull ?e pattern) ...]
                    :in $ pattern
                    :where
                    [?e :transaction/external-id _]
@@ -115,6 +115,16 @@
          (filterv (fn [tx]
                     (when-let [^Date d (:transaction/effective-posted-date tx)]
                       (and (not (.before d start-date)) (.before d end-date))))))))
+
+(defn list-for-month
+  "The calendar-month special case of list-for-span: all transactions whose EFFECTIVE
+   posted date (data.ledger/effective-posted-date — the user's manual override when
+   present, else the provider's posted-date guess, else the transaction date) falls in
+   `month` (a YYYY-MM string). Shared by the JSON list endpoint and the server-rendered
+   transactions page."
+  [conn month]
+  (let [{:keys [start-date end-date]} (utils/month-date-range month)]
+    (list-for-span conn start-date end-date)))
 
 (defn list-for-account-range
   "`account-eid`'s transactions in the half-open reconcile span (from, to] — strictly after

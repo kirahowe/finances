@@ -127,6 +127,21 @@
               "the parent is excluded once it has parts")
           (is (= 2 (count rows)) "both parts show up instead"))))))
 
+(deftest list-for-span-test
+  (testing "returns transactions whose effective posted date falls in [start-date, end-date)"
+    (make-tx! "span-1" {:transaction/posted-date (range-date 2025 6 5)})
+    (make-tx! "span-2" {:transaction/posted-date (range-date 2025 6 20)})
+    (make-tx! "span-3" {:transaction/posted-date (range-date 2025 7 3)})
+    (is (= #{"span-2" "span-3"}
+           (set (map :transaction/external-id
+                     (transactions/list-for-span setup/*test-conn*
+                                                 (range-date 2025 6 15) (range-date 2025 7 10)))))
+        "a span crossing the month boundary returns the June 20 + July 3 rows, excluding June 5")
+    (is (= #{"span-1" "span-2"}
+           (set (map :transaction/external-id
+                     (transactions/list-for-month setup/*test-conn* "2025-06"))))
+        "list-for-month (the wrapper) still returns exactly the June rows")))
+
 (deftest with-derived-fields-effective-posted-date-test
   (testing "annotates :transaction/effective-posted-date, falling back through the chain"
     (let [tx-id (make-tx! "tx-eff-1" {:transaction/posted-date (range-date 2026 3 10)})
