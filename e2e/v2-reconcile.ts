@@ -128,8 +128,12 @@ check('gate still lists reconcile work', /to reconcile/i.test(await gateText()))
 //    month-boundary span in as one way (of possibly several) to cover the month.
 check('Visa already reconciles via its month-boundary snapshots',
   (await rowBy('Visa').getAttribute('class'))?.includes('reconcile-row--reconciled'));
-//    The seed gives Visa a -85 groceries txn on Jan 5, so a statement Jan 4 → Jan 6 with
+//    The seed gives Visa a -85 groceries txn on Jan 5, so a statement Jan 5 → Jan 6 with
 //    balances 0 → -85 also reconciles (an account can have more than one tied-out period).
+//    Start-date Jan 5 == the txn's own day, which is the point: a statement period is INCLUSIVE
+//    of its printed start (its start-balance is the balance carried in BEFORE Jan 5), so Jan 5's
+//    activity must count. Under the old half-open (start, end] statement math this dropped the
+//    Jan 5 txn and the statement read "off by $85" — this pins statement-opening-boundary.
 await rowBy('Visa').locator('.reconcile-drill').click();
 await focus.waitFor({ state: 'visible', timeout: 5000 });
 await focus.locator('.reconcile-add-statement').waitFor({ state: 'visible', timeout: 5000 });
@@ -143,20 +147,22 @@ const stModal = page.locator('#modal-root [role="dialog"]');
 await focus.locator('.reconcile-add-statement').click();
 await stModal.waitFor({ state: 'visible', timeout: 5000 });
 check('the add-statement modal opened', (await stModal.count()) === 1);
-await page.locator('#st-start').fill('2025-01-04');
+await page.locator('#st-start').fill('2025-01-05');
 await page.locator('#st-start-bal').fill('0');
 await page.locator('#st-end').fill('2025-01-06');
 await page.locator('#st-end-bal').fill('-85');
 await page.locator('.form-modal-content .button-primary').click();
 await focus.locator('.reconcile-statement').first().waitFor({ state: 'visible', timeout: 5000 });
 check('the statement appears in the list', (await focus.locator('.reconcile-statement').count()) === 1);
-check('the statement reconciles (matches)', /matches/i.test(await focus.locator('.reconcile-statement').innerText()));
+check('the statement reconciles (matches) — its Jan 5 start day is counted, not dropped',
+  /matches/i.test(await focus.locator('.reconcile-statement').innerText()));
 
 // The header dateline reads the whole month until we narrow.
 check('the header dateline shows the month (with year) before narrowing',
   /January 2025/.test(await page.locator('#period-navigator-display').innerText()));
 
-// Clicking the statement narrows the table to its span — just the Jan 5 groceries, not Jan 12.
+// Clicking the statement narrows the table to its span [Jan 5, Jan 6] — just the Jan 5
+// groceries (its inclusive start day), not the Jan 12 payment.
 await focus.locator('.reconcile-statement-span').click();
 await page.waitForFunction(
   () => !/Payment Received/.test(document.querySelector('#tx-tbody')?.textContent || ''),
@@ -171,13 +177,13 @@ check('the selected statement is highlighted',
 await page.waitForFunction(
   () => /–/.test(document.querySelector('#period-navigator-display')?.textContent || ''),
   undefined, { timeout: 5000 }).catch(() => {});
-check('the header dateline switches to the narrowed span',
-  /Jan 4 – Jan 6, 2025/.test(await page.locator('#period-navigator-display').innerText()));
+check('the header dateline switches to the narrowed span (the printed start, not the shifted boundary)',
+  /Jan 5 – Jan 6, 2025/.test(await page.locator('#period-navigator-display').innerText()));
 
 // Edit it to an off-by end balance → the verdict flips.
 await focus.locator('.reconcile-statement-edit').click();
 await stModal.waitFor({ state: 'visible', timeout: 5000 });
-check('the edit modal prefills the statement dates', (await page.locator('#st-start').inputValue()) === '2025-01-04');
+check('the edit modal prefills the statement dates', (await page.locator('#st-start').inputValue()) === '2025-01-05');
 await page.locator('#st-end-bal').fill('-100');
 await page.locator('.form-modal-content .button-primary').click();
 await page.waitForFunction(

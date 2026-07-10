@@ -358,7 +358,8 @@
                                                     (<= (abs (- rdelta computed-delta)) ledger/default-tolerance))
                          statement-spans (->> statements
                                               (filter #(= :reconciled (:status %)))
-                                              (map (fn [s] {:start (:start-date s) :end (:end-date s)})))
+                                              (map (fn [s] {:start (ledger/statement-opening-boundary (:start-date s))
+                                                            :end (:end-date s)})))
                          spans (cond-> statement-spans boundary-reconciled? (conj month-span))
                          any-periods? (or (some? rdelta) (seq statements))
                          cov (ledger/month-coverage acct-txs spans any-periods?)
@@ -433,7 +434,8 @@
         boundary     (ledger/reconcile-period opening closing acct-txs)
         statement-spans (->> statements
                              (filter #(= :reconciled (:status %)))
-                             (map (fn [s] {:start (:start-date s) :end (:end-date s)})))
+                             (map (fn [s] {:start (ledger/statement-opening-boundary (:start-date s))
+                                           :end (:end-date s)})))
         spans        (cond-> statement-spans
                        (= :reconciled (:status boundary)) (conj {:start opening-date :end closing-date}))
         any-periods? (or (some? expected) (seq statements))

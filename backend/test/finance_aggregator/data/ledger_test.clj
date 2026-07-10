@@ -112,6 +112,20 @@
     (testing "d outside any span is not covered"
       (is (false? (ledger/covered? #inst "2025-06-01" [span]))))))
 
+(deftest statement-opening-boundary-includes-the-printed-start-day
+  ;; A statement PRINTED as [May 1 → May 31] must count its first day: its start-balance is the
+  ;; balance carried in BEFORE May 1, so May 1's activity belongs to the period. Feeding the
+  ;; printed start straight into the half-open (start, end] math would drop it — the boundary
+  ;; helper shifts back a day so covered? treats May 1 as the first INCLUDED day.
+  (let [span {:start (ledger/statement-opening-boundary #inst "2025-05-01") :end #inst "2025-05-31"}]
+    (testing "the printed start day IS now covered (the bug: it used to be dropped)"
+      (is (true? (ledger/covered? #inst "2025-05-01" [span]))))
+    (testing "the day before the printed start is still outside the period"
+      (is (false? (ledger/covered? #inst "2025-04-30" [span]))))
+    (testing "the printed end day stays inclusive"
+      (is (true? (ledger/covered? #inst "2025-05-31" [span])))
+      (is (false? (ledger/covered? #inst "2025-06-01" [span]))))))
+
 (deftest month-coverage-single-span-covers-all
   (let [txs [(txn #inst "2025-05-05") (txn #inst "2025-05-20")]
         spans [{:start #inst "2025-04-30" :end #inst "2025-05-31"}]]

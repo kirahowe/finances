@@ -117,14 +117,16 @@
                       (and (not (.before d start-date)) (.before d end-date))))))))
 
 (defn list-for-account-range
-  "`account-eid`'s transactions in the reconcile span (from, to] — after `from` (the period's
-   start date, whose balance already reflects that day's activity) up to and including `to`
-   (the period's end date), bucketed by the EFFECTIVE posted date (data.ledger/effective-
-   posted-date), not the raw imported one. `from`/`to` are Dates (UTC day granularity).
-   Pulled + annotated first, then span-filtered and sorted on the effective date — so a
-   manual override can move a row across a statement-span boundary just as it can a
-   calendar-month one. Excludes any transaction that has split parts (see list-for-month).
-   Used to reconcile + display a statement period, which may cross a calendar-month boundary."
+  "`account-eid`'s transactions in the half-open reconcile span (from, to] — strictly after
+   `from`, up to and including `to` — bucketed by the EFFECTIVE posted date (data.ledger/
+   effective-posted-date), not the raw imported one. `from`/`to` are Dates (UTC day granularity).
+   `from` is the EXCLUSIVE lower boundary (a balance-reading day whose activity is already
+   counted); the statement callers pass data.ledger/statement-opening-boundary so a statement's
+   INCLUSIVE printed start day still lands in the span. Pulled + annotated first, then
+   span-filtered and sorted on the effective date — so a manual override can move a row across a
+   statement-span boundary just as it can a calendar-month one. Excludes any transaction that has
+   split parts (see list-for-month). Used to reconcile + display a statement period, which may
+   cross a calendar-month boundary."
   [conn account-eid ^Date from ^Date to]
   (let [to-exclusive (Date. (+ (.getTime to) 86400000))   ; include txns dated on `to`
         raw (d/q '[:find [(pull ?e pattern) ...]

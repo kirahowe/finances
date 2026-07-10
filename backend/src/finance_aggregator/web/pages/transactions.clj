@@ -8,6 +8,7 @@
   (:require
    [clojure.string :as str]
    [finance-aggregator.auth :as auth]
+   [finance-aggregator.data.ledger :as ledger]
    [finance-aggregator.db.accounts :as db-accounts]
    [finance-aggregator.db.categories :as db-categories]
    [finance-aggregator.db.reconciliations :as db-reconciliations]
@@ -116,7 +117,9 @@
   (let [{:keys [start-date end-date]} (u/month-date-range month)]
     (mapv (fn [s]
             (-> (view/reconcile-statement
-                 s (db-transactions/list-for-account-range db-conn account-eid (:start-date s) (:end-date s)))
+                 s (db-transactions/list-for-account-range
+                    db-conn account-eid
+                    (ledger/statement-opening-boundary (:start-date s)) (:end-date s)))
                 (assoc :start-iso (str (u/date->local-date (:start-date s)))
                        :end-iso   (str (u/date->local-date (:end-date s))))))
           (db-statements/list-overlapping db-conn account-eid start-date end-date))))
@@ -200,7 +203,11 @@
   (let [month-txs (db-transactions/list-for-month db-conn month)
         model (view/present month-txs view-st present-opts)]
     (if-let [{:keys [account from to]} (reconcile-range signals view-st)]
-      (let [slice (db-transactions/list-for-account-range db-conn account from to)]
+      ;; The narrowing lens shows the statement's printed span [from, to] inclusive; shift the
+      ;; exclusive lower boundary back a day so from's own activity is in the slice (the header
+      ;; dateline keeps the unshifted printed `from`). Mirrors the reconcile sum in statement-models.
+      (let [slice (db-transactions/list-for-account-range
+                   db-conn account (ledger/statement-opening-boundary from) to)]
         (assoc model :result (:result (view/present slice view-st (select-keys present-opts [:linger])))))
       model)))
 

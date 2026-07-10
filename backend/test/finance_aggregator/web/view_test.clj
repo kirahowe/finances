@@ -241,6 +241,21 @@
       (is (= #inst "2025-01-20" (:first-uncovered visa)))
       (is (false? (:all-reconciled? m)) "one uncovered account blocks the whole month"))))
 
+(deftest reconcile-month-counts-a-statements-inclusive-start-day
+  ;; Pins the boundary shift at THIS call site (reconcile-month's span-building): a statement whose
+  ;; start-date lands exactly on a txn's date must COUNT that day (its start-balance is carried in
+  ;; before it). t2 is the only Visa txn on 2025-01-05, and nothing else backstops that day, so the
+  ;; verdict flips purely on whether ledger/statement-opening-boundary is applied here. Without the
+  ;; shift the span is (Jan 5, Jan 31] and t2 falls out → :partial, :uncovered 1.
+  (let [stmts {101 [{:start-date #inst "2025-01-05" :end-date #inst "2025-01-31" :status :reconciled}]}
+        ;; {100 2000M} reconciles Chequing (as the sibling tests do), so :all-reconciled? turns
+        ;; purely on whether Visa's statement covers its Jan 5 start day.
+        m (view/reconcile-month txs {100 2000M} month-span stmts)
+        visa (first (filter #(= 101 (:account-id %)) (:rows m)))]
+    (is (= :reconciled (:status visa)) "the Jan 5 start day is inside the period, so every Visa txn is covered")
+    (is (zero? (:uncovered visa)))
+    (is (true? (:all-reconciled? m)))))
+
 (deftest month-close-gate
   (testing "every transaction reconciled + categorized + balanced → ready to close"
     (let [done  [(tx {:db/id 1 :transaction/amount 100 :transaction/reconciled true
@@ -334,6 +349,17 @@
       (is (= :partial (:status cov)))
       (is (= 2 (:uncovered cov)) "the part rows t5+t6 (2025-01-20) fall outside the statement")
       (is (= #inst "2025-01-20" (:first-uncovered cov))))))
+
+(deftest focus-close-counts-a-statements-inclusive-start-day
+  ;; Pins the boundary shift at THIS call site (focus-close's span-building), independent of the
+  ;; reconcile-month pin. Statement start-date == t2's date (2025-01-05, the only Visa txn that day,
+  ;; unbackstopped): without ledger/statement-opening-boundary the span is (Jan 5, Jan 31] and t2
+  ;; falls out → :partial. With it, the whole account is covered by the one statement.
+  (let [stmt {:start-date #inst "2025-01-05" :end-date #inst "2025-01-31" :status :reconciled}
+        f (view/focus-close txs {:account-eid 101 :opening nil :closing nil :statements [stmt]})
+        cov (:coverage f)]
+    (is (= :reconciled (:status cov)) "the Jan 5 start day is counted, so the statement covers every Visa txn")
+    (is (zero? (:uncovered cov)))))
 
 (deftest reconcile-statement-uses-statement-balance-polarity
   (let [statement {:id 7 :start-balance 44.02M :end-balance -90.15M}

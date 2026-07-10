@@ -2,7 +2,11 @@
   "Statement periods — user-entered arbitrary-span reconciliations (a credit-card statement
    between two arbitrary dates, whose balance can't be read on a chosen day). A statement is
    self-contained: two dated balances the account's tracked activity in the span must explain
-   (end-balance - start-balance = Σ txns in (start, end]). Distinct from the month-boundary
+   (end-balance - start-balance = Σ txns in [start-date, end-date] INCLUSIVE, as the period reads
+   off the statement — the start-balance is the 'previous balance' carried in before start-date,
+   so start-date's own activity belongs to the period). The shared reconcile/coverage math is
+   half-open (start, end], so callers hand it data.ledger/statement-opening-boundary — the day
+   before start-date — to make start-date the first included day. Distinct from the month-boundary
    reconciliation (which reads :snapshot/* at calendar bounds); a month reconciles for an
    account when its transactions are all covered by reconciled periods (month-boundary OR
    statement). Identified by :db/id — edited/deleted as a unit, no unique key (dates change).

@@ -158,6 +158,19 @@
                 (.before d (Date. (+ (.getTime end) 86400000)))))
          spans)))
 
+(defn statement-opening-boundary
+  "The EXCLUSIVE lower boundary — a `:start`/`from` value for the shared half-open (start, end]
+   sum & coverage math (covered?, db.transactions/list-for-account-range) — for a statement
+   whose PRINTED period starts on `start-date` (inclusive, as it reads off the statement). A
+   statement's start-balance is the 'previous balance' carried in BEFORE its first day, so
+   activity ON start-date belongs to the period; but the half-open convention treats the start
+   as an already-counted balance day and excludes it. Handing back the day BEFORE start-date
+   therefore makes start-date the first INCLUDED day. Contrast a month-boundary period, whose
+   opening-date genuinely IS an already-counted prior-balance day and so passes straight through
+   with no shift. UTC-midnight day granularity (see effective-posted-date)."
+  ^Date [^Date start-date]
+  (Date. (- (.getTime start-date) 86400000)))
+
 (defn month-coverage
   "Coverage-strict account status for a month. `txs` = the account's month transactions
    (each resolvable to an effective posted date — see effective-posted-date); `spans` =
