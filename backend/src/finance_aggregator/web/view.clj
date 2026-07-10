@@ -402,17 +402,19 @@
    annotated with its own period-delta verdict (reconcile-statement).
 
    Returns {:rows [row…] :all-reconciled? bool} where a row is
-   {:account-id :name :computed-delta :reported-delta :status :uncovered :first-uncovered
-    :difference} — the per-account confidence readout the close panel renders. :status is
-   :reconciled/:partial/:no-snapshot (coverage-strict — reconciled needs EVERY month txn
-   covered, not just the month-boundary check). :difference (the overview's 'off by $X'
-   wording) is populated ONLY for the single-number case — a :partial account whose
-   month-boundary balance is entered and which has no statements at all — since a
-   statement-covered or multi-period account has no one figure to blame. Pure."
+   {:account-id :name :institution :computed-delta :reported-delta :status :uncovered
+    :first-uncovered :difference} — the per-account confidence readout the close panel
+   renders. :institution is `{:name :logo}` (or nil), lifted from account-computed-deltas
+   for the reconcile row's avatar. :status is :reconciled/:partial/:no-snapshot
+   (coverage-strict — reconciled needs EVERY month txn covered, not just the
+   month-boundary check). :difference (the overview's 'off by $X' wording) is populated
+   ONLY for the single-number case — a :partial account whose month-boundary balance is
+   entered and which has no statements at all — since a statement-covered or
+   multi-period account has no one figure to blame. Pure."
   [txs reported month-span statements-by-account]
   (let [deltas (ledger/account-computed-deltas txs)
         txs-by-account (group-by #(get-in % [:transaction/account :db/id]) txs)
-        rows (for [[account-id {:keys [name computed-delta]}] deltas
+        rows (for [[account-id {:keys [name institution computed-delta]}] deltas
                    :let [rdelta (get reported account-id)
                          acct-txs (get txs-by-account account-id [])
                          statements (get statements-by-account account-id [])
@@ -429,6 +431,7 @@
                                       (- rdelta computed-delta))]]
                {:account-id      account-id
                 :name            name
+                :institution     institution
                 :computed-delta  computed-delta
                 :reported-delta  rdelta
                 :status          (:status cov)
@@ -477,8 +480,11 @@
    drilled-into `account-eid`, the opening/closing bank balances currently on file (bigdec
    or nil when not yet entered), their app-owned boundary dates, and the account's `statements`
    (already annotated with their own period-delta verdicts — reconcile-statement), returns
-     {:account-id :name :opening :closing :opening-date :closing-date :expected :tracked
-      :boundary-status :boundary-difference :coverage :statements}
+     {:account-id :name :institution :opening :closing :opening-date :closing-date :expected
+      :tracked :boundary-status :boundary-difference :coverage :statements}
+   `:institution` is `{:name :logo}` lifted from the deltas row for the focus card's avatar
+   — nil when the account has no activity this month (the deltas row doesn't exist) or no
+   institution on file.
    `:expected` is the reported change (closing − opening, nil if either missing) and `:tracked`
    is Σ the account's month transactions. `:boundary-status`/`:boundary-difference` are the
    month-boundary PERIOD's own verdict (reconcile-period) — the month-end section's per-period
@@ -513,6 +519,7 @@
                             :first-gap     (:first-uncovered gap))]
     {:account-id          account-eid
      :name                nm
+     :institution         (:institution row)
      :opening             opening
      :closing             closing
      :opening-date        opening-date

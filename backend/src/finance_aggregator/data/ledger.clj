@@ -47,16 +47,21 @@
    needed here. `:name` prefers the user's rename overlay (:account/display-name) over
    the provider's :account/external-name — a data-layer-local `(or …)`, the same
    preference web.accounts/account-label applies in the view layer; this namespace is
-   pure math and can't reach up to it. Returns
-   {account-eid {:account-id eid :name str :computed-delta bigdec}}."
+   pure math and can't reach up to it. `:institution` is `{:name :logo}` lifted from the
+   pulled account's :account/institution, nil when the account has none — carried
+   through so the reconcile panel can render an avatar without a second query. Returns
+   {account-eid {:account-id eid :name str :computed-delta bigdec :institution map-or-nil}}."
   [txs]
   (reduce
    (fn [acc tx]
-     (let [{eid :db/id nm :account/external-name dn :account/display-name} (:transaction/account tx)
-           label (or (when-not (str/blank? dn) dn) nm "Unknown")]
+     (let [{eid :db/id nm :account/external-name dn :account/display-name
+            im :account/institution} (:transaction/account tx)
+           label (or (when-not (str/blank? dn) dn) nm "Unknown")
+           institution (when im {:name (:institution/name im) :logo (:institution/logo im)})]
        (cond-> acc
          eid (update eid (fn [row]
-                           (-> (or row {:account-id eid :name label :computed-delta 0M})
+                           (-> (or row {:account-id eid :name label :computed-delta 0M
+                                        :institution institution})
                                (update :computed-delta + (amount tx))))))))
    {}
    txs))
@@ -93,13 +98,14 @@
 (defn reconcile-row
   "Combine one account's computed delta with its reported delta (nil when a
    boundary snapshot is missing) into a display row:
-   {:account-id :name :computed-delta :reported-delta :difference :status}, where
-   :difference is reported-computed (nil without a reported delta) and :status is
+   {:account-id :name :institution :computed-delta :reported-delta :difference :status},
+   where :difference is reported-computed (nil without a reported delta) and :status is
    :no-snapshot / :reconciled / :drift."
-  [{:keys [account-id name computed-delta]} reported-delta tolerance]
+  [{:keys [account-id name institution computed-delta]} reported-delta tolerance]
   (let [difference (when (some? reported-delta) (- reported-delta computed-delta))]
     {:account-id     account-id
      :name           name
+     :institution    institution
      :computed-delta computed-delta
      :reported-delta reported-delta
      :difference     difference

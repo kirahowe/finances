@@ -1238,15 +1238,18 @@
     [:span.reconcile-status.reconcile-status--muted "needs balances"]))
 
 (defn- reconcile-row
-  "One overview account line: its name + reconcile status, the whole row a button that
-   drills into the focused reconcile view — which also filters the table to that account
-   (both flow through /transactions/rows, keeping the panel and table in sync)."
-  [{:keys [account-id status difference] acct-name :name}]
+  "One overview account line: its institution avatar + name + reconcile status, the
+   whole row a button that drills into the focused reconcile view — which also filters
+   the table to that account (both flow through /transactions/rows, keeping the panel
+   and table in sync)."
+  [{:keys [account-id status difference institution] acct-name :name}]
   [:li {:class (str "reconcile-row reconcile-row--" (name status))}
    [:button.reconcile-drill
     {:type "button" :aria-label (str "Reconcile " acct-name)
      "data-on:click" (str "$filter.account = ['" account-id "']; $page = 0; @get('/transactions/rows')")}
-    [:span.reconcile-account {:title acct-name} acct-name]
+    [:span.reconcile-account {:title acct-name}
+     (shell/institution-avatar institution)
+     [:span.reconcile-account-name acct-name]]
     (reconcile-status-span status difference)]])
 
 (defn- reconcile-readout-line [label value]
@@ -1390,15 +1393,16 @@
      (month-period-verdict boundary-status boundary-difference)]]])
 
 (defn- focus-card
-  "The focused single-account reconcile view: a Back action, the COVERAGE HEADLINE (the
-   account-level coverage-strict verdict — every txn this month covered by SOME reconciled
-   period), the STATEMENTS list (arbitrary-span periods), then the collapsible MONTH-END
-   BALANCES section (the single month-boundary period: opening/closing entry, Save, its own
-   expected-vs-tracked verdict). The headline answers the actual close-gate question up front;
-   the two period-entry sections below are simply the two ways to answer it — a credit card
+  "The focused single-account reconcile view: a Back action, the account's institution
+   avatar + name, the COVERAGE HEADLINE (the account-level coverage-strict verdict —
+   every txn this month covered by SOME reconciled period), the STATEMENTS list
+   (arbitrary-span periods), then the collapsible MONTH-END BALANCES section (the single
+   month-boundary period: opening/closing entry, Save, its own expected-vs-tracked
+   verdict). The headline answers the actual close-gate question up front; the two
+   period-entry sections below are simply the two ways to answer it — a credit card
    reconciled purely by statements can leave the month-end section collapsed."
   [{:keys [opening closing opening-date closing-date expected tracked
-           boundary-status boundary-difference coverage statements]
+           boundary-status boundary-difference coverage statements institution]
     acct-name :name}]
   [:div.reconcile-focus
    [:div.reconcile-focus-head
@@ -1406,7 +1410,9 @@
      {:type "button" :aria-label "Back to all accounts"
       "data-on:click" "$filter.account = []; $reconFrom = ''; $reconTo = ''; $page = 0; @get('/transactions/rows')"}
      "← Back"]
-    [:span.reconcile-focus-title {:title acct-name} acct-name]]
+    [:span.reconcile-focus-title {:title acct-name}
+     (shell/institution-avatar institution)
+     [:span.reconcile-focus-title-text acct-name]]]
    (focus-coverage-headline coverage)
    (focus-statements-section statements)
    (focus-month-section opening closing opening-date closing-date expected tracked

@@ -47,6 +47,36 @@
       (is (re-find #"disabled" h))
       (is (not (re-find #"Reopen" h))))))
 
+(deftest close-panel-renders-institution-avatars
+  (testing "an overview row with a logo renders the institution-avatar <img>, one with a
+            logo-less institution falls back to a letter circle"
+    (let [rows [{:account-id 1 :name "Chequing" :status :reconciled :difference nil
+                 :institution {:name "Tangerine" :logo "https://cdn.example/tangerine.png"}}
+                {:account-id 2 :name "Visa" :status :partial :difference (bigdec "5.00")
+                 :institution {:name "Visa" :logo nil}}]
+          h (html (tv/close-panel
+                   {:rows rows
+                    :gate {:unreconciled 0 :uncategorized 0 :all-reconciled? true
+                           :all-categorized? true :balanced? true :ready? true}
+                    :closed? false :closed-at nil :drift nil}))]
+      (is (re-find #"institution-avatar" h))
+      (is (re-find #"src=\"https://cdn\.example/tangerine\.png\"" h))
+      (is (re-find #"institution-avatar--letter" h) "Visa's institution has no logo -> letter fallback")
+      (is (re-find #">V<" h) "the letter is the first [A-Za-z0-9] char of the name, upper-cased")))
+  (testing "the focused card's title carries the same avatar, from the model's :institution"
+    (let [h (html (tv/close-panel
+                   {:rows [] :gate {} :closed? false
+                    :focus {:account-id 3 :name "1st Union"
+                            :opening nil :closing nil
+                            :opening-date #inst "2026-04-30" :closing-date #inst "2026-05-31"
+                            :expected nil :tracked 0M
+                            :boundary-status :no-snapshot :boundary-difference nil
+                            :coverage {:status :no-snapshot :uncovered 0 :first-uncovered nil}
+                            :statements []
+                            :institution {:name "1st Union" :logo nil}}}))]
+      (is (re-find #"institution-avatar--letter" h))
+      (is (re-find #">1<" h) "a leading digit wins as the first [A-Za-z0-9] char"))))
+
 (deftest close-panel-ready-enables-close
   (let [h (html (tv/close-panel
                  {:rows [{:account-id 1 :name "A" :status :reconciled :difference 0M}]

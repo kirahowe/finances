@@ -44,12 +44,22 @@
   box-shadow: var(--focus-ring);
 }
 
+/* Avatar + name: the avatar is a fixed-size flex item, so the name gets its own
+   nested span to truncate — text-overflow doesn't apply to a flex container's
+   anonymous text child, only to a real element's own overflowing content. */
 .reconcile-account {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+  color: var(--color-ink);
+}
+
+.reconcile-account-name {
   min-width: 0;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
-  color: var(--color-ink);
 }
 
 .reconcile-status {
@@ -125,14 +135,22 @@
   box-shadow: var(--focus-ring);
 }
 
+/* Same avatar + nested-truncation shape as .reconcile-account, above. */
 .reconcile-focus-title {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
   flex: 1 1 auto;
+  min-width: 0;
+  font-weight: 600;
+  color: var(--color-ink);
+}
+
+.reconcile-focus-title-text {
   min-width: 0;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
-  font-weight: 600;
-  color: var(--color-ink);
 }
 
 /* --- Coverage headline ----------------------------------------------------

@@ -26,7 +26,7 @@
    same as this row's own override."
   ['* {:transaction/category [:db/id :category/name :category/type]
        :transaction/account [:db/id :account/external-name :account/display-name
-                             {:account/institution [:db/id :institution/name]}]
+                             {:account/institution [:db/id :institution/name :institution/logo]}]
        :transaction/split-parent [:db/id :transaction/amount :transaction/payee
                                   {:transaction/_split-parent [:db/id :transaction/amount]}]
        :transaction/_split-parent [:db/id :transaction/amount :transaction/split-order

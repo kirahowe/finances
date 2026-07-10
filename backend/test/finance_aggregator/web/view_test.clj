@@ -301,6 +301,19 @@
     (is (zero? (:uncovered visa)))
     (is (true? (:all-reconciled? m)))))
 
+(deftest reconcile-month-carries-institution
+  (testing "a row carries {:name :logo} lifted from its account's pulled institution"
+    (let [m (view/reconcile-month txs {100 2000M} month-span {})
+          row (first (filter #(= 100 (:account-id %)) (:rows m)))]
+      (is (= {:name "Test Bank" :logo nil} (:institution row)))))
+  (testing "nil when the account's transactions carry no :account/institution"
+    (let [no-inst-tx (tx {:db/id 7 :transaction/posted-date #inst "2025-01-01"
+                          :transaction/amount 10
+                          :transaction/account {:db/id 200 :account/external-name "Cash"}})
+          m (view/reconcile-month [no-inst-tx] {} month-span {})
+          row (first (:rows m))]
+      (is (nil? (:institution row))))))
+
 (deftest month-close-gate
   (testing "every transaction reconciled + categorized + balanced → ready to close"
     (let [done  [(tx {:db/id 1 :transaction/amount 100 :transaction/reconciled true
@@ -394,6 +407,15 @@
       (is (= :partial (:status cov)))
       (is (= 2 (:uncovered cov)) "the part rows t5+t6 (2025-01-20) fall outside the statement")
       (is (= #inst "2025-01-20" (:first-uncovered cov))))))
+
+(deftest focus-close-carries-institution
+  (testing "carries {:name :logo} from the deltas row's institution"
+    (let [f (view/focus-close txs {:account-eid 100 :opening 500M :closing 2500M
+                                   :opening-date #inst "2024-12-31" :closing-date #inst "2025-01-31"})]
+      (is (= {:name "Test Bank" :logo nil} (:institution f)))))
+  (testing "nil for an account with no activity this month (no deltas row to read from)"
+    (let [f (view/focus-close txs {:account-eid 999 :name-fallback "Savings" :opening 10M :closing 10M})]
+      (is (nil? (:institution f))))))
 
 (deftest focus-close-distinguishes-a-gap-from-a-non-matching-period
   ;; Both read :partial, but the fix differs: a GAP (txns outside every period on file) needs a
