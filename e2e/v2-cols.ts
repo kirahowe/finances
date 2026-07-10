@@ -24,9 +24,10 @@ await page.waitForTimeout(300);
 check('no page errors', !logs.length, logs.join('; '));
 check('Institution column visible initially', await instHeader().isVisible());
 
-// Open the View menu and hide Institution.
+// Open the View menu and hide Institution. Exact name — a bare hasText also matches the
+// Display group's "Institution logos" toggle.
 await page.getByRole('button', { name: 'View', exact: true }).click();
-await page.locator('.column-picker .filter-dropdown-item', { hasText: 'Institution' }).locator('input').uncheck();
+await page.getByRole('checkbox', { name: 'Institution', exact: true }).uncheck();
 await page.waitForFunction(() => {
   const t = document.querySelector('table.table');
   return t && t.classList.contains('hide-institution');
