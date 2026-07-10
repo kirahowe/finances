@@ -22,6 +22,7 @@ interface ViewState {
   pageSize?: number;
   cols?: Record<string, boolean>;
   showPosted?: boolean;
+  instLogo?: boolean;
   fa?: unknown[];
   fi?: unknown[];
   fc?: unknown[];
@@ -56,6 +57,8 @@ const csv = (a: unknown[] | undefined): string => (a ?? []).filter(Boolean).join
   set('hidecols', hidden.join(','));
   // Posted-date hint shows by default → persist only the hidden exception (posted=0).
   set('posted', s.showPosted === false ? '0' : '');
+  // Institution column shows names by default → persist only the logo-mode exception.
+  set('instlogo', s.instLogo ? '1' : '');
   // Header funnels.
   set('fa', csv(s.fa));
   set('fi', csv(s.fi));

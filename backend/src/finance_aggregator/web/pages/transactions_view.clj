@@ -24,11 +24,13 @@
 (defn table-hide-class []
   ;; Static Datastar value for the table's `data-class`: flips the per-column `hide-<id>`
   ;; classes off the `cols.<id>` signals, plus `hide-posted` off `$showPosted` (the inline
-  ;; posted-date hint — a display option living in the same View menu). No data manipulation;
-  ;; the ids/signals are render-time literals.
+  ;; posted-date hint) and `inst-logos` off `$instLogo` (the Institution column's name-vs-logo
+  ;; mode — NOT negated: the class means logo mode is ON) — display options living in the same
+  ;; View menu. No data manipulation; the ids/signals are render-time literals.
   (str "{"
        (str/join ", " (conj (mapv (fn [[id _]] (str "'hide-" id "': !$cols." id)) vs/hideable-columns)
-                            "'hide-posted': !$showPosted"))
+                            "'hide-posted': !$showPosted"
+                            "'inst-logos': $instLogo"))
        "}"))
 
 (declare undo-redo-controls column-picker) ; defined later, used by the toolbar/table
@@ -68,6 +70,20 @@
   "A transaction's institution display name, or \"—\"."
   [tx]
   (or (get-in tx [:transaction/account :account/institution :institution/name]) "—"))
+
+(defn institution-cell
+  "The Institution column cell: the avatar AND the name span are both always in the
+   DOM; `$instLogo` (via the table's `inst-logos` class) decides which is visible —
+   a pure CSS flip, no round-trip. In logo mode the name span is visually hidden,
+   not display:none, so in-page search and screen readers keep the text; the cell's
+   :title (set only when there IS an institution) is the hover name for logo mode,
+   the `.reconcile-account` title precedent."
+  [tx]
+  (let [im (get-in tx [:transaction/account :account/institution])
+        inst (when im {:name (:institution/name im) :logo (:institution/logo im)})]
+    [:td.institution-cell (cond-> {} (:name inst) (assoc :title (:name inst)))
+     (shell/institution-avatar inst)
+     [:span.institution-cell-name (institution-name tx)]]))
 
 (defn amount-span
   "Signed amount with sign class — one rule for every row: 0 reads negative."
@@ -278,7 +294,7 @@
   [:tr {:role "row" :class (row-class (if split-parent "is-split-part" "") stale?)}
    (date-cell tx)
    [:td (account-name tx)]
-   [:td (institution-name tx)]
+   (institution-cell tx)
    [:td.payee-cell payee (when split-parent (split-marker split-parent))]
    [:td.description-cell (grid-cell (:db/id tx) "description") (editable-description (:db/id tx) effective-description)]
    [:td.amount-cell (amount-span amount) (when split-drift (split-drift-badge))]
@@ -741,10 +757,11 @@
 
 (defn column-picker
   "Toolbar \"View\" dropdown: table display options. A Display group — the inline posted-date
-   hint (`$showPosted` flips the table's `hide-posted` class) — sits above the column-visibility
-   list (each `cols.<id>` checkbox flips a `hide-<id>` class). Both are pure CSS (no round-trip)
-   and the URL reflector persists them. The footer's \"Reset widths\" hands every column back to
-   auto-fit via the resize island's window hook. `__stop` so the open-click isn't also seen as a
+   hint (`$showPosted` flips the table's `hide-posted` class) and the Institution column's
+   logo mode (`$instLogo` flips `inst-logos`) — sits above the column-visibility list (each
+   `cols.<id>` checkbox flips a `hide-<id>` class). All pure CSS (no round-trip) and the URL
+   reflector persists them. The footer's \"Reset widths\" hands every column back to auto-fit
+   via the resize island's window hook. `__stop` so the open-click isn't also seen as a
    click-outside. (Kept the `column-picker` fn/class name — the resize + e2e hooks key off it.)"
   []
   [:div.filter-button-container.column-picker
@@ -761,7 +778,8 @@
     [:div.view-menu-section
      [:p.view-menu-group-label "Display"]
      [:ul.filter-dropdown-list
-      (view-menu-checkbox "showPosted" "Posted dates")]]
+      (view-menu-checkbox "showPosted" "Posted dates")
+      (view-menu-checkbox "instLogo" "Institution logos")]]
     [:div.view-menu-section
      [:p.view-menu-group-label "Columns"]
      [:ul.filter-dropdown-list
@@ -820,12 +838,13 @@
   []
   [:div {:hidden true
          "data-on-signal-patch-filter"
-         "{include: /^(search|scope|hideTransfers|uncat|showPosted|sortCol|sortDir|sortCol2|sortDir2|page|pageSize)$|^(cols|filter)\\./}"
+         "{include: /^(search|scope|hideTransfers|uncat|showPosted|instLogo|sortCol|sortDir|sortCol2|sortDir2|page|pageSize)$|^(cols|filter)\\./}"
          "data-on-signal-patch"
          (str "window.__syncUrl && window.__syncUrl({q: $search, scope: $scope,"
               " ht: $hideTransfers, uncat: $uncat, sortCol: $sortCol, sortDir: $sortDir,"
               " sortCol2: $sortCol2, sortDir2: $sortDir2,"
               " page: $page, pageSize: $pageSize, cols: $cols, showPosted: $showPosted,"
+              " instLogo: $instLogo,"
               " fa: $filter.account, fi: $filter.institution, fc: $filter.category})")}])
 
 (defn funnel-list

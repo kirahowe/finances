@@ -246,6 +246,35 @@
   display: none;
 }
 
+/* Institution column display mode (View menu → Display → "Institution logos"): the cell
+   always renders BOTH the avatar and the name span; the table's `inst-logos` class
+   ($instLogo) picks which is visible. Name mode (the default) hides the avatar; logo mode
+   shows it and visually-hides the name — clipped, NOT display:none, so in-page search and
+   screen readers keep the text (the cell's title carries the hover name). */
+.institution-cell {
+  position: relative;
+}
+
+.institution-cell .institution-avatar {
+  display: none;
+}
+
+.table.inst-logos .institution-cell .institution-avatar {
+  display: inline-flex;
+}
+
+.table.inst-logos .institution-cell .institution-cell-name {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  margin: -1px;
+  padding: 0;
+  overflow: hidden;
+  clip: rect(0 0 0 0);
+  white-space: nowrap;
+  border: 0;
+}
+
 /* A "stale" row was categorized out of the active filter but kept in view. */
 .table.table-resizable tr.is-stale td {
   background: color-mix(in srgb, var(--color-paper-deep) 50%, var(--color-paper));

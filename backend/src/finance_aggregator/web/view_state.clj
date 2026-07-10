@@ -248,6 +248,9 @@
          ;; Display option (View menu): the inline posted-date hint shows by default; the URL
          ;; carries the exception (`posted=0` = hidden), like `hidecols` for column visibility.
          :showPosted (not= "0" (get qp "posted"))
+         ;; Display option (View menu): the Institution column shows names by default; the URL
+         ;; carries the exception (`instlogo=1` = logo mode), like `posted=0`/`hidecols`.
+         :instLogo (= "1" (get qp "instlogo"))
          :filter {:account (csv-param qp "fa")
                   :institution (csv-param qp "fi")
                   :category (csv-param qp "fc")}

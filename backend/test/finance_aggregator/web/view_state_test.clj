@@ -217,6 +217,14 @@
       (is (false? (seed {"posted" "0"})) "posted=0 → hidden")
       (is (true? (seed {"posted" "1"})) "any other value → shown (0 is the only hide token)"))))
 
+(deftest institution-logo-display-signal
+  (testing "instLogo defaults false (names shown), flips true only when instlogo=1 is in the URL"
+    (let [seed (fn [qp] (:instLogo (vs/client-signals (vs/query->view-state qp)
+                                                      month-seed {:page 0 :page-size 25} qp)))]
+      (is (false? (seed {})) "no param → name mode")
+      (is (true? (seed {"instlogo" "1"})) "instlogo=1 → logo mode")
+      (is (false? (seed {"instlogo" "0"})) "any other value → name mode (1 is the only logo token)"))))
+
 ;; --- full client-signals seed -----------------------------------------------
 
 (deftest client-signals-shape

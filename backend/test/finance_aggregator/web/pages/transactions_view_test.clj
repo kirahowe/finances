@@ -268,6 +268,31 @@
       (is (re-find #"/transactions/41/reconciled/" h))
       (is (not (re-find #"disabled" h))))))
 
+(deftest normal-row-institution-cell-carries-both-renderings
+  (testing "an account with a logo'd institution renders the avatar <img> AND the name span
+            (both always in the DOM; the table's inst-logos class picks which is visible)"
+    (let [logo-tx (assoc-in plain-tx [:transaction/account :account/institution :institution/logo]
+                            "data:image/png;base64,abc")
+          h (html (tv/normal-row false logo-tx))]
+      (is (re-find #"institution-cell" h))
+      (is (re-find #"institution-avatar" h))
+      (is (re-find #"src=\"data:image/png;base64,abc\"" h))
+      (is (re-find #"institution-cell-name" h))
+      (is (re-find #">Bank<" h) "the name text stays in the DOM for search/screen readers")
+      (is (re-find #"title=\"Bank\"" h) "the cell title is the hover name for logo mode")))
+  (testing "a logo-less institution falls back to the letter circle beside the name"
+    (let [h (html (tv/normal-row false plain-tx))]
+      (is (re-find #"institution-avatar--letter" h))
+      (is (re-find #">B<" h))))
+  (testing "no institution at all → no avatar, the — name, no hover title"
+    (let [no-inst (update plain-tx :transaction/account dissoc :account/institution)
+          h (html (tv/normal-row false no-inst))]
+      (is (not (re-find #"institution-avatar" h)))
+      (is (re-find #"institution-cell-name" h))
+      (is (re-find #">—<" h))
+      (is (not (re-find #"title=\"" (re-find #"<td class=\"institution-cell\"[^>]*>" h)))
+          "no institution → no title attribute on the cell"))))
+
 (deftest normal-row-split-part-gets-marker-and-class
   (let [h (html (tv/normal-row false part-tx))]
     (testing "the row is tagged is-split-part"
@@ -369,6 +394,9 @@
     (testing "the posted-dates toggle binds $showPosted; the column list still binds cols.<id>"
       (is (re-find #"data-bind=\"showPosted\"" h))
       (is (re-find #"data-bind=\"cols.date\"" h)))
+    (testing "the institution-logos toggle sits in the same Display group, bound to $instLogo"
+      (is (re-find #"Institution logos" h))
+      (is (re-find #"data-bind=\"instLogo\"" h)))
     (testing "Columns group + Reset widths footer remain"
       (is (re-find #"Columns" h))
       (is (re-find #"Reset widths" h)))))
@@ -377,7 +405,11 @@
   (testing "the table's data-class flips hide-posted off !$showPosted alongside the column classes"
     (let [cls (tv/table-hide-class)]
       (is (re-find #"'hide-posted': !\$showPosted" cls))
-      (is (re-find #"'hide-date': !\$cols.date" cls) "per-column classes still present"))))
+      (is (re-find #"'hide-date': !\$cols.date" cls) "per-column classes still present")))
+  (testing "inst-logos flips off $instLogo UN-negated — the class means logo mode is ON,
+            unlike the hide-* entries where the class means hidden"
+    (is (re-find #"'inst-logos': \$instLogo" (tv/table-hide-class)))
+    (is (not (re-find #"'inst-logos': !\$instLogo" (tv/table-hide-class))))))
 
 ;; --- Two-level sort: header click JS + indicators --------------------------
 ;; sort-click-js is tested on its RAW string return (not rendered through `html`) — hiccup2
