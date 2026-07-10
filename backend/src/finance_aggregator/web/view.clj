@@ -210,13 +210,56 @@
   (options-with-counts txs (filter-txs txs (drop-facet vs :institutions)) tx-institution-id
                        #(or (get-in % [:transaction/account :account/institution :institution/name]) "Unknown")))
 
+(defn- category-parent-id
+  "A category's parent id, or nil when it has none OR the parent isn't itself present in
+   `present-ids` (a dangling ref — e.g. a parent removed in the same edit — is treated as
+   top-level). Mirrors islands/lib/categoryHierarchy's parentIdOf/orderCategoriesHierarchically,
+   so the funnel and the assignment combobox agree on what counts as top-level."
+  [present-ids c]
+  (let [pid (get-in c [:category/parent :db/id])]
+    (when (and pid (contains? present-ids pid)) pid)))
+
+(defn- category-sort-key
+  "Sort key for user-specified category order: :category/sort-order, nil last."
+  [c]
+  (or (:category/sort-order c) Long/MAX_VALUE))
+
 (defn category-funnel-options
-  "Real categories present this month, each with a faceted per-row touch-count (a part
-   row counts like any row). The Uncategorized chip owns categoryless rows, so it's
-   excluded here."
-  [txs vs]
-  (options-with-counts txs (filter-txs txs (drop-facet vs :category-dim)) tx-category-id
-                       #(get-in % [:transaction/category :category/name])))
+  "Category options in USER order, hierarchy-aware — mirrors islands/lib/categoryHierarchy's
+   model so the header funnel and the category-assignment combobox agree on ordering: top-level
+   categories by :category/sort-order (nil last), each immediately followed by its own children
+   by sort-order (single-level hierarchy; a dangling parent ref is treated as top-level).
+
+   A category is included when it's present this month (has at least one row this month,
+   independent of the OTHER active filters — the same 'full choice always shows' rule as
+   account/institution options). A parent with ZERO direct presence still shows, as a
+   zero-count GROUP LABEL, when at least one of its children is present — so the group stays
+   intact rather than orphaning the child. Each option carries :depth (0 top-level, 1 child)
+   and :parent? (true when it has at least one INCLUDED child).
+
+   Counts are the ordinary faceted semantics (drop-facet :category-dim), same as every other
+   funnel. The Uncategorized chip owns categoryless rows, so it's excluded here."
+  [txs categories vs]
+  (let [faceted-txs (filter-txs txs (drop-facet vs :category-dim))
+        counts      (frequencies (keep tx-category-id faceted-txs))
+        present     (set (keep tx-category-id txs))
+        present-ids (set (map :db/id categories))
+        parent-id   #(category-parent-id present-ids %)
+        children-of (reduce (fn [m c] (if-let [pid (parent-id c)]
+                                        (update m pid (fnil conj []) c) m))
+                            {} categories)
+        top-level   (sort-by category-sort-key (remove parent-id categories))
+        option      (fn [c depth parent?]
+                      {:id (:db/id c) :label (:category/name c)
+                       :count (get counts (:db/id c) 0) :depth depth :parent? parent?})]
+    (vec (mapcat
+          (fn [c]
+            (let [kids (sort-by category-sort-key (get children-of (:db/id c) []))
+                  included-kids (filter #(contains? present (:db/id %)) kids)]
+              (when (or (contains? present (:db/id c)) (seq included-kids))
+                (cons (option c 0 (boolean (seq included-kids)))
+                      (map #(option % 1 false) included-kids)))))
+          top-level))))
 
 ;; --- Split editor seed ------------------------------------------------------
 
@@ -485,5 +528,5 @@
              :counts              (facet-counts txs view-st)
              :account-options     (account-options txs view-st)
              :institution-options (institution-options txs view-st)
-             :category-options    (category-funnel-options txs view-st)}
+             :category-options    (category-funnel-options txs categories view-st)}
       rollup (assoc :rollup rollup))))

@@ -214,9 +214,17 @@
   transition: background-color var(--duration-fast) var(--ease-out);
 }
 
-.filter-dropdown-item:hover,
-.filter-dropdown-item.highlighted {
+.filter-dropdown-item:hover {
   background-color: var(--color-paper-deep);
+}
+
+/* Matches the category-assignment combobox's highlighted-row treatment (see
+   .category-dropdown-item.highlighted in category-dropdown.css) — one visual language for
+   "the row under the cursor/keyboard" across both surfaces. */
+.filter-dropdown-item.highlighted {
+  background-color: var(--color-accent-soft);
+  color: var(--color-primary-hover);
+  box-shadow: inset 2px 0 0 var(--color-primary);
 }
 
 .filter-dropdown-item.empty {
@@ -236,6 +244,19 @@
   padding: var(--spacing-xs) var(--spacing-sm);
   width: 100%;
   font-size: var(--text-sm);
+}
+
+/* Category-funnel hierarchy (web.view/category-funnel-options): a child is indented exactly
+   like the assignment combobox's .category-dropdown-item--child; a parent (a group label that
+   has at least one included child) is emphasized like .category-dropdown-item--parent. Kept as
+   modifiers on funnel items generally (not category-scoped) since only the category funnel
+   ever carries :depth/:parent? — the id/institution funnels are unaffected. */
+.filter-dropdown-item--child .filter-dropdown-checkbox-label {
+  padding-left: var(--spacing-lg);
+}
+
+.filter-dropdown-item--parent .filter-dropdown-label-text {
+  font-weight: 600;
 }
 
 .filter-dropdown-checkbox {

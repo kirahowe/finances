@@ -46,7 +46,8 @@
 (defn chevrons-right [] (icon [:polyline {:points "13 17 18 12 13 7"}] [:polyline {:points "6 17 11 12 6 7"}]))
 (defn undo-icon     [] (icon [:path {:d "M9 14 4 9l5-5"}] [:path {:d "M4 9h10.5a5.5 5.5 0 0 1 5.5 5.5 5.5 5.5 0 0 1-5.5 5.5H11"}]))
 (defn redo-icon     [] (icon [:path {:d "m15 14 5-5-5-5"}] [:path {:d "M20 9H9.5A5.5 5.5 0 0 0 4 14.5 5.5 5.5 0 0 0 9.5 20H13"}]))
-(defn split-icon    [] (icon [:polyline {:points "5 4 5 9 12 14 12 20"}] [:polyline {:points "19 4 19 9 12 14"}]))
+(defn split-icon    [] (icon [:path {:d "M16 3h5v5"}] [:path {:d "M8 3H3v5"}]
+                             [:path {:d "M12 22v-8.3a4 4 0 0 0-1.172-2.872L3 3"}] [:path {:d "m15 9 6-6"}]))
 
 ;; ---------------------------------------------------------------------------
 ;; Rows (every transaction — a split part included — is one editable row)
@@ -586,15 +587,19 @@
   "A header funnel's option list. Its own #funnel-list-<col> id is the morph target so a view
    change can re-patch the FACETED counts (each = rows matching the OTHER filters with that
    value). Each checkbox binds $filter.<col>; the in-funnel search filters client-side (label
-   JSON-encoded so a quote can't break the expression)."
+   JSON-encoded so a quote can't break the expression). :depth/:parent? (present on category
+   options only — see web.view/category-funnel-options) render as --child/--parent modifier
+   classes, so the category funnel reads as the same hierarchy as the assignment combobox."
   [col options]
   [:ul.filter-dropdown-list {:id (str "funnel-list-" col)}
    (if (empty? options)
      [:li.filter-dropdown-item.empty "No values"]
-     (for [{:keys [id label count]} options]
-       [:li.filter-dropdown-item
-        {"data-show" (str "$_funnelQuery === '' || "
-                          (r/signals (str/lower-case label)) ".includes($_funnelQuery.toLowerCase())")}
+     (for [{:keys [id label count depth parent?]} options]
+       [:li {:class (str "filter-dropdown-item"
+                         (when (= 1 depth) " filter-dropdown-item--child")
+                         (when parent? " filter-dropdown-item--parent"))
+             "data-show" (str "$_funnelQuery === '' || "
+                              (r/signals (str/lower-case label)) ".includes($_funnelQuery.toLowerCase())")}
         [:label.filter-dropdown-checkbox-label
          [:input.filter-dropdown-checkbox
           {:type "checkbox" :value (str id) "data-bind" (str "filter." col)

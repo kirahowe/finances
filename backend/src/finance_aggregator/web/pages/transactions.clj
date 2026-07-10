@@ -256,7 +256,11 @@
     (let [signals (r/read-signals req)
           month (signals-month signals)
           view-st (vs/signals->view-state signals)
-          model (table-and-facets db-conn month signals view-st {})
+          ;; :categories keeps the category funnel in user sort-order on every re-patch (see
+          ;; category-funnel-options); present also computes a whole-month rollup this response
+          ;; never reads — accepted at single-user scale rather than splitting present's shape.
+          model (table-and-facets db-conn month signals view-st
+                                  {:categories (db-categories/list-all db-conn)})
           close-model (close-model-for db-conn month view-st)
           result (:result model)]
       (sse-response req

@@ -182,7 +182,7 @@
         (is (= (view/facet-counts txs vs) (:counts m)))
         (is (= (view/account-options txs vs) (:account-options m)))
         (is (= (view/institution-options txs vs) (:institution-options m)))
-        (is (= (view/category-funnel-options txs vs) (:category-options m)))
+        (is (= (view/category-funnel-options txs nil vs) (:category-options m)))
         (is (not (contains? m :rollup)) "no :categories → no rollup")))
     (testing "a :linger set switches :result to the lingering view (carries :stale-ids)"
       (let [m (view/present txs {:scope :to-reconcile} {:linger #{2}})]
@@ -462,20 +462,62 @@
 (deftest institution-funnel-options
   (is (= [{:id 1000 :label "Test Bank" :count 6}] (view/institution-options txs {}))))
 
-(deftest category-funnel-option-counts
-  (testing "real categories with per-row counts (a part row counts like any row),
-            Uncategorized excluded, label-sorted"
-    (is (= [{:id 11 :label "Groceries" :count 2}
-            {:id 12 :label "Housing" :count 1}
-            {:id 10 :label "Salary" :count 1}]
-           (view/category-funnel-options txs {}))))
+;; category-funnel-options mirrors islands/lib/categoryHierarchy's ordering model, so the
+;; header funnel and the assignment combobox agree: top-level categories by
+;; :category/sort-order (nil last), each followed by its own children by sort-order.
+
+(defn- fcat
+  ([id nm] (fcat id nm nil nil))
+  ([id nm sort] (fcat id nm sort nil))
+  ([id nm sort parent]
+   (cond-> {:db/id id :category/name nm}
+     sort   (assoc :category/sort-order sort)
+     parent (assoc :category/parent {:db/id parent}))))
+
+(defn- fctx [id cat-id]
+  (tx (cond-> {:db/id id :transaction/amount -1}
+        cat-id (assoc :transaction/category {:db/id cat-id :category/name "x"}))))
+
+(deftest category-funnel-options-user-order
+  (is (= [{:id 11 :label "Groceries" :count 2 :depth 0 :parent? false}
+          {:id 12 :label "Housing" :count 1 :depth 0 :parent? false}
+          {:id 10 :label "Salary" :count 1 :depth 0 :parent? false}]
+         (view/category-funnel-options
+          txs [(fcat 10 "Salary" 3) (fcat 11 "Groceries" 1) (fcat 12 "Housing" 2)] {}))
+      "real categories, USER sort-order (not label-sort); a part row counts like any row (Groceries 2)")
   (testing "the full category list always shows; counts faceted (hide-transfers zeroes Housing)"
-    (is (= [{:id 11 :label "Groceries" :count 2}
-            {:id 12 :label "Housing" :count 0}
-            {:id 10 :label "Salary" :count 1}]
-           (view/category-funnel-options txs {:hide-transfers true}))))
+    (is (= [{:id 11 :label "Groceries" :count 2 :depth 0 :parent? false}
+            {:id 12 :label "Housing" :count 0 :depth 0 :parent? false}
+            {:id 10 :label "Salary" :count 1 :depth 0 :parent? false}]
+           (view/category-funnel-options
+            txs [(fcat 10 "Salary" 3) (fcat 11 "Groceries" 1) (fcat 12 "Housing" 2)]
+            {:hide-transfers true}))))
   (testing "a fully-uncategorized month yields no category options"
-    (is (= [] (view/category-funnel-options [t4] {})))))
+    (is (= [] (view/category-funnel-options [t4] [(fcat 10 "Salary" 1)] {})))))
+
+(deftest category-funnel-options-hierarchy-and-inclusion
+  (let [cats [(fcat 10 "Salary" 3)
+              (fcat 11 "Groceries")                       ; nil sort-order → sorts LAST
+              (fcat 12 "Housing" 2)                        ; parent, itself absent this month
+              (fcat 21 "Insurance" 1 12)                   ; child of Housing, present
+              (fcat 20 "Mortgage" 2 12)                    ; child of Housing, present
+              (fcat 30 "Fun" 1)                            ; parent, itself absent this month
+              (fcat 31 "Movies" 1 30)                      ; child of Fun, present
+              (fcat 32 "Games" 2 30)]                      ; child of Fun, absent — dropped
+        rows [(fctx 1 10) (fctx 2 11) (fctx 3 20) (fctx 4 21) (fctx 5 31)]
+        opts (view/category-funnel-options rows cats {})]
+    (is (= [{:id 30 :label "Fun" :count 0 :depth 0 :parent? true}
+            {:id 31 :label "Movies" :count 1 :depth 1 :parent? false}
+            {:id 12 :label "Housing" :count 0 :depth 0 :parent? true}
+            {:id 21 :label "Insurance" :count 1 :depth 1 :parent? false}
+            {:id 20 :label "Mortgage" :count 1 :depth 1 :parent? false}
+            {:id 10 :label "Salary" :count 1 :depth 0 :parent? false}
+            {:id 11 :label "Groceries" :count 1 :depth 0 :parent? false}]
+           opts)
+        "top-level by sort-order (Fun 1, Housing 2, Salary 3, Groceries nil-last); each
+         parent's children by their OWN sort-order (Insurance 1 before Mortgage 2); Fun and
+         Housing show as zero-count GROUP LABELS (absent themselves, but a child is present)
+         with :parent? true; Games (absent, no tx, no presence) is dropped entirely")))
 
 (deftest facet-counts-compose
   (testing "no filters → the faceted counts equal the full-month tallies"

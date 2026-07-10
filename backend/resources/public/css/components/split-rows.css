@@ -4,8 +4,10 @@
    future tinting) with no visual treatment of its own. */
 
 /* Payee-cell marker linking a part back to its family: a quiet icon button
-   that opens the split editor on the PARENT. Muted at rest, accent on hover —
-   the same weight as the matched transfer-status glyph. */
+   that opens the split editor on the PARENT. Accent-colored at rest (it needs
+   to actually read as "split" at a glance, not just be discoverable on
+   hover) but still small and unboxed, so it stays quiet chrome next to the
+   payee text rather than competing with it. */
 .split-marker {
   display: inline-flex;
   align-items: center;
@@ -16,19 +18,22 @@
   background: none;
   border: 1px solid transparent;
   border-radius: var(--radius-sm);
-  color: var(--color-text-muted);
+  color: var(--color-primary);
   cursor: pointer;
   transition: color var(--duration-fast) var(--ease-out),
     background-color var(--duration-fast) var(--ease-out);
 }
 
+/* One step up from the marker's old ad hoc 0.85em, onto the type scale's own
+   base step (--text-base) — noticeably more legible as the branching-path
+   glyph without growing past the row's own text size. */
 .split-marker svg {
-  width: 0.85em;
-  height: 0.85em;
+  width: var(--text-base);
+  height: var(--text-base);
 }
 
 .split-marker:hover {
-  color: var(--color-primary);
+  color: var(--color-primary-hover);
   background: var(--color-accent-soft);
 }
 
