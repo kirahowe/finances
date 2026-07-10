@@ -48,7 +48,38 @@
         (is (str/includes? body "data-on:click"))
         (is (str/includes? body "/setup/resync?connection-id="))
         (is (not (str/includes? body "action=\"/setup/resync\""))
-            "the old reload-causing form is gone")))))
+            "the old reload-causing form is gone"))
+      (testing "the Name cell is a plain HTML rename form posting to /setup/account/name"
+        (is (str/includes? body "action=\"/setup/account/name\""))
+        (is (str/includes? body "name=\"external-id\""))
+        (is (str/includes? body "value=\"acc-1\""))
+        (is (str/includes? body "name=\"display-name\""))
+        (is (str/includes? body "placeholder=\"Chequing\""))
+        (is (not (str/includes? body "account-original-name"))
+            "no override yet -> no muted provider-name caption"))
+      (testing "a Plaid account gets no per-row Sync button (that's Lunchflow-only)"
+        (is (not (str/includes? body "/setup/sync-account?external-id=")))))))
+
+(deftest page-renders-lunchflow-account-rename-override-and-sync-button
+  (let [conn setup/*test-conn*]
+    (d/transact! conn [{:user/id "test-user" :user/created-at (Date.)}])
+    (connections/ensure-connection! conn {:id "lunchflow" :provider :lunchflow})
+    (d/transact! conn [{:account/external-id "lunchflow-1" :account/external-name "Chequing"
+                        :account/display-name "My Everyday Account"
+                        :account/provider :lunchflow
+                        :account/connection [:connection/id "lunchflow"]
+                        :account/user [:user/id "test-user"]}])
+    (let [body (:body ((setup-page/page {:db-conn conn}) {}))]
+      (testing "the rename input is prefilled with the override; the provider's own
+                name shows muted alongside so the mapping stays visible"
+        (is (str/includes? body "value=\"My Everyday Account\""))
+        (is (str/includes? body "account-original-name"))
+        (is (str/includes? body "Chequing")))
+      (testing "a Lunchflow account gets a per-row Sync button (Datastar @post)"
+        (is (str/includes?
+             body
+             (str "/setup/sync-account?external-id="
+                  (java.net.URLEncoder/encode "lunchflow-1" "UTF-8"))))))))
 
 (deftest lunchflow-page-renders-selection
   (with-redefs [provider/available-accounts
@@ -71,6 +102,28 @@
                 {:params {}})]
       (is (= 303 (:status resp)))
       (is (nil? (connections/get-connection setup/*test-conn* "lunchflow"))))))
+
+(deftest set-account-name-sets-trims-and-clears
+  (let [conn setup/*test-conn*
+        display-name #(:account/display-name (d/pull (d/db conn) '[:account/display-name]
+                                                      [:account/external-id "acc-1"]))]
+    (d/transact! conn [{:account/external-id "acc-1" :account/external-name "Chequing"
+                        :account/provider :plaid}])
+    (testing "sets a trimmed override and redirects back to /setup"
+      (let [resp ((setup-page/set-account-name {:db-conn conn})
+                  {:params {"external-id" "acc-1" "display-name" "  My Chequing  "}})]
+        (is (= 303 (:status resp)))
+        (is (= "/setup" (get-in resp [:headers "Location"])))
+        (is (= "My Chequing" (display-name)))))
+    (testing "blank input retracts the override"
+      ((setup-page/set-account-name {:db-conn conn})
+       {:params {"external-id" "acc-1" "display-name" ""}})
+      (is (nil? (display-name))))))
+
+(deftest set-account-name-no-op-without-external-id
+  (let [resp ((setup-page/set-account-name {:db-conn setup/*test-conn*})
+              {:params {"display-name" "Whatever"}})]
+    (is (= 303 (:status resp)))))
 
 (deftest plaid-link-token-returns-json-token
   (with-redefs [plaid-client/create-link-token (fn [_ _] "link-tok-123")]

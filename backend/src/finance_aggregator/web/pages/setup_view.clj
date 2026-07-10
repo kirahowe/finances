@@ -8,6 +8,7 @@
    and one card per sync connection (status pill, humanized last-synced, a Resync
    action, and the accounts the connection owns)."
   (:require
+   [clojure.string :as str]
    [finance-aggregator.web.format :as fmt]
    [finance-aggregator.web.shell :as shell]))
 
@@ -29,17 +30,45 @@
    [:button.button {:id "plaid-link-btn"} "Link Bank Account"]
    [:a.button.button-secondary {:href "/setup/lunchflow"} "Connect Lunchflow"]])
 
+(defn- account-rename-form
+  "A one-row plain HTML form (full-page POST, no Datastar) renaming an account: a text
+   input prefilled with the current override (blank when none, placeholder = the
+   provider's own name) + Save. When an override is set, the provider's original name
+   shows muted alongside so the mapping stays visible."
+  [{:keys [external-id external-name display-name]}]
+  (list
+   [:form.account-rename-form {:method "post" :action "/setup/account/name"}
+    [:input {:type "hidden" :name "external-id" :value external-id}]
+    [:input.form-input {:type "text" :name "display-name" :value display-name
+                        :placeholder external-name :aria-label (str "Rename " external-name)}]
+    [:button.button.button-secondary.button-small {:type "submit"} "Save"]]
+   (when-not (str/blank? display-name)
+     [:span.account-original-name {:title (str "Provider name: " external-name)} external-name])))
+
+(defn- account-sync-button
+  "The per-row Lunchflow Sync action (Datastar @post, live-patches the card — same
+   pattern as the card-level Resync button). Only Lunchflow accounts get one: Plaid's
+   transaction sync is item-level (cursor-based), so there's no per-account scope for
+   it. Disabled while the shared Lunchflow connection is already mid-sync."
+  [{:keys [lunchflow? sync-url syncing?]}]
+  (when lunchflow?
+    [:button.button.button-secondary.button-small
+     (cond-> {"data-on:click" (str "@post('" sync-url "')")}
+       syncing? (assoc :disabled true))
+     "Sync"]))
+
 (defn- accounts-table [accounts]
   [:table.table
    [:thead
-    [:tr [:th "Name"] [:th "Type"] [:th "Mask"] [:th "Currency"]]]
+    [:tr [:th "Name"] [:th "Type"] [:th "Mask"] [:th "Currency"] [:th.actions-th {:aria-hidden "true"}]]]
    [:tbody
-    (for [{:keys [name type mask currency]} accounts]
+    (for [{:keys [type mask currency] :as account} accounts]
       [:tr
-       [:td name]
+       [:td.account-name-cell (account-rename-form account)]
        [:td type]
        [:td [:span.numeric mask]]
-       [:td currency]])]])
+       [:td currency]
+       [:td.account-sync-cell (account-sync-button account)]])]])
 
 (defn- connection-card
   "One sync connection: institution + provider badge, status pill, last-synced,

@@ -136,6 +136,36 @@
               (d/pull db '[{:account/user [:user/id]}] [:account/external-id "acct-001"])))
           "the account resolves to the created user"))))
 
+(deftest test-insert-does-not-clobber-account-display-name
+  (testing "a re-sync upsert map that omits :account/display-name leaves an existing
+            override untouched — sync only ever writes :account/external-name, and
+            Datalevin's transact! only asserts the keys a map supplies; it never
+            retracts an attribute the map is silent on. This is the guarantee the
+            display-name overlay depends on: the provider's re-import can update
+            :account/external-name every sync without ever touching the user's rename."
+    (db/insert! {:institutions []
+                 :accounts [{:account/external-id "acct-001"
+                             :account/external-name "Test Chequing"
+                             :account/currency "CAD"}]
+                 :transactions []}
+                @test-conn)
+    (d/transact! @test-conn [{:db/id [:account/external-id "acct-001"]
+                              :account/display-name "My Chequing"}])
+    ;; Re-insert the SAME account map (as a sync pass would), carrying a changed
+    ;; external-name but no :account/display-name key at all.
+    (db/insert! {:institutions []
+                 :accounts [{:account/external-id "acct-001"
+                             :account/external-name "Test Chequing (renamed upstream)"
+                             :account/currency "CAD"}]
+                 :transactions []}
+                @test-conn)
+    (let [acct (d/pull (d/db @test-conn) '[:account/external-name :account/display-name]
+                       [:account/external-id "acct-001"])]
+      (is (= "Test Chequing (renamed upstream)" (:account/external-name acct))
+          "the provider's re-imported name IS written")
+      (is (= "My Chequing" (:account/display-name acct))
+          "the user's override survives the re-sync untouched"))))
+
 (deftest test-insert-preserves-existing-user-created-at
   (testing "an existing user's :user/created-at is not clobbered on re-insert"
     (let [created (java.util.Date. 1000000000000)]

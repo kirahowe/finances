@@ -2,6 +2,7 @@
   "Account read queries shared by the JSON API and the server-rendered pages —
    one service layer, two presentations."
   (:require
+   [clojure.string :as str]
    [datalevin.core :as d]))
 
 (def account-pull-pattern
@@ -28,6 +29,19 @@
               [?a :account/invert-amount true]
               [?a :account/external-id ?ext]]
             (d/db db-conn))))
+
+(defn set-display-name!
+  "Set (or clear) an account's :account/display-name overlay — a user-authored rename
+   over the provider's canonical :account/external-name, which is never mutated. The
+   value is trimmed; a blank/whitespace-only/nil name retracts the override, falling
+   back to the provider name. Looked up by :account/external-id (what the setup rename
+   form posts); a no-op when the id doesn't resolve to an account."
+  [db-conn external-id display-name]
+  (when-let [eid (:db/id (d/pull (d/db db-conn) '[:db/id] [:account/external-id external-id]))]
+    (let [trimmed (some-> display-name str/trim not-empty)]
+      (d/transact! db-conn (if trimmed
+                             [{:db/id eid :account/display-name trimmed}]
+                             [[:db/retract eid :account/display-name]])))))
 
 (defn external-ids-for-provider
   "Set of :account/external-id for accounts of `provider` already imported - the

@@ -1,0 +1,38 @@
+/* Setup: the per-connection accounts table (web.pages.setup-view/accounts-table) —
+   the Name cell's inline rename form + the provider's original-name caption, and the
+   trailing per-row Lunchflow Sync action. Scoped under .connection-card so it never
+   touches the transactions workspace's own .table rules. */
+
+.connection-card .account-name-cell,
+.connection-card .account-sync-cell {
+  /* .table td defaults to a fixed-ellipsis single line (load-bearing for the dense
+     transactions grid) — this cell needs room for a form / button instead. */
+  overflow: visible;
+  white-space: normal;
+  max-width: none;
+}
+
+.account-rename-form {
+  display: flex;
+  align-items: center;
+  gap: var(--spacing-xs);
+}
+
+.account-rename-form .form-input {
+  width: auto;
+  flex: 1 1 12rem;
+  padding: var(--control-pad-y-sm) var(--spacing-sm);
+  font-size: var(--text-sm);
+}
+
+.account-original-name {
+  display: block;
+  margin-top: var(--spacing-xs);
+  color: var(--color-text-muted);
+  font-size: var(--text-2xs);
+}
+
+.connection-card .account-sync-cell {
+  white-space: nowrap;
+  text-align: right;
+}

@@ -64,6 +64,21 @@
 (deftest account-computed-deltas-skips-accountless-rows
   (is (= {} (ledger/account-computed-deltas [{:transaction/amount (bigdec "5.00")}]))))
 
+(deftest account-computed-deltas-prefers-display-name
+  (testing "the account's rename overlay (:account/display-name) wins over its
+            provider :account/external-name — the panel shows the same label the
+            rest of the app does, even though this is pure math with no reach up
+            to web.accounts/account-label"
+    (let [row (fn [amt] {:transaction/account {:db/id 1 :account/external-name "Chequing"
+                                                :account/display-name "My Everyday Account"}
+                          :transaction/amount (bigdec amt)})
+          deltas (ledger/account-computed-deltas [(row "10.00")])]
+      (is (= "My Everyday Account" (get-in deltas [1 :name])))))
+  (testing "a blank display-name doesn't win over a real external-name"
+    (let [row {:transaction/account {:db/id 2 :account/external-name "Visa" :account/display-name "  "}
+               :transaction/amount (bigdec "1.00")}]
+      (is (= "Visa" (get-in (ledger/account-computed-deltas [row]) [2 :name]))))))
+
 (deftest reconcile-classifies-each-account
   (let [computed (ledger/account-computed-deltas
                   [(tx 1 "Chequing" "70.00")

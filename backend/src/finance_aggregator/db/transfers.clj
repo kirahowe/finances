@@ -18,7 +18,7 @@
    chain (data.ledger/effective-posted-date) rather than the raw imported guess."
   '[:db/id :transaction/amount :transaction/posted-date :transaction/date
     :transaction/user-posted-date :transaction/payee
-    {:transaction/account [:db/id :account/external-name
+    {:transaction/account [:db/id :account/external-name :account/display-name
                            {:account/institution [:db/id :institution/name]}]}
     {:transaction/category [:db/id :category/name :category/type]}
     {:transaction/transfer-pair [:db/id]}

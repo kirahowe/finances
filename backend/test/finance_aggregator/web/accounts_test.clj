@@ -18,12 +18,30 @@
       "falls back to the internal type")
   (is (= "—" (accounts/display-type {})) "nothing → dash"))
 
+(deftest account-label
+  (testing "the rename overlay wins over the provider name"
+    (is (= "My Chequing"
+           (accounts/account-label {:account/external-name "Chequing" :account/display-name "My Chequing"}))))
+  (testing "falls back to the provider name when there's no override"
+    (is (= "Chequing" (accounts/account-label {:account/external-name "Chequing"}))))
+  (testing "a blank override doesn't win over a real provider name"
+    (is (= "Chequing" (accounts/account-label {:account/external-name "Chequing" :account/display-name "  "}))))
+  (testing "nothing at all -> dash"
+    (is (= "—" (accounts/account-label {})))))
+
 (deftest sort-accounts
-  (is (= ["A" "B" "C"]
-         (map :account/external-name
-              (accounts/sort-accounts [{:account/external-name "C"}
-                                       {:account/external-name "A"}
-                                       {:account/external-name "B"}])))))
+  (testing "sorts by external name when there's no override"
+    (is (= ["A" "B" "C"]
+           (map :account/external-name
+                (accounts/sort-accounts [{:account/external-name "C"}
+                                         {:account/external-name "A"}
+                                         {:account/external-name "B"}])))))
+  (testing "sorts by the SHOWN label, not the provider name — a rename can reorder"
+    (is (= ["Aardvark's Chequing" "Zebra"]
+           (map accounts/account-label
+                (accounts/sort-accounts
+                 [{:account/external-name "Zebra"}
+                  {:account/external-name "Chequing" :account/display-name "Aardvark's Chequing"}]))))))
 
 (deftest connection-status-presentation
   (is (= {:label "Synced" :tone "ok"} (accounts/connection-status :synced)))
@@ -35,9 +53,13 @@
 
 (def ^:private fixed-now (java.util.Date. 1700000000000))
 
-(defn- acct [name conn-id]
-  (cond-> {:account/external-name name :account/provider :plaid}
-    conn-id (assoc :account/connection {:connection/id conn-id})))
+(defn- acct
+  ([name conn-id] (acct name conn-id {}))
+  ([name conn-id {:keys [provider display-name external-id]}]
+   (cond-> {:account/external-name name :account/provider (or provider :plaid)
+            :account/external-id (or external-id name)}
+     conn-id (assoc :account/connection {:connection/id conn-id})
+     display-name (assoc :account/display-name display-name))))
 
 (deftest connection-groups-buckets-accounts-by-connection
   (let [connections [{:connection/id "plaid:b" :connection/provider :plaid
@@ -66,6 +88,31 @@
         (is (= "never" (:last-synced alpha)))))
     (testing "accounts with no/dangling connection ref are returned as unlinked"
       (is (= ["Legacy" "Orphan"] (map :name unlinked))))))
+
+(deftest connection-groups-account-rows-carry-rename-and-sync-fields
+  (let [connections [{:connection/id "lunchflow" :connection/provider :lunchflow
+                      :connection/institution-name "Lunchflow" :connection/status :syncing}
+                     {:connection/id "plaid:a" :connection/provider :plaid
+                      :connection/institution-name "Alpha" :connection/status :synced}]
+        accounts [(acct "Chequing" "lunchflow" {:provider :lunchflow :display-name "My Chequing"
+                                                :external-id "lunchflow-1"})
+                  (acct "Visa" "plaid:a" {:provider :plaid :external-id "acct-visa"})]
+        {:keys [groups]} (accounts/connection-groups connections accounts fixed-now)
+        lunchflow-row (first (:accounts (first (filter #(= "lunchflow" (:id %)) groups))))
+        plaid-row (first (:accounts (first (filter #(= "plaid:a" (:id %)) groups))))]
+    (testing "a Lunchflow account row carries the rename fields + a sync url, and
+              reflects its connection's :syncing status"
+      (is (= "My Chequing" (:name lunchflow-row)))
+      (is (= "My Chequing" (:display-name lunchflow-row)))
+      (is (= "Chequing" (:external-name lunchflow-row)))
+      (is (= "lunchflow-1" (:external-id lunchflow-row)))
+      (is (true? (:lunchflow? lunchflow-row)))
+      (is (= "/setup/sync-account?external-id=lunchflow-1" (:sync-url lunchflow-row)))
+      (is (true? (:syncing? lunchflow-row))))
+    (testing "a Plaid account row gets no sync affordance and no override yet"
+      (is (= "" (:display-name plaid-row)))
+      (is (false? (:lunchflow? plaid-row)))
+      (is (false? (:syncing? plaid-row)) "its OWN connection (plaid:a) isn't :syncing"))))
 
 (deftest present-bundles-stats-and-groups
   (let [model (accounts/present {:stats {:accounts 1} :connections [] :accounts [] :now fixed-now})]

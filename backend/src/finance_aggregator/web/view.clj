@@ -30,7 +30,8 @@
    sees already has a primary sort; sort-txs itself carries no default."
   (:require
    [clojure.string :as str]
-   [finance-aggregator.data.ledger :as ledger]))
+   [finance-aggregator.data.ledger :as ledger]
+   [finance-aggregator.web.accounts :as accounts]))
 
 ;; --- Filtering --------------------------------------------------------------
 
@@ -95,7 +96,7 @@
   ;; (localeCompare-on-lowercased-cell-text).
   {:date        #(if-let [d (:transaction/effective-posted-date %)] (.getTime ^java.util.Date d) 0)
    :amount      #(or (:transaction/amount %) 0)
-   :account     #(str/lower-case (or (get-in % [:transaction/account :account/external-name]) ""))
+   :account     #(str/lower-case (accounts/account-label (:transaction/account %)))
    :institution #(str/lower-case (or (get-in % [:transaction/account :account/institution :institution/name]) ""))
    :payee       #(str/lower-case (or (:transaction/payee %) ""))
    :category    #(str/lower-case (or (get-in % [:transaction/category :category/name]) ""))})
@@ -222,7 +223,7 @@
 
 (defn account-options [txs vs]
   (options-with-counts txs (filter-txs txs (drop-facet vs :accounts)) tx-account-id
-                       #(or (get-in % [:transaction/account :account/external-name]) "Unknown")))
+                       #(accounts/account-label (:transaction/account %))))
 
 (defn institution-options [txs vs]
   (options-with-counts txs (filter-txs txs (drop-facet vs :institutions)) tx-institution-id

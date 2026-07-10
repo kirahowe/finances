@@ -25,7 +25,7 @@
    (alongside its posted-date) so the partner's display can be effective-capable, the
    same as this row's own override."
   ['* {:transaction/category [:db/id :category/name :category/type]
-       :transaction/account [:db/id :account/external-name
+       :transaction/account [:db/id :account/external-name :account/display-name
                              {:account/institution [:db/id :institution/name]}]
        :transaction/split-parent [:db/id :transaction/amount :transaction/payee
                                   {:transaction/_split-parent [:db/id :transaction/amount]}]
@@ -35,7 +35,7 @@
        :transaction/transfer-pair [:db/id :transaction/amount :transaction/posted-date
                                    :transaction/user-posted-date
                                    {:transaction/category [:db/id :category/name :category/type]}
-                                   {:transaction/account [:db/id :account/external-name]}]}])
+                                   {:transaction/account [:db/id :account/external-name :account/display-name]}]}])
 
 (defn with-effective-description
   "Annotate a pulled transaction with :transaction/effective-description — the value

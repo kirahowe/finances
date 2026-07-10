@@ -94,6 +94,30 @@
                (resync/resync-connection! deps {:connection/id id})
                (patch-connections! sse-chan db-conn #{})))))))
 
+(defn sync-account
+  "Factory: POST /setup/sync-account?external-id=… — live-resync ONE Lunchflow account
+   over SSE: flip the shared \"lunchflow\" connection's card to Syncing… (clearing any
+   error), run a resync scoped to just that account (:extra-opts :only-account-ids —
+   lunchflow.provider restricts fetch-accounts/fetch-transactions to it and computes its
+   OWN `from` window, so a stale account's pull isn't clamped by a fresher sibling's
+   date), then patch the result. Reuses the same SSE helpers as resync-connection.
+   Unknown external-ids, or ids not already a connected Lunchflow account, close the
+   stream with no change. Lunchflow is the only provider with per-account resync — a
+   single static-key connection covering every imported account; Plaid's sync is
+   item-level (cursor-based), so no per-account scoping exists there."
+  [{:keys [db-conn] :as deps}]
+  (fn [req]
+    (let [ext-id (not-empty (get-in req [:params "external-id"]))]
+      (sse req
+           (fn [sse-chan]
+             (when (and ext-id
+                        (db-connections/get-connection db-conn "lunchflow")
+                        (contains? (db-accounts/external-ids-for-provider db-conn :lunchflow) ext-id))
+               (patch-connections! sse-chan db-conn #{"lunchflow"})
+               (resync/resync-connection! (assoc deps :extra-opts {:only-account-ids #{ext-id}})
+                                          {:connection/id "lunchflow"})
+               (patch-connections! sse-chan db-conn #{})))))))
+
 (defn page
   "Factory: GET /setup — render the stats strip + connection cards."
   [{:keys [db-conn]}]
@@ -174,4 +198,19 @@
                     #(resync/resync-connection!
                       (assoc deps :extra-opts {:selected-account-ids selected})
                       {:connection/id "lunchflow"}))))
+    (redirect-to-setup)))
+
+(defn set-account-name
+  "Factory: POST /setup/account/name — set or clear an account's display-name overlay
+   from the accounts-table rename form (plain HTML POST, wrap-params style like
+   lunchflow-connect): external-id names the account, display-name is the new label
+   (blank retracts the override, falling back to the provider name — db.accounts/
+   set-display-name! does the trim + blank-check). Full-page redirect, the established
+   setup pattern."
+  [{:keys [db-conn]}]
+  (fn [req]
+    (let [external-id (not-empty (get-in req [:params "external-id"]))
+          display-name (get-in req [:params "display-name"])]
+      (when external-id
+        (db-accounts/set-display-name! db-conn external-id display-name)))
     (redirect-to-setup)))

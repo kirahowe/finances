@@ -18,6 +18,7 @@
    ;; Accounts
    :account/external-id   {:db/unique :db.unique/identity}  ; from e.g. SimpleFIN
    :account/external-name {:db/valueType :db.type/string}
+   :account/display-name  {:db/valueType :db.type/string}  ; USER overlay: a custom rename over the provider's canonical external-name, which sync never touches
    :account/institution   {:db/valueType :db.type/ref}      ; ref to institution entity
    :account/currency      {:db/valueType :db.type/string}
    :account/type          {:db/valueType :db.type/keyword}  ; :chequing, :credit, :savings, etc.

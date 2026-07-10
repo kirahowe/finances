@@ -18,6 +18,7 @@
    [finance-aggregator.db.transactions :as db-transactions]
    [finance-aggregator.db.transfers :as db-transfers]
    [finance-aggregator.utils :as u]
+   [finance-aggregator.web.accounts :as web-accounts]
    [finance-aggregator.web.commands :as commands]
    [finance-aggregator.web.layout :as layout]
    [finance-aggregator.web.month :as month]
@@ -594,10 +595,12 @@
 ;; touch it and these don't touch the table.
 
 (defn- account-picker-options
-  "All accounts as {:eid :name}, name-sorted — the option list the add-transaction modal shows."
+  "All accounts as {:eid :name}, name-sorted — the option list the add-transaction modal
+   shows. :name is the account's shown label (web.accounts/account-label — a rename
+   overlay when set, else the provider's name)."
   [db-conn]
   (->> (db-accounts/list-with-institution db-conn)
-       (map (fn [a] {:eid (:db/id a) :name (:account/external-name a)}))
+       (map (fn [a] {:eid (:db/id a) :name (web-accounts/account-label a)}))
        (sort-by :name)))
 
 (defn- patch-close-panel!

@@ -21,10 +21,25 @@
     type          (name type)
     :else         "—"))
 
+(defn account-label
+  "THE display name for an account, everywhere: the user's rename overlay
+   (:account/display-name) when set, else the provider's canonical
+   :account/external-name, else a dash. The one home for this preference — every
+   user-facing account-name read in the web layer (the /setup accounts table, the
+   transactions table's account column/sort/funnel, transfer legs, the reconcile
+   panel) routes through this, so a rename shows up everywhere at once. The
+   provider's own name is never touched; this only decides which of the two to
+   show."
+  [{:account/keys [display-name external-name]}]
+  (or (when-not (str/blank? display-name) display-name)
+      (when-not (str/blank? external-name) external-name)
+      "—"))
+
 (defn sort-accounts
-  "Accounts ordered for display (by external name)."
+  "Accounts ordered for display (by their shown label — a rename overlay sorts by
+   its new name, not the provider's original)."
   [accounts]
-  (sort-by :account/external-name accounts))
+  (sort-by account-label accounts))
 
 (def ^:private status-presentation
   "Connection status keyword -> {:label :tone} for the setup status pill. :tone
@@ -43,13 +58,30 @@
   (or (get status-presentation status)
       {:label (if status (str/capitalize (name status)) "Unknown") :tone "muted"}))
 
+(defn- account-sync-url
+  "POST URL for a per-account Lunchflow resync — the external-id rides as a query
+   param, mirroring resync-url."
+  [external-id]
+  (str "/setup/sync-account?external-id=" (java.net.URLEncoder/encode (str external-id) "UTF-8")))
+
 (defn- account-display
-  "Flatten an account entity into the structural map the dumb setup view lays out."
-  [{:account/keys [external-name mask currency] :as acct}]
-  {:name     (or external-name "—")
-   :type     (display-type acct)
-   :mask     (if mask (str "••••" mask) "—")
-   :currency (or currency "—")})
+  "Flatten an account entity into the structural map the dumb setup view lays out:
+   the shown label + the two rename-form fields (the current override, blank when
+   none, and the provider's own name as the fallback/placeholder + muted caption),
+   the provider-native type/mask/currency, and — for a Lunchflow account only — the
+   per-row Sync button's target url and whether its connection is mid-sync
+   (`syncing?`, supplied by the caller, which owns the connection-level status)."
+  [syncing? {:account/keys [external-name display-name mask currency external-id provider] :as acct}]
+  {:name          (account-label acct)
+   :display-name  (or display-name "")
+   :external-name (or external-name "—")
+   :external-id   external-id
+   :type          (display-type acct)
+   :mask          (if mask (str "••••" mask) "—")
+   :currency      (or currency "—")
+   :lunchflow?    (= :lunchflow provider)
+   :sync-url      (account-sync-url external-id)
+   :syncing?      syncing?})
 
 (defn- connection-id-of [account]
   (get-in account [:account/connection :connection/id]))
@@ -75,7 +107,8 @@
    :last-synced      (fmt/relative-time last-success-at now)
    :error-message    error-message
    :resync-url       (resync-url id)
-   :accounts         (mapv account-display (sort-accounts (get accounts-by-conn id [])))})
+   :accounts         (mapv (partial account-display (= :syncing status))
+                           (sort-accounts (get accounts-by-conn id [])))})
 
 (defn connection-groups
   "Build the setup view's connection groups: one per connection (ordered by
@@ -90,7 +123,7 @@
                     (sort-by #(or (:connection/institution-name %)
                                   (name (:connection/provider %))))
                     (mapv #(connection-group now by-conn %)))
-     :unlinked (mapv account-display
+     :unlinked (mapv (partial account-display false)
                      (sort-accounts (remove #(contains? known (connection-id-of %)) accounts)))}))
 
 (defn present

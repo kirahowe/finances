@@ -6,6 +6,7 @@
    orchestration lives in the handler namespace, which :refers the fragments here."
   (:require
    [clojure.string :as str]
+   [finance-aggregator.web.accounts :as accounts]
    [finance-aggregator.web.format :as fmt]
    [finance-aggregator.web.month :as month]
    [finance-aggregator.web.render :as r]
@@ -54,10 +55,12 @@
 ;; ---------------------------------------------------------------------------
 
 (defn account-name
-  "A transaction's account display name (its external name), or \"—\". Works on any pulled
-   tx/leg carrying :transaction/account (a row, a transfer partner, a suggestion leg)."
+  "A transaction's account display name — its rename overlay when the user has set
+   one, else the provider's name (web.accounts/account-label, the one home for this
+   preference), or \"—\". Works on any pulled tx/leg carrying :transaction/account (a
+   row, a transfer partner, a suggestion leg)."
   [tx]
-  (or (get-in tx [:transaction/account :account/external-name]) "—"))
+  (accounts/account-label (:transaction/account tx)))
 
 (defn institution-name
   "A transaction's institution display name, or \"—\"."
@@ -148,7 +151,8 @@
   [tx]
   (let [open (str "@get('/transactions/" (:db/id tx) "/match')")]
     (if-let [pair (:transaction/transfer-pair tx)]
-      (let [partner (or (get-in pair [:transaction/account :account/external-name]) "another account")]
+      (let [label (accounts/account-label (:transaction/account pair))
+            partner (if (= "—" label) "another account" label)]
         [:button.transfer-status.transfer-status-matched
          {:type "button" :tabindex "-1" "data-on:click__stop" open
           :title (str "Matched transfer with " partner " (" (fmt/amount (:transaction/amount pair)) ")")

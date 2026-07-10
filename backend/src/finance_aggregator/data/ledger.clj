@@ -14,6 +14,8 @@
 
    No I/O here — the caller supplies pulled transactions and the reported deltas
    (read from the snapshot history); this namespace only sums and compares."
+  (:require
+   [clojure.string :as str])
   (:import
    [java.util Date]))
 
@@ -42,15 +44,19 @@
    transactions). Splits never change an account's total — a split parent is excluded
    from the list fns, and its part rows carry the same account and sum exactly to its
    amount — so summing the rows as given is already correct, with no split awareness
-   needed here. Returns
+   needed here. `:name` prefers the user's rename overlay (:account/display-name) over
+   the provider's :account/external-name — a data-layer-local `(or …)`, the same
+   preference web.accounts/account-label applies in the view layer; this namespace is
+   pure math and can't reach up to it. Returns
    {account-eid {:account-id eid :name str :computed-delta bigdec}}."
   [txs]
   (reduce
    (fn [acc tx]
-     (let [{eid :db/id nm :account/external-name} (:transaction/account tx)]
+     (let [{eid :db/id nm :account/external-name dn :account/display-name} (:transaction/account tx)
+           label (or (when-not (str/blank? dn) dn) nm "Unknown")]
        (cond-> acc
          eid (update eid (fn [row]
-                           (-> (or row {:account-id eid :name (or nm "Unknown") :computed-delta 0M})
+                           (-> (or row {:account-id eid :name label :computed-delta 0M})
                                (update :computed-delta + (amount tx))))))))
    {}
    txs))

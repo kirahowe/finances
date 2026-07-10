@@ -56,19 +56,37 @@ check('Resync is a Datastar @post to /setup/resync', /@post\('\/setup\/resync/.t
   String(resyncAttr));
 check('no reload-causing resync form', await page.locator('form.connection-resync').count() === 0);
 
-// 6. The connection's account table has 4 rows, names sorted in the first column.
+// 6. The connection's account table has 4 rows. The Name cell is an inline rename
+//    form (input placeholder = the provider name, prefilled blank — no overrides in
+//    the seed) rather than plain text, sorted by the shown label.
 const rowCount = await page.locator('.connection-card table.table tbody tr').count();
 check('account table has 4 rows', rowCount === 4, `rows=${rowCount}`);
-const names = await page.locator('.connection-card table.table tbody tr td:nth-child(1)').allInnerTexts();
+const nameInputs = page.locator('.connection-card table.table tbody tr td:nth-child(1) input[name="display-name"]');
+const placeholders = await nameInputs.evaluateAll((els) => els.map((el) => (el as HTMLInputElement).placeholder));
 check('account names sorted [Chequing, Mortgage, Savings, Visa]',
-  JSON.stringify(names.map((n) => n.trim())) === '["Chequing","Mortgage","Savings","Visa"]',
-  JSON.stringify(names));
+  JSON.stringify(placeholders) === '["Chequing","Mortgage","Savings","Visa"]',
+  JSON.stringify(placeholders));
+const nameValues = await nameInputs.evaluateAll((els) => els.map((el) => (el as HTMLInputElement).value));
+check('no display-name overrides yet — every rename input is blank',
+  nameValues.every((v) => v === ''), JSON.stringify(nameValues));
+check('no muted original-name caption shows without an override',
+  await page.locator('.connection-card .account-original-name').count() === 0);
+const renameAction = await page.locator('.connection-card form.account-rename-form').first()
+  .getAttribute('action');
+check('rename form posts to /setup/account/name', renameAction === '/setup/account/name', String(renameAction));
+const externalIdValue = await page.locator('.connection-card form.account-rename-form input[name="external-id"]')
+  .first().getAttribute('value');
+check('rename form carries the account external-id', !!externalIdValue, String(externalIdValue));
 
 // 7. Type column shows internal account types (no provider-type on seed data).
 const types = await page.locator('.connection-card table.table tbody tr td:nth-child(2)').allInnerTexts();
 check('type column = [chequing, loan, savings, credit]',
   JSON.stringify(types.map((t) => t.trim())) === '["chequing","loan","savings","credit"]',
   JSON.stringify(types));
+
+// 7b. No per-row Sync button — the seed's accounts are all Plaid (Sync is Lunchflow-only).
+check('no per-account Sync button for Plaid accounts',
+  await page.locator('.connection-card [data-on\\:click*="/setup/sync-account"]').count() === 0);
 
 // 8. Action bar: Sync all (Datastar @post, no form → no flash), Link Bank Account
 //    (island button), Connect Lunchflow.

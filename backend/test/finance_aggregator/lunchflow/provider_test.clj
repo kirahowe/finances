@@ -98,6 +98,67 @@
             "the unselected account stays out of the DB")
         (is (= 2 (count (tx-ids conn))) "no duplicate transactions on re-sync")))))
 
+(deftest lunchflow-per-account-from-is-independent-not-clamped-by-a-fresher-sibling
+  (let [conn setup/*test-conn*
+        deps {:db-conn conn :secrets {:lunchflow "fake-key"}}
+        captured (atom [])
+        txn (fn [id account-id amount date merchant]
+              {:id id :accountId account-id :amount amount :date date :merchant merchant :isPending false})]
+    (seed-user! conn)
+    (with-redefs [client/list-accounts (fn [_] [sample-account other-account])
+                  client/fetch-account-transactions
+                  (fn [_ account-id opts]
+                    (swap! captured conj {:account-id account-id :opts opts})
+                    (case account-id
+                      1 [(txn 201 1 -10.00 "2026-06-05" "Fresh")]
+                      2 [(txn 202 2 -20.00 "2026-05-01" "Stale")]
+                      []))]
+      (testing "connect both accounts (first sync, full backfill for each)"
+        (is (= :synced (sync/sync-provider!
+                        (assoc deps :selected-account-ids #{"lunchflow-1" "lunchflow-2"}) :lunchflow)))
+        (is (= #{"lunchflow-1" "lunchflow-2"} (account-ids conn))))
+      (testing "a plain re-sync computes `from` PER ACCOUNT — account 2's stale date is not
+                clamped forward by account 1's fresher one (the old global-max bug)"
+        (reset! captured [])
+        (is (= :synced (sync/sync-provider! deps :lunchflow)))
+        (let [by-account (into {} (map (juxt :account-id :opts)) @captured)]
+          (is (= "2026-06-05" (:from (get by-account 1))) "account 1's own latest date")
+          (is (= "2026-05-01" (:from (get by-account 2)))
+              "account 2's own (older) latest date — NOT account 1's 2026-06-05"))))))
+
+(deftest lunchflow-only-account-ids-scopes-fetch-accounts-and-never-adds
+  (let [conn setup/*test-conn*
+        deps {:db-conn conn :secrets {:lunchflow "fake-key"}}]
+    (seed-user! conn)
+    (with-redefs [client/list-accounts (fn [_] [sample-account other-account])
+                  client/fetch-account-transactions (fn [_ _ _] [])]
+      (is (= :synced (sync/sync-provider! (assoc deps :selected-account-ids #{"lunchflow-1"}) :lunchflow))
+          "only lunchflow-1 is connected")
+      (testing "naming an unconnected account yields nothing — a per-account sync can't add one"
+        (is (= #{} (:accounts (provider/fetch-accounts :lunchflow (assoc deps :only-account-ids #{"lunchflow-2"}))))))
+      (testing "naming the connected account scopes fetch-accounts to just it"
+        (let [result (provider/fetch-accounts :lunchflow (assoc deps :only-account-ids #{"lunchflow-1"}))]
+          (is (= #{"lunchflow-1"} (set (map :account/external-id (:accounts result)))))))
+      (testing "only-account-ids wins even when selected-account-ids also names an unconnected account"
+        (is (= #{} (:accounts (provider/fetch-accounts
+                               :lunchflow (assoc deps :selected-account-ids #{"lunchflow-2"}
+                                                 :only-account-ids #{"lunchflow-2"})))))))))
+
+(deftest lunchflow-only-account-ids-scopes-fetch-transactions
+  (let [conn setup/*test-conn*
+        deps {:db-conn conn :secrets {:lunchflow "fake-key"}}
+        captured (atom [])]
+    (seed-user! conn)
+    (with-redefs [client/list-accounts (fn [_] [sample-account other-account])
+                  client/fetch-account-transactions
+                  (fn [_ account-id _opts] (swap! captured conj account-id) [])]
+      (is (= :synced (sync/sync-provider!
+                      (assoc deps :selected-account-ids #{"lunchflow-1" "lunchflow-2"}) :lunchflow)))
+      (reset! captured [])
+      (provider/fetch-transactions :lunchflow (assoc deps :only-account-ids #{"lunchflow-2"}))
+      (is (= [2] @captured)
+          "only the scoped account's transactions are pulled, not every connected one"))))
+
 (deftest lunchflow-classify-sync-error-surfaces-as-fail
   (testing "Lunchflow has no error-code vocabulary -> :fail with the cause message"
     (is (= {:action :fail :error-code nil :error-message "boom"}

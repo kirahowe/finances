@@ -14,6 +14,7 @@
    Data layer: single-user (auth/user-id); the :statement/user ref gives the eventual
    multi-user migration one place to change."
   (:require
+   [clojure.string :as str]
    [datalevin.core :as d]
    [finance-aggregator.auth :as auth]
    [finance-aggregator.db.users :as db-users])
@@ -23,14 +24,20 @@
 (def ^:private pull-pattern
   [:db/id :statement/start-date :statement/start-balance
    :statement/end-date :statement/end-balance
-   {:statement/account [:db/id :account/external-name]}])
+   {:statement/account [:db/id :account/external-name :account/display-name]}])
 
 (defn- ->display
-  "A pulled statement as the display/reconcile map the panel + ledger consume."
+  "A pulled statement as the display/reconcile map the panel + ledger consume.
+   :account-name prefers the user's rename overlay (:account/display-name) over the
+   provider's :account/external-name — a data-layer-local `(or …)`, the same
+   preference web.accounts/account-label applies in the view layer, since this
+   namespace can't reach up to it."
   [s]
   {:id            (:db/id s)
    :account-eid   (get-in s [:statement/account :db/id])
-   :account-name  (get-in s [:statement/account :account/external-name])
+   :account-name  (let [dn (get-in s [:statement/account :account/display-name])]
+                    (or (when-not (str/blank? dn) dn)
+                        (get-in s [:statement/account :account/external-name])))
    :start-date    (:statement/start-date s)
    :start-balance (:statement/start-balance s)
    :end-date      (:statement/end-date s)
