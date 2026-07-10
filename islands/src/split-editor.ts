@@ -103,10 +103,11 @@ function mount(root: HTMLElement): void {
     btn.setAttribute('aria-haspopup', 'listbox');
     btn.setAttribute('aria-label', 'Split category');
     btn.textContent = labelFor(row.categoryId);
-    btn.addEventListener('click', () => {
+    const openPicker = (seed?: string | null): void => {
       window.__openCombobox?.({
         anchor: btn,
         placeholder: labelFor(row.categoryId),
+        seed,
         onCommit(categoryId, label) {
           row.categoryId = categoryId;
           btn.textContent = categoryId == null ? 'Select category…' : label;
@@ -114,6 +115,17 @@ function mount(root: HTMLElement): void {
           recompute();
         },
       });
+    };
+    btn.addEventListener('click', () => openPicker());
+    // Type-to-open: a lone printable character on the focused button opens the
+    // combobox pre-filtered by it, mirroring the grid's type-to-edit key filtering
+    // (gridNavigation.resolveIntent: a length-1 key, not Space — that's the button's
+    // own activation key — with no ctrl/meta/alt).
+    btn.addEventListener('keydown', (e) => {
+      if (e.key.length === 1 && e.key !== ' ' && !e.ctrlKey && !e.metaKey && !e.altKey) {
+        e.preventDefault();
+        openPicker(e.key);
+      }
     });
     return btn;
   };

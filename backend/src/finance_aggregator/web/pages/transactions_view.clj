@@ -1100,13 +1100,31 @@
    (focus-month-section opening closing opening-date closing-date expected tracked
                         boundary-status boundary-difference)])
 
-(defn- account-select
-  "A .form-select over all accounts, bound to `signal`, preselecting `selected` eid.
-   Shared by the statement-balance and add-transaction modals."
-  [id signal accounts selected]
-  (into [:select.form-select {:id id "data-bind" signal}]
-        (for [{:keys [eid name]} accounts]
-          [:option (cond-> {:value (str eid)} (= eid selected) (assoc :selected true)) name])))
+(defn- account-combo-options
+  "Hidden #account-options source list for the add-transaction modal's account combobox:
+   the island reads the flat {id, label} model from the data-id attrs + name text,
+   mirroring #category-options (the model travels in the DOM). Rendered inside the modal
+   fragment so it always reflects the accounts passed to this open. (Named to stay clear
+   of the presenter model's :account-options key, which page-body destructures — the same
+   shadowing hazard the cat-opts rename there guards against.)"
+  [accounts]
+  [:ul#account-options {:hidden true :aria-hidden "true"}
+   (for [{:keys [eid name]} accounts]
+     [:li {:data-id eid} name])])
+
+(defn- combo-trigger
+  "A combobox trigger button styled like a form input (.form-combo-trigger): shows the
+   current selection in a .form-combo-label span (updated optimistically by the island
+   on commit) plus a chevron. The data attributes declare what it opens — data-combo
+   \"account\" (flat #account-options mode) or \"category\" (the standard category
+   mode) — and data-combo-courier names the hidden courier input the island writes the
+   committed id into (whose data-on:change sets the Datastar signal)."
+  [{:keys [id combo courier label]}]
+  [:button.form-combo-trigger
+   {:type "button" :id id :aria-haspopup "listbox"
+    :data-combo combo :data-combo-courier courier}
+   [:span.form-combo-label label]
+   (chevron-down)])
 
 (defn- form-modal
   "The shared island-less form-modal frame → #modal-root: a backdrop (Esc + backdrop
@@ -1130,68 +1148,73 @@
     "data-on:click" (str "$txDir = '" dir "'")}
    label])
 
-(defn- category-select
-  "Optional category picker for the add-transaction modal, grouped by type, bound to
-   $txCategory (\"\" = uncategorized). A plain select keeps the modal island-free; the
-   table's richer combobox is a separate surface."
-  [categories]
-  (let [by-type (group-by :category/type categories)]
-    (into [:select.form-select {:id "tx-category" "data-bind" "txCategory"}
-           [:option {:value ""} "Uncategorized"]]
-          (for [[type label] [[:income "Income"] [:expense "Expenses"] [:transfer "Transfers"]]
-                :let [cats (sort-by :category/name (by-type type))]
-                :when (seq cats)]
-            (into [:optgroup {:label label}]
-                  (for [c cats] [:option {:value (str (:db/id c))} (:category/name c)]))))))
-
 (defn add-transaction-modal
   "GET /transactions/manual/new → patched into #modal-root: record a transaction the
    bank feed didn't import. `accounts` is [{:eid :name}] (shown prominently, so it's
-   always clear which account the entry lands on), `categories` the optional picker
-   options, `default-date` a yyyy-MM-dd seed. Amount is entered as a positive magnitude
-   with a money-out/-in toggle; the handler derives the canonical sign. No island —
-   plain data-bind fields the handler seeds via patch-signals; Save is disabled until
-   account + amount + date are set. Cancel/Esc/backdrop close client-side; a successful
-   save re-renders the table and closes the modal."
-  [accounts categories default-date selected]
-  (form-modal "add-tx-title"
-   [:h2#add-tx-title "Add transaction"]
-   [:p.form-modal-hint
-    "Record a transaction the bank feed didn't import — cash, a missed charge, anything you need in the ledger."]
-   [:div.form-fields
-    [:div.form-group
-     [:label.form-label {:for "tx-account"} "Account"]
-     (account-select "tx-account" "txAccount" accounts selected)]
-    [:div.form-modal-row
-     [:div.form-group
-      [:span.form-label "Direction"]
-      [:div.txn-direction {:role "radiogroup" :aria-label "Direction"}
-       (direction-btn "out" "Money out")
-       (direction-btn "in" "Money in")]]
-     [:div.form-group
-      [:label.form-label {:for "tx-amount"} "Amount"]
-      [:input.form-input {:id "tx-amount" :type "number" :step "0.01" :min "0" :inputmode "decimal"
-                          :placeholder "0.00" "data-bind" "txAmount"}]]]
-    [:div.form-modal-row
-     [:div.form-group
-      [:label.form-label {:for "tx-date"} "Date"]
-      [:input.form-input {:id "tx-date" :type "date" :value default-date "data-bind" "txDate"}]]
-     [:div.form-group
-      [:label.form-label {:for "tx-category"} "Category"]
-      (category-select categories)]]
-    [:div.form-group
-     [:label.form-label {:for "tx-payee"} "Payee"]
-     [:input.form-input {:id "tx-payee" :type "text" :placeholder "e.g. Corner Store" "data-bind" "txPayee"}]]
-    [:div.form-group
-     [:label.form-label {:for "tx-desc"} "Description"]
-     [:input.form-input {:id "tx-desc" :type "text" :placeholder "Optional" "data-bind" "txDesc"}]]]
-   [:div.form-actions
-    [:button.button.button-secondary {:type "button" "data-on:click" close-modal-js} "Cancel"]
-    [:button.button.button-primary
-     {:type "button"
-      "data-attr" "{disabled: !($txAccount && $txAmount && $txDate)}"
-      "data-on:click" "@post('/transactions/manual')"}
-     "Add transaction"]]))
+   always clear which account the entry lands on), `default-date` a yyyy-MM-dd seed,
+   `selected` the preselected account eid. Amount is entered as a positive magnitude
+   with a money-out/-in toggle; the handler derives the canonical sign.
+
+   Account and Category are combobox triggers (combo-trigger): the combobox island
+   opens the typeahead over them — accounts in flat-list mode over the modal's own
+   hidden #account-options list, categories in the standard category mode over the
+   page-level #category-options — and commits into the hidden courier inputs, whose
+   data-on:change sets $txAccount / $txCategory (the editable-category courier
+   pattern). The date input renders its seed as :value and pushes changes one-way via
+   data-on:change — data-bind's write-back would reset the native date input's
+   segment editing mid-keystroke (an incomplete value comes back as \"\" and wipes the
+   field). The handler still seeds every signal via patch-signals, so an untouched
+   prefill submits correctly; Save is disabled until account + amount + date are set.
+   Cancel/Esc/backdrop close client-side; a successful save re-renders the table and
+   closes the modal."
+  [accounts default-date selected]
+  (let [selected-name (some #(when (= (:eid %) selected) (:name %)) accounts)]
+    (form-modal "add-tx-title"
+     [:h2#add-tx-title "Add transaction"]
+     [:p.form-modal-hint
+      "Record a transaction the bank feed didn't import — cash, a missed charge, anything you need in the ledger."]
+     (account-combo-options accounts)
+     [:div.form-fields
+      [:div.form-group
+       [:label.form-label {:for "tx-account"} "Account"]
+       (combo-trigger {:id "tx-account" :combo "account" :courier "tx-account-courier"
+                       :label (or selected-name "Select account…")})
+       [:input {:type "hidden" :id "tx-account-courier"
+                "data-on:change" "$txAccount = el.value"}]]
+      [:div.form-modal-row
+       [:div.form-group
+        [:span.form-label "Direction"]
+        [:div.txn-direction {:role "radiogroup" :aria-label "Direction"}
+         (direction-btn "out" "Money out")
+         (direction-btn "in" "Money in")]]
+       [:div.form-group
+        [:label.form-label {:for "tx-amount"} "Amount"]
+        [:input.form-input {:id "tx-amount" :type "number" :step "0.01" :min "0" :inputmode "decimal"
+                            :placeholder "0.00" "data-bind" "txAmount"}]]]
+      [:div.form-modal-row
+       [:div.form-group
+        [:label.form-label {:for "tx-date"} "Date"]
+        [:input.form-input {:id "tx-date" :type "date" :value default-date
+                            "data-on:change" "$txDate = el.value"}]]
+       [:div.form-group
+        [:label.form-label {:for "tx-category"} "Category"]
+        (combo-trigger {:id "tx-category" :combo "category" :courier "tx-category-courier"
+                        :label "Uncategorized"})
+        [:input {:type "hidden" :id "tx-category-courier"
+                 "data-on:change" "$txCategory = el.value"}]]]
+      [:div.form-group
+       [:label.form-label {:for "tx-payee"} "Payee"]
+       [:input.form-input {:id "tx-payee" :type "text" :placeholder "e.g. Corner Store" "data-bind" "txPayee"}]]
+      [:div.form-group
+       [:label.form-label {:for "tx-desc"} "Description"]
+       [:input.form-input {:id "tx-desc" :type "text" :placeholder "Optional" "data-bind" "txDesc"}]]]
+     [:div.form-actions
+      [:button.button.button-secondary {:type "button" "data-on:click" close-modal-js} "Cancel"]
+      [:button.button.button-primary
+       {:type "button"
+        "data-attr" "{disabled: !($txAccount && $txAmount && $txDate)}"
+        "data-on:click" "@post('/transactions/manual')"}
+       "Add transaction"]])))
 
 (defn delete-transaction-modal
   "GET /transactions/:id/manual/delete → a small confirm dialog into #modal-root.
@@ -1216,10 +1239,14 @@
   "GET /transactions/statement-modal → #modal-root: add or edit a statement (an arbitrary-span
    reconciliation) for the focused account. Fields: start/end date + start/end balance — no
    account picker (the statement lands on whichever account you drilled into). `editing?` flips
-   the title/verb and shows Delete; the handler seeds the signals (blank to add, the statement's
-   values to edit) and $stId carries the edit target (blank = create). No island — plain
-   data-bind fields; Save is disabled until all four are set."
-  [editing?]
+   the title/verb and shows Delete; `prefill` carries the statement's yyyy-MM-dd `:start`/`:end`
+   strings (nil when adding), which the date inputs render as :value — the dates push one-way
+   via data-on:change because data-bind's write-back would reset the native date input's
+   segment editing mid-keystroke (an incomplete value comes back as \"\" and wipes the field).
+   The handler still seeds every signal (blank to add, the statement's values to edit) so an
+   untouched prefill submits correctly, and $stId carries the edit target (blank = create).
+   The balance fields stay plain data-bind; Save is disabled until all four are set."
+  [editing? {:keys [start end]}]
   (form-modal "statement-modal-title"
    [:h2#statement-modal-title (if editing? "Edit statement" "Add statement")]
    [:p.form-modal-hint
@@ -1228,7 +1255,8 @@
     [:div.form-modal-row
      [:div.form-group
       [:label.form-label {:for "st-start"} "From"]
-      [:input.form-input {:id "st-start" :type "date" "data-bind" "stStart"}]]
+      [:input.form-input {:id "st-start" :type "date" :value (or start "")
+                          "data-on:change" "$stStart = el.value"}]]
      [:div.form-group
       [:label.form-label {:for "st-start-bal"} "Start balance"]
       [:input.form-input {:id "st-start-bal" :type "number" :step "0.01" :inputmode "decimal"
@@ -1236,7 +1264,8 @@
     [:div.form-modal-row
      [:div.form-group
       [:label.form-label {:for "st-end"} "To"]
-      [:input.form-input {:id "st-end" :type "date" "data-bind" "stEnd"}]]
+      [:input.form-input {:id "st-end" :type "date" :value (or end "")
+                          "data-on:change" "$stEnd = el.value"}]]
      [:div.form-group
       [:label.form-label {:for "st-end-bal"} "End balance"]
       [:input.form-input {:id "st-end-bal" :type "number" :step "0.01" :inputmode "decimal"
@@ -1257,15 +1286,19 @@
    posted date — for providers (Lunchflow, CSV/manual) that never supply a genuine one
    independent of the transaction date, so a statement crossing a boundary can still be
    reconciled. `tx` is the family ROOT (a split part's editor opens on its parent — same
-   defensive resolve as the split/match editors), pulled with the derived fields. The
-   `type=date` input is bound to the $postedDateValue courier, which the handler seeds
-   server-side (patch-signals, not shown here) with the row's current EFFECTIVE date; a muted
+   defensive resolve as the split/match editors), pulled with the derived fields.
+   `effective-iso` is the row's current EFFECTIVE date as a yyyy-MM-dd string (computed by
+   the handler — views stay dumb), rendered as the date input's :value; the input pushes
+   changes one-way into the $postedDateValue courier via data-on:change — data-bind's
+   write-back would reset the native date input's segment editing mid-keystroke (an
+   incomplete value comes back as \"\" and wipes the field). The handler still seeds
+   $postedDateValue via patch-signals so an untouched prefill submits correctly. A muted
    line always shows the provider's own imported :transaction/posted-date ('—' when the
    provider never supplied one) so the user can see exactly what they're overriding. Save
    @put's the courier as-is; Clear (shown only when an override is already set) blanks it
    first — the handler parses a blank value as \"clear the override\", falling back through
    the effective chain. Cancel/Esc/backdrop close client-side."
-  [tx]
+  [tx effective-iso]
   (let [tx-id (:db/id tx)
         override? (some? (:transaction/user-posted-date tx))
         imported (:transaction/posted-date tx)]
@@ -1276,7 +1309,8 @@
      [:div.form-fields
       [:div.form-group
        [:label.form-label {:for "posted-date-input"} "Posted date"]
-       [:input.form-input {:id "posted-date-input" :type "date" "data-bind" "postedDateValue"}]]]
+       [:input.form-input {:id "posted-date-input" :type "date" :value (or effective-iso "")
+                           "data-on:change" "$postedDateValue = el.value"}]]]
      [:p.form-modal-hint "Imported: " (if imported (fmt/date-short imported) "—")]
      [:div.form-actions
       (if override?

@@ -26,6 +26,11 @@
 //       island's LOCAL row state + the row button label, with NO @put (the split isn't
 //       persisted until "Save split").
 //
+//   (c) Form-modal triggers (this file, bottom): a `.form-combo-trigger` button opens
+//       either the category mode or the generic FLAT-LIST mode (OpenOptions.options —
+//       a plain {id, label} list, e.g. the add-transaction modal's accounts) and
+//       commits through a hidden courier input named by its data attributes.
+//
 // Server seam (transactions.clj `editable-category`): each normal-row category cell is
 // a `.category-button.combo-cell` (the view) plus a hidden input bound to `$catValue`.
 
@@ -36,6 +41,7 @@ import {
   buildCategoryDropdownModel,
   type CategoryDropdownEntry,
 } from './lib/categoryHierarchy';
+import { filterFlatOptions, type FlatOption } from './lib/flatOptions';
 
 // A selectable combobox item. `code` is Zag's opaque value (a real value is required,
 // so "Uncategorized" — id null — uses a sentinel mapped back to null on commit).
@@ -100,6 +106,21 @@ const itemsForFilter = (filter: string): FilterResult => {
   return { items, highlight };
 };
 
+// Flat-list mode's filter: the caller-supplied {id, label} options filtered by
+// case-insensitive substring on label (lib/flatOptions — pure, vitest-covered), no
+// hierarchy and no Uncategorized sentinel. The filtered list contains only matches,
+// so the highlight is simply its first row — and only for a non-blank query,
+// mirroring the category mode's rule that an empty filter preselects nothing.
+const flatItemsForFilter = (options: FlatOption[], filter: string): FilterResult => {
+  const items: Item[] = filterFlatOptions(options, filter).map((o) => ({
+    code: String(o.id),
+    label: o.label,
+    depth: 0,
+    isParent: false,
+  }));
+  return { items, highlight: filter.trim() && items.length > 0 ? items[0].code : null };
+};
+
 const collectionOf = (items: Item[]) =>
   combobox.collection({
     items,
@@ -125,7 +146,13 @@ interface OpenOptions {
   /** Extra class on the floating root — the grid passes `is-in-cell` so its input goes flush
    *  (the active-cell ring is the outline); the split modal omits it (the input owns a border). */
   rootClass?: string;
-  /** Called with the chosen category id (null = Uncategorized) when a value is picked. */
+  /** Flat-list mode: when supplied, the item list is these options filtered by
+   *  case-insensitive substring on label — no hierarchy, no Uncategorized sentinel —
+   *  and onCommit receives the chosen option's id (never null). Omitted = the default
+   *  category mode, which is completely unchanged. */
+  options?: FlatOption[];
+  /** Called with the chosen id when a value is picked: a category id (null =
+   *  Uncategorized) in category mode, the option's id in flat-list mode. */
   onCommit: (categoryId: number | null, label: string) => void;
   /**
    * Called once the floating root is torn down. `action` is the keyboard/click
@@ -171,7 +198,10 @@ export function openCombobox(opts: OpenOptions): void {
   close();
   committedViaKeyboard = false;
   const { anchor, placeholder, seed, onCommit } = opts;
-  let { items, highlight } = itemsForFilter(seed ?? '');
+  // One filter fn per mode: the flat list when `options` is supplied, else the category model.
+  const filterItems = (filter: string): FilterResult =>
+    opts.options ? flatItemsForFilter(opts.options, filter) : itemsForFilter(filter);
+  let { items, highlight } = filterItems(seed ?? '');
 
   const root = document.createElement('div');
   // `.is-floating` (position:fixed + z-index, in category-dropdown.css) floats this
@@ -206,7 +236,7 @@ export function openCombobox(opts: OpenOptions): void {
       if (!d.open) close('cancel');
     },
     onInputValueChange({ inputValue }: any) {
-      ({ items, highlight } = itemsForFilter(inputValue ?? ''));
+      ({ items, highlight } = filterItems(inputValue ?? ''));
       applyHighlight();
     },
     onValueChange({ value }: any) {
@@ -393,6 +423,56 @@ document.addEventListener('click', (e) => {
 document.addEventListener('open-combobox', (e) => {
   const { cell, seed } = (e as CustomEvent).detail;
   openGrid(cell, seed);
+});
+
+// --- Form-modal trigger mode -------------------------------------------------
+// A `.form-combo-trigger` button (the add-transaction modal's Account / Category
+// fields) declares what it opens via data attributes:
+//   data-combo="account"  → flat-list mode over the modal's hidden #account-options
+//                           list (data-id attrs + name text — the DOM-carried model,
+//                           mirroring #category-options);
+//   data-combo="category" → the standard category mode;
+//   data-combo-courier    → the id of the hidden courier input the committed id is
+//                           written into (dispatching input+change so its
+//                           data-on:change sets the Datastar signal — the same
+//                           courier pattern as the grid's editable-category).
+// The trigger's `.form-combo-label` span is updated optimistically on commit, and
+// onClose refocuses the trigger: the floating input is a <body> child OUTSIDE the
+// modal's focus trap, so without the refocus a close would drop focus to <body>.
+
+function readAccountOptions(): FlatOption[] {
+  return [...document.querySelectorAll<HTMLLIElement>('#account-options li')].map((li) => ({
+    id: Number(li.dataset.id),
+    label: (li.textContent ?? '').trim(),
+  }));
+}
+
+function openFormTrigger(btn: HTMLElement): void {
+  const label = btn.querySelector<HTMLElement>('.form-combo-label');
+  openCombobox({
+    anchor: btn,
+    placeholder: label?.textContent?.trim() || '',
+    options: btn.dataset.combo === 'account' ? readAccountOptions() : undefined,
+    onCommit(id, itemLabel) {
+      if (label) label.textContent = itemLabel;
+      const courier = btn.dataset.comboCourier
+        ? (document.getElementById(btn.dataset.comboCourier) as HTMLInputElement | null)
+        : null;
+      if (courier) {
+        courier.value = id === null ? '' : String(id);
+        courier.dispatchEvent(new Event('input', { bubbles: true }));
+        courier.dispatchEvent(new Event('change', { bubbles: true }));
+      }
+    },
+    onClose() {
+      btn.focus();
+    },
+  });
+}
+
+document.addEventListener('click', (e) => {
+  const btn = (e.target as HTMLElement).closest<HTMLElement>('.form-combo-trigger');
+  if (btn) openFormTrigger(btn);
 });
 
 // Expose the reusable core on `window` (the established island-interop pattern, like

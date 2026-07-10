@@ -309,8 +309,8 @@
       "narrowed → the actual span shown, not the calendar month"))
 
 (deftest statement-modal-add-vs-edit
-  (let [add  (html (tv/statement-modal false))
-        edit (html (tv/statement-modal true))]
+  (let [add  (html (tv/statement-modal false {}))
+        edit (html (tv/statement-modal true {:start "2026-04-16" :end "2026-05-16"}))]
     (testing "add mode: titled Add, four fields, posts to /statement, no delete"
       (is (re-find #"Add statement" add))
       (is (re-find #"st-start" add))
@@ -319,16 +319,29 @@
       (is (not (re-find #"Delete" add))))
     (testing "edit mode: titled Edit and offers Delete"
       (is (re-find #"Edit statement" edit))
-      (is (re-find #"Delete" edit)))))
+      (is (re-find #"Delete" edit)))
+    (testing "date inputs are one-way: server-rendered :value + data-on:change, no data-bind
+              (data-bind's write-back resets a native date input's segment editing)"
+      (is (re-find #"value=\"2026-04-16\"" edit))
+      (is (re-find #"value=\"2026-05-16\"" edit))
+      (is (re-find #"\$stStart = el.value" add))
+      (is (re-find #"\$stEnd = el.value" add))
+      (is (not (re-find #"data-bind=\"stStart\"" add)))
+      (is (not (re-find #"data-bind=\"stEnd\"" add))))
+    (testing "the balance fields stay two-way bound (no segment editing to protect)"
+      (is (re-find #"data-bind=\"stStartBal\"" add))
+      (is (re-find #"data-bind=\"stEndBal\"" add)))))
 
 (deftest posted-date-modal-no-override-vs-override
   (let [no-override (html (tv/posted-date-modal
                             {:db/id 42 :transaction/payee "Superstore" :transaction/amount -85.00M
-                             :transaction/posted-date #inst "2025-01-05"}))
+                             :transaction/posted-date #inst "2025-01-05"}
+                            "2025-01-05"))
         override    (html (tv/posted-date-modal
                             {:db/id 42 :transaction/payee "Superstore" :transaction/amount -85.00M
                              :transaction/posted-date #inst "2025-01-05"
-                             :transaction/user-posted-date #inst "2025-01-08"}))]
+                             :transaction/user-posted-date #inst "2025-01-08"}
+                            "2025-01-08"))]
     (testing "title carries the payee; body puts to this row's posted-date route"
       (is (re-find #"Posted date .*Superstore" no-override))
       (is (re-find #"/transactions/42/posted-date" no-override)))
@@ -337,8 +350,39 @@
       (is (not (re-find #"Clear override" no-override))))
     (testing "an override exists: still shows the imported (provider) date, plus Clear"
       (is (re-find #"Imported: Jan 5" override))
-      (is (re-find #"Clear override" override))))
-  (testing "no imported posted-date at all reads as a dash"
-    (let [h (html (tv/posted-date-modal {:db/id 7 :transaction/amount 10.00M}))]
+      (is (re-find #"Clear override" override)))
+    (testing "the date input is one-way: the effective date as :value + data-on:change, no data-bind"
+      (is (re-find #"value=\"2025-01-08\"" override))
+      (is (re-find #"\$postedDateValue = el.value" override))
+      (is (not (re-find #"data-bind=\"postedDateValue\"" override)))))
+  (testing "no imported posted-date at all reads as a dash (and a nil prefill renders blank)"
+    (let [h (html (tv/posted-date-modal {:db/id 7 :transaction/amount 10.00M} nil))]
       (is (re-find #"Imported: —" h))
-      (is (re-find #"\(no payee\)" h)))))
+      (is (re-find #"\(no payee\)" h))
+      (is (re-find #"value=\"\"" h)))))
+
+(deftest add-transaction-modal-comboboxes-and-one-way-date
+  (let [accounts [{:eid 100 :name "Chequing"} {:eid 200 :name "Visa"}]
+        h (html (tv/add-transaction-modal accounts "2025-01-31" 100))]
+    (testing "account + category are combobox triggers, not selects"
+      (is (not (re-find #"<select" h)))
+      (is (re-find #"form-combo-trigger" h))
+      (is (re-find #"data-combo=\"account\"" h))
+      (is (re-find #"data-combo=\"category\"" h)))
+    (testing "the triggers show the current selection and name their courier inputs"
+      (is (re-find #"Chequing" h) "the preselected account's name leads")
+      (is (re-find #"Uncategorized" h) "no category yet")
+      (is (re-find #"data-combo-courier=\"tx-account-courier\"" h))
+      (is (re-find #"data-combo-courier=\"tx-category-courier\"" h)))
+    (testing "the hidden couriers set the Datastar signals on change"
+      (is (re-find #"\$txAccount = el.value" h))
+      (is (re-find #"\$txCategory = el.value" h)))
+    (testing "the account model travels in the DOM as a hidden #account-options list"
+      (is (re-find #"account-options" h))
+      (is (re-find #"data-id=\"200\"" h)))
+    (testing "the date input is one-way: :value prefill + data-on:change, no data-bind"
+      (is (re-find #"value=\"2025-01-31\"" h))
+      (is (re-find #"\$txDate = el.value" h))
+      (is (not (re-find #"data-bind=\"txDate\"" h))))
+    (testing "the Save gate expression still reads the three required signals"
+      (is (re-find #"\$txAccount &amp;&amp; \$txAmount &amp;&amp; \$txDate" h)))))

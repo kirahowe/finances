@@ -1,7 +1,7 @@
 /* Shared layout for the workspace's form modals (statement balance,
    add manual transaction). Builds on the base .modal-content + .form-*
-   classes; only the modal width, the intro hint, and the side-by-side
-   field row are feature-specific. */
+   classes; the modal width, the intro hint, the side-by-side field row,
+   and the combobox trigger field are the feature-specific parts. */
 
 .form-modal-content {
   max-width: 28rem;
@@ -42,4 +42,57 @@
   .form-modal-row {
     grid-template-columns: 1fr;
   }
+}
+
+/* A combobox trigger styled like a form input (the add-transaction modal's
+   Account / Category fields): the same box/border/focus treatment as
+   .form-input, text left-aligned, with a small chevron-down glyph. The
+   combobox island opens the floating typeahead anchored over it. */
+.form-combo-trigger {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--spacing-xs);
+  width: 100%;
+  padding: var(--control-pad-y) var(--spacing-sm);
+  border: 1px solid var(--color-border-strong);
+  border-radius: var(--border-radius);
+  font-size: var(--text-base);
+  line-height: 1.5;
+  font-family: inherit;
+  text-align: left;
+  color: var(--color-ink);
+  background-color: var(--color-surface);
+  cursor: pointer;
+  transition: border-color var(--duration-fast) var(--ease-out),
+    box-shadow var(--duration-fast) var(--ease-out);
+}
+
+.form-combo-trigger:focus-visible {
+  outline: none;
+  border-color: var(--color-primary);
+  box-shadow: var(--focus-ring);
+}
+
+.form-combo-label {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.form-combo-trigger svg {
+  width: var(--spacing-md);
+  height: var(--spacing-md);
+  flex-shrink: 0;
+  color: var(--color-medium-gray);
+}
+
+/* While the floating combobox input sits over the trigger, the input owns the
+   single border + focus ring — mute the trigger's own border so the two don't
+   stack into a doubled outline (the island toggles `.combobox-open`, same as
+   the category buttons). */
+.form-combo-trigger.combobox-open,
+.form-combo-trigger.combobox-open:hover {
+  border-color: transparent;
+  box-shadow: none;
 }

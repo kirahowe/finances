@@ -64,6 +64,19 @@ const pickCategory = async (row, name) => {
   await dropdown.waitFor({ state: 'hidden', timeout: 5000 }).catch(() => {});
 };
 
+// --- Type-to-open: focusing a row's category button and typing a printable character
+// opens the combobox pre-filtered by it (mirrors the grid's type-to-edit). Escape closes
+// only the combobox (Zag's dismissable layer swallows it) — the modal must stay open.
+await dataRows.nth(0).locator('.split-category-cell .category-button').focus();
+await page.keyboard.press('g');
+await dropdown.waitFor({ state: 'visible', timeout: 5000 });
+check('typing on a focused category button opens the combobox', (await dropdown.count()) === 1);
+check('the typed character seeds the filter',
+  (await page.locator('.category-dropdown-input').inputValue()) === 'g');
+await page.keyboard.press('Escape');
+await dropdown.waitFor({ state: 'hidden', timeout: 5000 }).catch(() => {});
+check('Escape closes only the combobox — the split modal stays open', (await modal.count()) === 1);
+
 // Part 1: allocate + categorize. The editor is unbalanced, so Save is gated.
 await dataRows.nth(0).locator('.split-amount-input').fill('80.00');
 await pickCategory(dataRows.nth(0), 'Groceries');

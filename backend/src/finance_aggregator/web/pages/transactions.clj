@@ -92,9 +92,15 @@
   (some-> v str not-empty parse-long))
 
 (defn- courier-date
-  "Parse a courier signal carrying a yyyy-MM-dd date (blank/nil → nil) to a Date."
+  "Parse a courier signal carrying a yyyy-MM-dd date (blank/nil → nil) to a Date.
+   An unparseable value — e.g. a fat-fingered 5-digit year, which a native date
+   input happily holds but ISO parsing rejects — surfaces as :bad-request (the
+   dismissable error bar, via handle-edit) instead of a raw 500."
   [v]
-  (some-> v str not-empty u/string->date))
+  (when-let [s (some-> v str not-empty)]
+    (try (u/string->date s)
+         (catch Exception _
+           (throw (ex-info "That date isn't valid." {:type :bad-request}))))))
 
 ;; --- Monthly-close panel model --------------------------------------------
 ;; Assembled in the handler (not web.view/present) because it needs the account filter + the
@@ -446,18 +452,20 @@
 (defn posted-date-editor
   "GET /transactions/:id/posted-date-editor — render the posted-date override modal into
    #modal-root. A split PART opens on its family ROOT (db-transactions/split-editor-root — the
-   override is family-uniform, same as the split editor's own defensive resolve). Seeds
-   $postedDateValue with the row's current EFFECTIVE date (yyyy-MM-dd) so the date input opens
-   prefilled; the modal itself renders the imported date alongside for reference. A pure read
-   (no command, no lingering change)."
+   override is family-uniform, same as the split editor's own defensive resolve). The row's
+   current EFFECTIVE date (yyyy-MM-dd) is computed here and travels BOTH ways: into
+   patch-signals (so a no-edit Save submits the prefill) and into the view as the date input's
+   server-rendered :value (the input is one-way — see posted-date-modal); the modal itself
+   renders the imported date alongside for reference. A pure read (no command, no lingering
+   change)."
   [{:keys [db-conn]}]
   (fn [req]
-    (let [tx (db-transactions/split-editor-root db-conn (path-id req :id))]
+    (let [tx (db-transactions/split-editor-root db-conn (path-id req :id))
+          effective (some-> (:transaction/effective-posted-date tx) u/date->local-date str)]
       (sse-response req
        (fn [sse]
-         (d*/patch-signals!
-          sse (r/signals {:postedDateValue (str (u/date->local-date (:transaction/effective-posted-date tx)))}))
-         (patch! sse (posted-date-modal tx)))))))
+         (d*/patch-signals! sse (r/signals {:postedDateValue (or effective "")}))
+         (patch! sse (posted-date-modal tx effective)))))))
 
 (defn set-posted-date
   "PUT /transactions/:id/posted-date — record + apply a :set-posted-date command (the new value
@@ -593,21 +601,26 @@
 (defn statement-editor
   "GET /transactions/statement-modal — render the add/edit statement modal into #modal-root and
    seed its signals. With ?id=<eid> it edits that statement (prefilled); without, it adds a new
-   one (blank). The statement lands on the focused account."
+   one (blank). The statement lands on the focused account. The yyyy-MM-dd date strings are
+   computed here and travel BOTH ways: into patch-signals (so a no-edit Save submits the
+   prefill) and into the view as the date inputs' server-rendered :value (the inputs are
+   one-way — see statement-modal)."
   [{:keys [db-conn]}]
   (fn [req]
-    (let [eid (some-> (get-in req [:query-params "id"]) parse-long)
-          st  (when eid (db-statements/by-id db-conn eid))]
+    (let [eid   (some-> (get-in req [:query-params "id"]) parse-long)
+          st    (when eid (db-statements/by-id db-conn eid))
+          start (when st (str (u/date->local-date (:start-date st))))
+          end   (when st (str (u/date->local-date (:end-date st))))]
       (sse-response req
        (fn [sse]
          (d*/patch-signals!
           sse (r/signals
                (if st
                  {:stId (str eid)
-                  :stStart (str (u/date->local-date (:start-date st))) :stStartBal (str (:start-balance st))
-                  :stEnd (str (u/date->local-date (:end-date st)))     :stEndBal (str (:end-balance st))}
+                  :stStart start :stStartBal (str (:start-balance st))
+                  :stEnd end     :stEndBal (str (:end-balance st))}
                  {:stId "" :stStart "" :stStartBal "" :stEnd "" :stEndBal ""})))
-         (patch! sse (tv/statement-modal (some? st))))))))
+         (patch! sse (tv/statement-modal (some? st) {:start start :end end})))))))
 
 (defn- patch-panel+close-modal!
   "Re-patch the reconciliation panel (+ its prefill signals) for `month`/`view-st` and empty
@@ -715,20 +728,22 @@
 
 (defn add-transaction-editor
   "GET /transactions/manual/new — render the add-transaction modal + seed its signals.
-   A pure read: lists all accounts + categories; the date defaults per default-txn-date."
+   A pure read: lists all accounts (the category combobox reads the page-level
+   #category-options model, so no category list rides the modal); the date defaults per
+   default-txn-date and renders as the input's :value (the date input is one-way — see
+   add-transaction-modal)."
   [{:keys [db-conn]}]
   (fn [req]
     (let [signals (r/read-signals req)
           month (signals-month signals)
           accounts (account-picker-options db-conn)
-          categories (db-categories/list-all db-conn)
           default-date (default-txn-date month)
           selected (:eid (first accounts))]
       (sse-response req
        (fn [sse]
          (d*/patch-signals! sse (r/signals {:txAccount (str selected) :txDir "out" :txAmount ""
                                             :txDate default-date :txPayee "" :txDesc "" :txCategory ""}))
-         (patch! sse (tv/add-transaction-modal accounts categories default-date selected)))))))
+         (patch! sse (tv/add-transaction-modal accounts default-date selected)))))))
 
 (defn create-manual
   "POST /transactions/manual — create a manual transaction from the modal signals. The
