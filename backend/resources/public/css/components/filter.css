@@ -465,3 +465,10 @@
   background: var(--color-hover-neutral);
   color: var(--color-ink);
 }
+
+/* "Clear all" — a quiet text-button appended after the chips, consistent with the funnel
+   popover's own .filter-dropdown-clear (button-secondary, text-sm, small pad). */
+.active-chips-clear {
+  font-size: var(--text-sm);
+  padding: var(--control-pad-y-sm) var(--control-pad-x-sm);
+}

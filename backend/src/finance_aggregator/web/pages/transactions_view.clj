@@ -291,11 +291,35 @@
 ;; Header (sortable columns; cycle asc → desc → cleared, server-side)
 ;; ---------------------------------------------------------------------------
 
+(defn- primary-match-expr
+  "JS expression: is `col` the current PRIMARY sort column? Date gets a special case — a
+   blank $sortCol is the canonical encoding of the default sort (date asc, see
+   web.view-state/default-sort), so the Date header must read as active (and its click must
+   cycle asc→desc, not demote) even before the user ever explicitly clicks it."
+  [col]
+  (if (= col "date")
+    (str "($sortCol === '" col "' || $sortCol === '')")
+    (str "$sortCol === '" col "'")))
+
 (defn sort-click-js [col]
   ;; Static literal (the column name is known at render time, never user/server data).
-  (str "$sortCol === '" col "'"
-       " ? ($sortDir === 'asc' ? ($sortDir = 'desc') : ($sortCol = '', $sortDir = 'asc'))"
-       " : ($sortCol = '" col "', $sortDir = 'asc');"
+  ;; Two-level sort, three states per column:
+  ;;   not the primary  → demote the current primary to secondary ($sortCol2/$sortDir2 — a
+  ;;                       blank current primary demotes as its RESOLVED default, date asc),
+  ;;                       clicked column becomes primary ascending.
+  ;;   primary, asc     → desc (secondary untouched); explicitly names $sortCol so a
+  ;;                       previously-blank/default primary survives becoming desc.
+  ;;   primary, desc    → clear: promote the secondary to primary, or blank (= default date
+  ;;                       asc) when there's none — collapsing a promotion that would land on
+  ;;                       date/asc to plain blank too, the canonical default encoding.
+  (str (primary-match-expr col)
+       " ? ($sortDir === 'asc'"
+       "     ? ($sortDir = 'desc', $sortCol = $sortCol || '" col "')"
+       "     : ($sortCol2 && !($sortCol2 === 'date' && $sortDir2 === 'asc')"
+       "         ? ($sortCol = $sortCol2, $sortDir = $sortDir2, $sortCol2 = '')"
+       "         : ($sortCol = '', $sortDir = 'asc', $sortCol2 = '')))"
+       " : ($sortCol2 = $sortCol || 'date', $sortDir2 = $sortCol ? $sortDir : 'asc',"
+       "    $sortCol = '" col "', $sortDir = 'asc');"
        " $page = 0; @get('/transactions/rows')"))
 
 ;; --- Header-filter funnels -------------------------------------------------
@@ -331,16 +355,22 @@
 
 (defn th [{:keys [id label sortable min protected]}]
   (let [meta {"data-col-id" id "data-min" (str min) "data-protected" (str (boolean protected))}
-        handle (when (vs/resizable-cols id) (resize-handle))]
+        handle (when (vs/resizable-cols id) (resize-handle))
+        primary (primary-match-expr id)]
     (if sortable
       [:th (merge meta {"class" "th-sortable"
                         "data-on:click" (sort-click-js id)
-                        "data-attr" (str "{'aria-sort': $sortCol === '" id "'"
+                        "data-attr" (str "{'aria-sort': " primary
                                          " ? ($sortDir === 'asc' ? 'ascending' : 'descending') : 'none'}")})
        [:span.th-content
         [:span.th-label label]
+        ;; Primary indicator (solid) — muted secondary indicator sits beside it when this
+        ;; column is the tie-break sort instead (aria-sort reflects the primary only; a
+        ;; screen reader has no ARIA vocabulary for "secondary sort column").
         [:span.th-sort-indicator
-         {"data-text" (str "$sortCol === '" id "' ? ($sortDir === 'asc' ? ' ↑' : ' ↓') : ''")}]
+         {"data-text" (str primary " ? ($sortDir === 'asc' ? ' ↑' : ' ↓') : ''")}]
+        [:span.th-sort-indicator.th-sort-indicator--secondary
+         {"data-text" (str "$sortCol2 === '" id "' ? ($sortDir2 === 'asc' ? ' ↑' : ' ↓') : ''")}]
         (when (funnel-cols id) (funnel-button id label))]
        handle]
       [:th meta [:span.th-content [:span.th-label label]] handle])))
@@ -372,20 +402,35 @@
   [label]
   [:span#period-navigator-display.month-navigator-display label])
 
+(defn- month-nav-js
+  "Full navigation to `target` (a literal yyyy-MM server string, render-time data like the
+   href it backs up) that PRESERVES the rest of the view state: read the URL as it stands (the
+   url island keeps it live, so this always sees the current filters/sort/etc.), swap in the
+   new month, and drop `page` (a different month's row set restarts at page 0). A real
+   navigation (not an SSE round-trip) — a month change reloads the whole month's data anyway,
+   and the page handler's `query->view-state` is the read side for every one of these params."
+  [target]
+  (str "evt.preventDefault();"
+       " const p = new URLSearchParams(location.search);"
+       " p.set('month', '" target "'); p.delete('page');"
+       " location.href = '/?' + p"))
+
 (defn month-navigator
-  ;; Full navigation (anchor). URL-state write-back (preserving filters across month
-  ;; change) isn't wired yet, so a month change resets the view (and clears any narrowing).
+  ;; The anchor href is the no-JS fallback; data-on:click preserves view state across the
+  ;; month change (month-nav-js) instead of the anchor's plain (state-dropping) navigation.
   ([m] (month-navigator m nil nil))
   ([m from to]
-   [:div.month-navigator
-    [:div.month-navigator-controls
-     [:a.button.button-secondary.month-nav-button
-      {:href (str "/?month=" (month/serialize (month/prev-month m))) :title "Previous month"
-       :aria-label "Previous month"} (chevron-left)]
-     (period-display (period-label m from to))
-     [:a.button.button-secondary.month-nav-button
-      {:href (str "/?month=" (month/serialize (month/next-month m))) :title "Next month"
-       :aria-label "Next month"} (chevron-right)]]]))
+   (let [prev (month/serialize (month/prev-month m))
+         next (month/serialize (month/next-month m))]
+     [:div.month-navigator
+      [:div.month-navigator-controls
+       [:a.button.button-secondary.month-nav-button
+        {:href (str "/?month=" prev) :title "Previous month" :aria-label "Previous month"
+         "data-on:click" (month-nav-js prev)} (chevron-left)]
+       (period-display (period-label m from to))
+       [:a.button.button-secondary.month-nav-button
+        {:href (str "/?month=" next) :title "Next month" :aria-label "Next month"
+         "data-on:click" (month-nav-js next)} (chevron-right)]]])))
 
 (defn search-box []
   [:div.table-search
@@ -576,10 +621,11 @@
   []
   [:div {:hidden true
          "data-on-signal-patch-filter"
-         "{include: /^(search|scope|hideTransfers|uncat|showPosted|sortCol|sortDir|page|pageSize)$|^(cols|filter)\\./}"
+         "{include: /^(search|scope|hideTransfers|uncat|showPosted|sortCol|sortDir|sortCol2|sortDir2|page|pageSize)$|^(cols|filter)\\./}"
          "data-on-signal-patch"
          (str "window.__syncUrl && window.__syncUrl({q: $search, scope: $scope,"
               " ht: $hideTransfers, uncat: $uncat, sortCol: $sortCol, sortDir: $sortDir,"
+              " sortCol2: $sortCol2, sortDir2: $sortDir2,"
               " page: $page, pageSize: $pageSize, cols: $cols, showPosted: $showPosted,"
               " fa: $filter.account, fi: $filter.institution, fc: $filter.category})")}])
 
@@ -637,18 +683,36 @@
                           " $page = 0; @get('/transactions/rows')")}
     "×"]])
 
+(def clear-all-js
+  ;; Reset every FILTER — search, the Uncategorized chip, Hide transfers, every header-funnel
+  ;; selection, and the statement lens ($reconFrom/$reconTo). Deliberately leaves sort alone
+  ;; (a view preference) and scope alone (the work-queue To-reconcile/All mode is a separate
+  ;; axis, not a filter — see view-state/clear-all-active?, which this button's visibility
+  ;; mirrors).
+  (str "$search = ''; $uncat = false; $hideTransfers = false;"
+       " $filter.account = []; $filter.institution = []; $filter.category = [];"
+       " $reconFrom = ''; $reconTo = '';"
+       " $page = 0; @get('/transactions/rows')"))
+
+(defn- active-filters-clear-all []
+  [:button.button.button-secondary.active-chips-clear
+   {:type "button" "data-on:click" clear-all-js} "Clear all"])
+
 (defn active-filters
-  "The active header-funnel selections as removable chips (#active-filters morph target,
-   re-patched on every view change). Labels come from the funnel options. Hidden when empty so
-   it takes no vertical space."
-  [account-opts institution-opts category-opts {:keys [accounts institutions categories]}]
+  "The active header-funnel selections as removable chips, plus a quiet 'Clear all' appended
+   when `clear-all?` (the handler-computed web.view-state/clear-all-active? — this view stays
+   dumb and never reads signals itself). #active-filters morph target, re-patched on every view
+   change. The chip row shows whenever there's a chip OR clear-all? is true — a search term or
+   the Uncategorized chip has no chip of its own, but still needs a way to clear it here."
+  [account-opts institution-opts category-opts {:keys [accounts institutions categories]} clear-all?]
   (let [label-of (fn [opts id] (some #(when (= (:id %) id) (:label %)) opts))
         chips (concat
                (for [id accounts]     (active-filter-chip "account"     "Account"     (label-of account-opts id) id))
                (for [id institutions] (active-filter-chip "institution" "Institution" (label-of institution-opts id) id))
-               (for [id categories]   (active-filter-chip "category"    "Category"    (label-of category-opts id) id)))]
-    (into [:div.active-chips (cond-> {:id "active-filters"} (empty? chips) (assoc :hidden true))]
-          chips)))
+               (for [id categories]   (active-filter-chip "category"    "Category"    (label-of category-opts id) id)))
+        show? (or (seq chips) clear-all?)]
+    (into [:div.active-chips (cond-> {:id "active-filters"} (not show?) (assoc :hidden true))]
+          (concat chips (when clear-all? [(active-filters-clear-all)])))))
 
 (defn funnel-popovers [account-opts institution-opts category-opts]
   (list (funnel-popover "account" account-opts)
@@ -1427,7 +1491,10 @@
      [:div.transactions-layout
       [:div.card
        (toolbar month counts undo)
-       (active-filters account-options institution-options cat-opts view-st)
+       (active-filters account-options institution-options cat-opts view-st
+                       ;; A fresh full-page load never has the statement lens active (its
+                       ;; $reconFrom/$reconTo couriers aren't URL-persisted — see url.ts).
+                       (vs/clear-all-active? view-st false))
        (if empty?
          (empty-state)
          (list (table (:rows result)) (pagination-bar result)))]

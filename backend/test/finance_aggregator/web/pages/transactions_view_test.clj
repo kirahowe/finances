@@ -300,6 +300,101 @@
       (is (re-find #"'hide-posted': !\$showPosted" cls))
       (is (re-find #"'hide-date': !\$cols.date" cls) "per-column classes still present"))))
 
+;; --- Two-level sort: header click JS + indicators --------------------------
+;; sort-click-js is tested on its RAW string return (not rendered through `html`) — hiccup2
+;; escapes attribute values (single quotes → &apos;, & → &amp;; see the &apos; assertions
+;; elsewhere in this file), which would make quote-heavy JS regexes fight the escaping instead
+;; of the logic. The `th`/`month-navigator`/`active-filters` tests below DO render, so their
+;; regexes are written against the escaped form.
+
+(deftest sort-click-js-non-primary-demotes-and-promotes
+  (let [js (tv/sort-click-js "payee")]
+    (testing "not the current primary → demote it to secondary, clicked column becomes primary asc"
+      (is (re-find #"\$sortCol2 = \$sortCol \|\| 'date'" js))
+      (is (re-find #"\$sortDir2 = \$sortCol \? \$sortDir : 'asc'" js))
+      (is (re-find #"\$sortCol = 'payee', \$sortDir = 'asc'" js)))
+    (testing "always resets to page 0 and re-fetches"
+      (is (re-find #"\$page = 0; @get\('/transactions/rows'\)" js)))))
+
+(deftest sort-click-js-current-primary-cycles-asc-desc-then-clears
+  (let [js (tv/sort-click-js "amount")]
+    (testing "asc → desc keeps the column explicit (survives a blank→explicit primary)"
+      (is (re-find #"\$sortDir = 'desc', \$sortCol = \$sortCol \|\| 'amount'" js)))
+    (testing "desc → promote the secondary, or blank when there's none"
+      (is (re-find #"\$sortCol = \$sortCol2, \$sortDir = \$sortDir2, \$sortCol2 = ''" js))
+      (is (re-find #"\$sortCol = '', \$sortDir = 'asc', \$sortCol2 = ''" js)))
+    (testing "the promotion guard: a secondary of date/asc collapses to blank instead"
+      (is (re-find #"!\(\$sortCol2 === 'date' && \$sortDir2 === 'asc'\)" js)))))
+
+(deftest sort-click-js-date-column-treats-blank-as-already-primary
+  (let [js (tv/sort-click-js "date")]
+    (is (re-find #"\(\$sortCol === 'date' \|\| \$sortCol === ''\)" js)
+        "so clicking Date while the default (blank) is active cycles straight to desc")))
+
+(deftest th-date-column-shows-ascending-by-default
+  (let [h (html (tv/th {:id "date" :label "Date" :sortable true :min 80 :protected true}))]
+    (testing "aria-sort and the primary indicator both treat a blank $sortCol as Date/asc"
+      (is (re-find #"aria-sort" h))
+      (is (re-find #"\(\$sortCol === &apos;date&apos; \|\| \$sortCol === &apos;&apos;\)" h)))))
+
+(deftest th-non-date-column-has-no-blank-special-case
+  (let [h (html (tv/th {:id "payee" :label "Payee" :sortable true :min 100}))]
+    (is (re-find #"\$sortCol === &apos;payee&apos;" h))
+    (is (not (re-find #"\$sortCol === &apos;&apos;" h))
+        "only the Date header gets the default-encoding special case")))
+
+(deftest th-renders-a-muted-secondary-indicator
+  (let [h (html (tv/th {:id "payee" :label "Payee" :sortable true :min 100}))]
+    (is (re-find #"th-sort-indicator--secondary" h))
+    (is (re-find #"\$sortCol2 === &apos;payee&apos;" h))))
+
+;; --- Month navigation preserves view state (Task B) -------------------------
+
+(deftest month-navigator-keeps-href-fallback-and-preserves-state-on-click
+  (let [h (html (tv/month-navigator {:year 2025 :month 6}))]
+    (testing "hrefs remain the no-JS fallback, unchanged month math"
+      (is (re-find #"href=\"/\?month=2025-05\"" h) "previous")
+      (is (re-find #"href=\"/\?month=2025-07\"" h) "next"))
+    (testing "data-on:click preserves the current query string and resets page, not a bare nav"
+      (is (re-find #"evt.preventDefault\(\)" h))
+      (is (re-find #"new URLSearchParams\(location.search\)" h))
+      (is (re-find #"p.set\(&apos;month&apos;, &apos;2025-05&apos;\)" h))
+      (is (re-find #"p.set\(&apos;month&apos;, &apos;2025-07&apos;\)" h))
+      (is (re-find #"p.delete\(&apos;page&apos;\)" h))
+      (is (re-find #"location.href = &apos;/\?&apos; \+ p" h)))))
+
+;; --- Active-filter chips + Clear all (Task C) --------------------------------
+
+(deftest active-filters-clear-all-visibility-and-reset
+  (testing "no filters, clear-all? false → the row is hidden and carries no clear-all button"
+    (let [h (html (tv/active-filters [] [] [] {:accounts #{} :institutions #{} :categories #{}} false))]
+      (is (re-find #"hidden" h))
+      (is (not (re-find #"active-chips-clear" h)))))
+  (testing "clear-all? true with ZERO chips (e.g. only a search term is active) still shows the
+            row — a search term has no chip of its own, but still needs a way to clear it"
+    (let [h (html (tv/active-filters [] [] [] {:accounts #{} :institutions #{} :categories #{}} true))]
+      (is (not (re-find #"hidden" h)))
+      (is (re-find #"active-chips-clear" h))
+      (is (re-find #"Clear all" h))))
+  (testing "clear-all resets every filter signal, not sort or scope"
+    (let [h (html (tv/active-filters [] [] [] {:accounts #{} :institutions #{} :categories #{}} true))]
+      (is (re-find #"\$search = &apos;&apos;" h))
+      (is (re-find #"\$uncat = false" h))
+      (is (re-find #"\$hideTransfers = false" h))
+      (is (re-find #"\$filter\.account = \[\]" h))
+      (is (re-find #"\$filter\.institution = \[\]" h))
+      (is (re-find #"\$filter\.category = \[\]" h))
+      (is (re-find #"\$reconFrom = &apos;&apos;" h))
+      (is (re-find #"\$reconTo = &apos;&apos;" h))
+      (is (not (re-find #"\$sortCol" h)) "sort untouched")
+      (is (not (re-find #"\$scope" h)) "scope (the work-queue mode) untouched")))
+  (testing "a chip alone (clear-all? false) still shows the row without the clear-all button"
+    (let [h (html (tv/active-filters [{:id 1 :label "Chequing"}] [] []
+                                     {:accounts #{1} :institutions #{} :categories #{}} false))]
+      (is (not (re-find #"hidden" h)))
+      (is (re-find #"active-chip\"" h))
+      (is (not (re-find #"active-chips-clear" h))))))
+
 (deftest period-label-month-vs-narrowed-span
   (is (= "January 2025" (tv/period-label {:year 2025 :month 1}))
       "no narrowing → the whole month, with the year for reference")

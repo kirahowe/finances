@@ -61,12 +61,30 @@
       (is (= :all (:scope v)) "scope defaults to :all")
       (is (false? (:hide-transfers v)))
       (is (false? (:uncat v)))
-      (is (nil? (:sort v)) "no sort param → no sort")
+      (is (= {:col :date :dir :asc} (:sort v))
+          "no sortCol param → the resolved default (date asc), not nil — a blank sortCol is
+           the canonical ENCODING of this default, resolved here so web.view always sees a
+           primary sort")
+      (is (nil? (:sort2 v)) "no secondary sort by default")
       (is (= 0 (:page v)) "page defaults to 0")
       (is (= 25 (:page-size v)) "page-size defaults to 25")
       (is (= #{} (:accounts v)))
       (is (= #{} (:institutions v)))
       (is (= #{} (:categories v))))))
+
+(deftest query->view-state-two-level-sort
+  (testing "sortCol2/sortDir2 parse into :sort2"
+    (let [v (vs/query->view-state {"sortCol" "amount" "sortDir" "desc"
+                                   "sortCol2" "payee" "sortDir2" "asc"})]
+      (is (= {:col :amount :dir :desc} (:sort v)))
+      (is (= {:col :payee :dir :asc} (:sort2 v)))))
+  (testing "blank sortCol2 → no secondary"
+    (is (nil? (:sort2 (vs/query->view-state {"sortCol" "amount"})))))
+  (testing "sortCol2 naming the SAME column as the (possibly default) primary collapses to nil"
+    (is (nil? (:sort2 (vs/query->view-state {"sortCol2" "date" "sortDir2" "asc"})))
+        "primary defaults to date — a 'date' secondary is redundant")
+    (is (nil? (:sort2 (vs/query->view-state {"sortCol" "amount" "sortCol2" "amount"})))
+        "an explicit primary matching its own secondary is redundant too")))
 
 (deftest query->view-state-full
   (testing "every param flows into the view-state with the right coercions"
@@ -98,13 +116,15 @@
   (testing "the live signals map (camelCase + nested :filter) → view-state"
     (let [v (vs/signals->view-state
              {:search "rent" :scope "to-reconcile" :hideTransfers true :uncat false
-              :sortCol "date" :sortDir "desc" :page 1 :pageSize 100
+              :sortCol "date" :sortDir "desc" :sortCol2 "payee" :sortDir2 "asc"
+              :page 1 :pageSize 100
               :filter {:account ["100"] :institution [] :category ["10" "11"]}})]
       (is (= "rent" (:search v)))
       (is (= :to-reconcile (:scope v)))
       (is (true? (:hide-transfers v)))
       (is (false? (:uncat v)))
       (is (= {:col :date :dir :desc} (:sort v)))
+      (is (= {:col :payee :dir :asc} (:sort2 v)))
       (is (= 1 (:page v)))
       (is (= 100 (:page-size v)))
       (is (= #{100} (:accounts v)))
@@ -129,11 +149,27 @@
       (is (= "2025-01" (:month s)))
       (is (= "" (:editValue s)) "courier signals start blank")
       (is (= "" (:catValue s)))))
-  (testing "no sort → empty sortCol and default 'asc' sortDir"
+  (testing "no sort param → the resolved default (date asc) signals back as BLANK sortCol/asc
+            dir — the canonical encoding, not the literal 'date'/'asc' strings"
     (let [s (vs/vs->signals (vs/query->view-state {}) "2025-02" {:page 0 :page-size 25})]
       (is (= "" (:sortCol s)))
       (is (= "asc" (:sortDir s)))
-      (is (= "all" (:scope s))))))
+      (is (= "" (:sortCol2 s)) "no secondary sort by default")
+      (is (= "asc" (:sortDir2 s)))
+      (is (= "all" (:scope s)))))
+  (testing "an explicit non-default sort signals back literally"
+    (let [s (vs/vs->signals (vs/query->view-state {"sortCol" "amount" "sortDir" "desc"
+                                                    "sortCol2" "payee" "sortDir2" "asc"})
+                            "2025-02" {:page 0 :page-size 25})]
+      (is (= "amount" (:sortCol s)))
+      (is (= "desc" (:sortDir s)))
+      (is (= "payee" (:sortCol2 s)))
+      (is (= "asc" (:sortDir2 s)))))
+  (testing "an EXPLICIT date-asc primary still signals back blank — same resolved sort as the
+            default, so the same canonical encoding applies either way"
+    (let [s (vs/vs->signals (vs/query->view-state {"sortCol" "date" "sortDir" "asc"})
+                            "2025-02" {:page 0 :page-size 25})]
+      (is (= "" (:sortCol s))))))
 
 ;; --- column visibility ------------------------------------------------------
 
@@ -182,7 +218,8 @@
 (deftest query-roundtrips-through-signals
   (testing "query → view-state → signals preserves the persistent view fields"
     (let [qp     {"q" "groceries" "scope" "to-reconcile" "ht" "1" "uncat" "1"
-                  "sortCol" "category" "sortDir" "desc" "page" "0" "pageSize" "100"
+                  "sortCol" "category" "sortDir" "desc" "sortCol2" "payee" "sortDir2" "asc"
+                  "page" "0" "pageSize" "100"
                   "fa" "100" "fi" "1000" "fc" "10"}
           v      (vs/query->view-state qp)
           result {:page 0 :page-size 100}
@@ -194,6 +231,8 @@
       (is (true? (:uncat s)))
       (is (= "category" (:sortCol s)))
       (is (= "desc" (:sortDir s)))
+      (is (= "payee" (:sortCol2 s)))
+      (is (= "asc" (:sortDir2 s)))
       (is (= 100 (:pageSize s)))
       (is (= ["100"] (get-in s [:filter :account])))
       (is (= ["1000"] (get-in s [:filter :institution])))
@@ -201,4 +240,29 @@
       ;; And feeding those signals back through signals->view-state lands on the same view-state.
       (is (= v (vs/signals->view-state
                 (assoc s :filter {:account ["100"] :institution ["1000"] :category ["10"]})))
-          "signals → view-state reproduces the original view-state"))))
+          "signals → view-state reproduces the original view-state")))
+  (testing "the DEFAULT sort round-trips too: blank params → blank signals → back to the same
+            resolved default view-state"
+    (let [v (vs/query->view-state {})
+          s (vs/client-signals v "2025-04" {:page 0 :page-size 25} {})]
+      (is (= "" (:sortCol s)))
+      (is (= "" (:sortCol2 s)))
+      (is (= v (vs/signals->view-state (assoc s :filter {:account [] :institution [] :category []})))))))
+
+;; --- Clear-all activation ----------------------------------------------------
+
+(deftest clear-all-active-predicate
+  (testing "no filter active, no lens → false"
+    (is (false? (vs/clear-all-active? (vs/query->view-state {}) false))))
+  (testing "each filter axis independently activates it"
+    (is (true? (vs/clear-all-active? (vs/query->view-state {"q" "coffee"}) false)) "search")
+    (is (true? (vs/clear-all-active? (vs/query->view-state {"uncat" "1"}) false)) "uncat chip")
+    (is (true? (vs/clear-all-active? (vs/query->view-state {"ht" "1"}) false)) "hide-transfers")
+    (is (true? (vs/clear-all-active? (vs/query->view-state {"fa" "1"}) false)) "account funnel")
+    (is (true? (vs/clear-all-active? (vs/query->view-state {"fi" "1"}) false)) "institution funnel")
+    (is (true? (vs/clear-all-active? (vs/query->view-state {"fc" "1"}) false)) "category funnel"))
+  (testing "the statement lens alone activates it, even with no other filter"
+    (is (true? (vs/clear-all-active? (vs/query->view-state {}) true))))
+  (testing "sort and scope are NOT filters — neither alone activates it"
+    (is (false? (vs/clear-all-active? (vs/query->view-state {"sortCol" "amount" "sortDir" "desc"}) false)))
+    (is (false? (vs/clear-all-active? (vs/query->view-state {"scope" "to-reconcile"}) false)))))

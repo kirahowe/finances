@@ -24,6 +24,7 @@ const page = await browser.newPage();
 const logs: string[] = [];
 page.on('pageerror', (e) => logs.push('PAGEERROR: ' + e.message));
 
+const n = (sel: string) => page.locator(sel).innerText().then((t) => Number(t.trim()));
 const panel = page.locator('#reconciliation');
 const rowBy = (name: string) =>
   page.locator('.reconcile-row', { has: page.locator('.reconcile-account', { hasText: name }) });
@@ -142,6 +143,10 @@ check('Visa\'s coverage headline already reads Reconciled (its boundary balances
 check('Visa focused card shows a Statements section', (await focus.locator('.reconcile-statements').count()) === 1);
 check('the statements list starts empty', (await focus.locator('.reconcile-statement').count()) === 0);
 check("Visa's month view shows the Jan 12 payment", /Payment Received/.test(await page.locator('#tx-tbody').innerText()));
+// Before any narrowing, the toolbar's total badge is Visa's whole-month facet count (the Jan 5
+// groceries + the Jan 12 payment) — the baseline the post-narrow check below contrasts with.
+check('before narrowing, the total badge is Visa\'s whole-month count (2)',
+  (await n('#count-total')) === 2, `total=${await n('#count-total')}`);
 
 const stModal = page.locator('#modal-root [role="dialog"]');
 await focus.locator('.reconcile-add-statement').click();
@@ -173,6 +178,11 @@ check('narrowing excludes txns outside the span (the Jan 12 payment)',
   !/Payment Received/.test(await page.locator('#tx-tbody').innerText()));
 check('the selected statement is highlighted',
   (await focus.locator('.reconcile-statement.is-selected').count()) === 1);
+// The toolbar badge counts respect the lens too: before narrowing they're Visa's whole-month
+// facet count (2: the Jan 5 groceries + the Jan 12 payment); once narrowed to the statement's
+// span, the badge must reflect the ONE visible slice row, not the whole month behind the lens.
+check('the total badge now matches the narrowed slice (1), not the whole month (2)',
+  (await n('#count-total')) === 1, `total=${await n('#count-total')}`);
 // The header dateline now reflects the actual narrowed span, not the calendar month.
 await page.waitForFunction(
   () => /–/.test(document.querySelector('#period-navigator-display')?.textContent || ''),

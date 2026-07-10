@@ -143,6 +143,51 @@
           dated (assoc t2 :transaction/effective-posted-date (:transaction/posted-date t2))]
       (is (= [1 2] (ids (view/sort-txs [no-date dated] {:col :date :dir :asc})))))))
 
+;; --- Two-level sort -----------------------------------------------------------
+;; sort-txs applies the SECONDARY sort first (establishing tie-break order), then the
+;; PRIMARY — since both passes are Clojure's stable sort-by, rows land ordered by primary,
+;; ties broken by secondary, and a tie in BOTH keeps its original relative order.
+
+(deftest two-level-sort-breaks-primary-ties
+  (testing "account asc primary, payee asc secondary"
+    ;; Chequing (t1 "Acme Payroll", t3 "Mortgage Payment") sorts before Visa (t2 "Superstore",
+    ;; t4 "Uncat thing", t5/t6 both "Costco" — the family shares its payee). Within Chequing,
+    ;; payee asc puts t1 before t3; within Visa, t5 and t6 tie on payee too, so THEIR relative
+    ;; order (t5 before t6, unbroken by any key) falls back to source order — proving the
+    ;; two-pass composition is genuinely stable, not just "sorted enough".
+    (is (= [1 3 5 6 2 4]
+           (ids (view/sort-txs txs {:col :account :dir :asc} {:col :payee :dir :asc}))))))
+
+(deftest two-level-sort-secondary-ignored-without-a-valid-primary
+  (is (= [1 2 3 4 5 6] (ids (view/sort-txs txs nil {:col :payee :dir :asc})))
+      "no primary → unchanged, even with a valid secondary given")
+  (is (= [1 2 3 4 5 6] (ids (view/sort-txs txs {:col :unknown :dir :asc} {:col :payee :dir :asc})))
+      "unknown primary column → unchanged"))
+
+(deftest two-level-sort-2-arity-unaffected
+  (is (= [3 5 2 6 4 1] (ids (view/sort-txs txs {:col :amount :dir :asc})))
+      "the 2-arity form (no sort2) behaves exactly as before"))
+
+(deftest view-uses-the-codec-resolved-default-sort
+  (testing "the codec's resolved default ({:col :date :dir :asc} — web.view-state/default-sort)
+            drives `view` end to end; sort-txs carries no default of its own (a nil/unknown
+            :sort leaves input order untouched — see `sorting` above), so this exercises a
+            pre-shuffled input (with :transaction/effective-posted-date populated, same as
+            date-sort-uses-effective-posted-date above) to prove the sort is actually applied,
+            not coincidental"
+    (let [with-effective (fn [t] (assoc t :transaction/effective-posted-date (:transaction/posted-date t)))
+          shuffled (map with-effective [t4 t1 t3 t5 t6 t2])
+          v (view/view shuffled {:scope :all :sort {:col :date :dir :asc} :page 0 :page-size 10})]
+      (is (= [1 2 4 3 5 6] (ids (:rows v))) "sorted to date order (t5/t6 tie keeps input order)"))))
+
+(deftest view-with-linger-applies-two-level-sort
+  (testing "view-with-linger threads sort2 through the same stable two-pass composition"
+    (let [v (view/view-with-linger txs {:scope :all
+                                        :sort {:col :account :dir :asc}
+                                        :sort2 {:col :payee :dir :asc}}
+                                   #{})]
+      (is (= [1 3 5 6 2 4] (ids (:rows v)))))))
+
 ;; --- Pagination -------------------------------------------------------------
 
 (deftest pagination

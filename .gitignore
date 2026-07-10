@@ -38,3 +38,6 @@ backend/resources/public/js/datastar.js
 # e2e (TypeScript browser checks — Playwright lives here now, run via Node native TS)
 e2e/node_modules/
 
+
+# Root-level npm/npx cache (created when vitest/npx runs from the repo root)
+/node_modules/

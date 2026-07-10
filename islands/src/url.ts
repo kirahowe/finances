@@ -16,6 +16,8 @@ interface ViewState {
   uncat?: boolean;
   sortCol?: string;
   sortDir?: string;
+  sortCol2?: string;
+  sortDir2?: string;
   page?: number;
   pageSize?: number;
   cols?: Record<string, boolean>;
@@ -36,9 +38,14 @@ const csv = (a: unknown[] | undefined): string => (a ?? []).filter(Boolean).join
   set('scope', s.scope === 'to-reconcile' ? 'to-reconcile' : ''); // 'all' is the default → omit
   set('ht', s.ht ? '1' : '');
   set('uncat', s.uncat ? '1' : '');
-  // Sort: only meaningful with a column; dir defaults to asc.
+  // Sort: only meaningful with a column; dir defaults to asc. A blank sortCol is the
+  // canonical encoding of the default sort (date asc — see web.view-state/default-sort), so
+  // it stays omitted here just like an unsorted table used to.
   set('sortCol', s.sortCol ?? '');
   set('sortDir', s.sortCol ? (s.sortDir ?? 'asc') : '');
+  // Secondary (tie-break) sort — same convention, one level down.
+  set('sortCol2', s.sortCol2 ?? '');
+  set('sortDir2', s.sortCol2 ? (s.sortDir2 ?? 'asc') : '');
   // Page is 0-indexed in the signal; omit page 0 and the default size for a clean URL.
   set('page', s.page && s.page > 0 ? String(s.page) : '');
   set('pageSize', s.pageSize && s.pageSize !== 25 ? String(s.pageSize) : '');

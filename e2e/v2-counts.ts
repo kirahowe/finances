@@ -53,6 +53,35 @@ check('× removes the filter (rows grow, chip clears)',
   (await rows()) > before && (await page.locator('#active-filters .active-chip').count()) === 0,
   `rows ${before}→${await rows()}`);
 
+// "Clear all": search/uncat/hide-transfers have no chip of their own, but the chip row must
+// still appear (with a Clear-all button) so there's a way to reset them.
+await page.goto(`${BASE}/?month=2025-01&uncat=1&ht=1`, { waitUntil: 'networkidle' });
+await page.waitForTimeout(300);
+check('Clear all appears for uncat/hide-transfers even with zero removable chips',
+  (await page.locator('.active-chips-clear').count()) === 1);
+check('the chip row is visible (not hidden) purely for Clear all',
+  await page.locator('#active-filters').isVisible());
+check('scope is untouched by all this — the toggle is a work-queue mode, not a filter',
+  (await page.locator('.scope-toggle-btn.is-active').innerText()).includes('All'));
+await page.locator('.active-chips-clear').click();
+await page.waitForFunction(() => document.querySelectorAll('#tx-tbody tr').length === 10, null, { timeout: 5000 }).catch(() => {});
+check('Clear all resets uncat + hide-transfers (back to all 10 rows)',
+  (await rows()) === 10, `rows=${await rows()}`);
+check('Clear all removes itself once there is nothing left to clear',
+  (await page.locator('.active-chips-clear').count()) === 0);
+check('the chip row hides again once empty', await page.locator('#active-filters').isHidden());
+
+// Clear all also resets a real chip (an account funnel selection) alongside the chip-less filters.
+await page.goto(`${BASE}/?month=2025-01&fa=2&uncat=1`, { waitUntil: 'networkidle' });
+await page.waitForTimeout(300);
+check('a chip + Clear all both show together', (await page.locator('#active-filters .active-chip').count()) === 1 &&
+  (await page.locator('.active-chips-clear').count()) === 1);
+await page.locator('.active-chips-clear').click();
+await page.waitForFunction(() => document.querySelectorAll('#tx-tbody tr').length === 10, null, { timeout: 5000 }).catch(() => {});
+check('Clear all resets the account chip too (back to all 10 rows, chip gone)',
+  (await rows()) === 10 && (await page.locator('#active-filters .active-chip').count()) === 0,
+  `rows=${await rows()}`);
+
 await browser.close();
 
 let pass = 0;

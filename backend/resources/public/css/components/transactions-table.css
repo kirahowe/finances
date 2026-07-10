@@ -227,6 +227,13 @@
   color: var(--color-primary);
 }
 
+/* The secondary (tie-break) sort's indicator — same glyph, dialled down so it reads as a
+   supporting detail beside the primary's solid arrow. */
+.th-sort-indicator--secondary {
+  color: var(--color-text-muted);
+  opacity: 0.55;
+}
+
 /* Column visibility: the toolbar picker toggles a hide-<id> class on the table. */
 .table.hide-date th:nth-child(1), .table.hide-date td:nth-child(1),
 .table.hide-account th:nth-child(2), .table.hide-account td:nth-child(2),

@@ -70,13 +70,16 @@
 
 (defn- patch-view!
   "Re-patch every filter-dependent fragment from a presented view-model: the faceted count
-   badges, the three funnel option lists (faceted counts), and the active-filter chips."
-  [sse {:keys [counts account-options institution-options category-options]} view-st]
+   badges, the three funnel option lists (faceted counts), and the active-filter chips.
+   `lens?` (whether the statement lens is narrowing the table — the caller alone sees the live
+   $reconFrom/$reconTo signals it rides on) feeds the chip row's Clear-all visibility."
+  [sse {:keys [counts account-options institution-options category-options]} view-st lens?]
   (patch! sse (counts-fragment counts))
   (patch! sse (funnel-list "account" account-options))
   (patch! sse (funnel-list "institution" institution-options))
   (patch! sse (funnel-list "category" category-options))
-  (patch! sse (active-filters account-options institution-options category-options view-st)))
+  (patch! sse (active-filters account-options institution-options category-options view-st
+                             (vs/clear-all-active? view-st lens?))))
 
 ;; --- Courier / money parsers (shared by the reconcile + modal handlers) ----
 
@@ -199,12 +202,14 @@
     (when (and from to acct) {:account acct :from from :to to})))
 
 (defn- table-and-facets
-  "The presented view-model for a view change. The faceted funnels / counts / chips / rollup are
+  "The presented view-model for a view change. The FUNNEL OPTION LISTS and the ROLLUP are
    always computed over the whole MONTH — so the account funnel never collapses to the focused
-   account (which would clear the $filter.account binding that drives the focus) and the month's
-   figures stay stable. The reconcile narrowing is a LENS, not a real filter: only the table
-   :result is the narrowed span slice when a reconcile range is active (a single account +
-   $reconFrom/$reconTo), which may cross a calendar-month boundary."
+   account (which would clear the $filter.account binding that drives the focus) and those
+   figures stay stable. The reconcile narrowing is a LENS, not a real filter: :result AND
+   :counts (the toolbar badges — scope/uncategorized/hide-transfers) are swapped for the
+   narrowed span slice when a reconcile range is active (a single account + $reconFrom/
+   $reconTo, which may cross a calendar-month boundary), so the badges the user sees always
+   describe the rows on screen, not the whole month behind the lens."
   [db-conn month signals view-st present-opts]
   (let [month-txs (db-transactions/list-for-month db-conn month)
         model (view/present month-txs view-st present-opts)]
@@ -213,8 +218,9 @@
       ;; exclusive lower boundary back a day so from's own activity is in the slice (the header
       ;; dateline keeps the unshifted printed `from`). Mirrors the reconcile sum in statement-models.
       (let [slice (db-transactions/list-for-account-range
-                   db-conn account (ledger/statement-opening-boundary from) to)]
-        (assoc model :result (:result (view/present slice view-st (select-keys present-opts [:linger])))))
+                   db-conn account (ledger/statement-opening-boundary from) to)
+            slice-model (view/present slice view-st (select-keys present-opts [:linger]))]
+        (assoc model :result (:result slice-model) :counts (:counts slice-model)))
       model)))
 
 
@@ -276,7 +282,7 @@
          ;; when narrowed to one, else fall back to the whole month.
          (let [{:keys [from to]} (reconcile-range signals view-st)]
            (patch! sse (tv/period-display (tv/period-label (month/parse month) from to))))
-         (patch-view! sse model view-st)
+         (patch-view! sse model view-st (some? (reconcile-range signals view-st)))
          (patch! sse (tv/close-panel close-model))
          (d*/patch-signals! sse (r/signals (merge {:page (:page result)}
                                                   (recon-signals close-model)))))))))
@@ -304,7 +310,7 @@
        (patch! sse (sr-status (review-status-message (:counts model))))
        (patch! sse (tbody (:rows result) stale-ids))
        (patch! sse (pagination-bar result))
-       (patch-view! sse model view-st)
+       (patch-view! sse model view-st (some? (reconcile-range signals view-st)))
        (patch! sse (undo-redo-controls (undo-labels user)))
        ;; A recategorize/split moves money between rollup rows, so re-patch the whole-month pane.
        (patch! sse (rollup-pane (:rollup model)))

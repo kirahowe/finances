@@ -49,6 +49,78 @@ await amountTh.click();
 await page.waitForFunction(() => document.querySelector('#tx-tbody tr .amount-cell .numeric')?.textContent?.includes('4,000'), null, { timeout: 5000 }).catch(() => {});
 check('sort amount desc → first row $4,000.00', (await firstAmount()).includes('$4,000.00'), await firstAmount());
 
+// A fresh table defaults to date-ascending, with the Date header showing it (blank $sortCol
+// is the canonical encoding — see web.view-state/default-sort).
+await page.goto(`${BASE}/?month=2025-01`, { waitUntil: 'networkidle' });
+await page.waitForTimeout(300);
+const dateTh = page.locator('th[data-col-id="date"]');
+check('default sort: Date header reads ascending (aria-sort)',
+  (await dateTh.getAttribute('aria-sort')) === 'ascending');
+check('default sort: the Date header shows the ascending arrow',
+  /↑/.test((await dateTh.locator('.th-sort-indicator').first().innerText()) || ''));
+const firstDate = () => page.locator('#tx-tbody tr').first().locator('.date-cell .numeric').innerText();
+check('default sort: first row is the earliest date (Jan 1)', (await firstDate()).trim() === 'Jan 1', await firstDate());
+
+// Two-level sort: click Payee then Date — per the header-click semantics, the SECOND click's
+// column always becomes the new primary and demotes whatever was primary to secondary, so this
+// sequence lands on date-primary / payee-secondary ("sort by Payee, then by Date"). The seed has
+// two same-day pairs (Jan 12: Visa Payment/Payment Received; Jan 15: Mortgage Payment/Mortgage
+// Principal) whose payee order breaks the date tie deterministically.
+const payeeTh = page.locator('th[data-col-id="payee"]');
+const payees = () => page.locator('#tx-tbody tr .payee-cell').allInnerTexts();
+await payeeTh.click();
+await page.waitForTimeout(300);
+await dateTh.click();
+await page.waitForFunction(
+  () => document.querySelectorAll('#tx-tbody tr').length === 10, null, { timeout: 5000 }).catch(() => {});
+await page.waitForTimeout(300);
+const sortedPayees = (await payees()).map((p) => p.trim());
+check('two-level sort: Jan 12 tie breaks by payee (Payment Received before Visa Payment)',
+  sortedPayees[4] === 'Payment Received' && sortedPayees[5] === 'Visa Payment',
+  JSON.stringify(sortedPayees));
+check('two-level sort: Jan 15 tie breaks by payee (Mortgage Payment before Mortgage Principal)',
+  sortedPayees[6] === 'Mortgage Payment' && sortedPayees[7] === 'Mortgage Principal',
+  JSON.stringify(sortedPayees));
+check('date TH now reads the primary sort (ascending)',
+  (await dateTh.getAttribute('aria-sort')) === 'ascending');
+check('payee TH carries the muted secondary indicator',
+  (await payeeTh.locator('.th-sort-indicator--secondary').innerText()).includes('↑'));
+
+// Clicking the (now-primary) Date header again cycles to descending; a third click clears back
+// to the promoted secondary (payee) as the new primary — proving desc→clear promotes sort2.
+await dateTh.click();
+await page.waitForTimeout(300);
+check('date primary asc → desc on a second click', (await dateTh.getAttribute('aria-sort')) === 'descending');
+await dateTh.click();
+await page.waitForTimeout(300);
+check('date primary desc → clear promotes the old secondary (payee) to primary',
+  (await payeeTh.getAttribute('aria-sort')) === 'ascending');
+
+// Month-nav persistence: a search filter + sort survive navigating to the next month (a
+// different month's row set restarts at page 0).
+await page.goto(`${BASE}/?month=2025-01`, { waitUntil: 'networkidle' });
+await page.waitForTimeout(300);
+await page.locator('.table-search-input').fill('Payroll');
+await page.waitForTimeout(400);
+await page.locator('th[data-col-id="amount"]').click();
+await page.waitForTimeout(300);
+const beforeNav = new URL(page.url());
+check('search + sort reflected in the URL before navigating',
+  beforeNav.searchParams.get('q') === 'Payroll' && beforeNav.searchParams.get('sortCol') === 'amount',
+  beforeNav.search);
+await Promise.all([
+  page.waitForURL(/month=2025-02/, { timeout: 5000 }),
+  page.locator('.month-nav-button[title="Next month"]').click(),
+]);
+await page.waitForLoadState('networkidle');
+const afterNav = new URL(page.url());
+check('month advanced to 2025-02', afterNav.searchParams.get('month') === '2025-02', afterNav.search);
+check('search filter persisted across the month change', afterNav.searchParams.get('q') === 'Payroll', afterNav.search);
+check('sort persisted across the month change', afterNav.searchParams.get('sortCol') === 'amount', afterNav.search);
+check('page param reset across the month change', !afterNav.searchParams.get('page'), afterNav.search);
+check('the search box itself reflects the persisted filter after reload',
+  (await page.locator('.table-search-input').inputValue()) === 'Payroll');
+
 await browser.close();
 
 let pass = 0;

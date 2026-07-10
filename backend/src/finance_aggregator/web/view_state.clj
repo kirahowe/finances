@@ -90,20 +90,44 @@
 ;; View-state assembly (the web.view input map)
 ;; ---------------------------------------------------------------------------
 
+(def default-sort
+  "The table's default sort when no sortCol is carried (URL or signals): date ascending.
+   A blank sortCol is the CANONICAL encoding of this default — the codec resolves it here so
+   `web.view`'s input always has a primary sort (see view-state); the client mirrors the same
+   convention (a blank $sortCol signal), so a fresh table's URL stays clean."
+  {:col :date :dir :asc})
+
+(defn- parse-sort
+  "The primary sort: `default-sort` when sort-col is blank, else the named column/dir."
+  [sort-col sort-dir]
+  (if (str/blank? sort-col)
+    default-sort
+    {:col (keyword sort-col) :dir (if (= "desc" sort-dir) :desc :asc)}))
+
+(defn- parse-sort2
+  "The secondary (tie-break) sort, or nil when sort-col2 is blank OR names the same column as
+   the resolved primary (a redundant secondary collapses to none, same as no secondary)."
+  [primary-col sort-col2 sort-dir2]
+  (when-not (str/blank? sort-col2)
+    (let [col (keyword sort-col2)]
+      (when (not= col primary-col)
+        {:col col :dir (if (= "desc" sort-dir2) :desc :asc)}))))
+
 (defn view-state
   "Build the web.view view-state from a generic accessor map (whose keys come from either the
    signals map or a query-param getter). Funnel selections are added by `with-funnels`;
    omitting them = no category/account/institution filter."
-  [{:keys [search scope hide-transfers uncat sort-col sort-dir page page-size]}]
-  {:search         (or search "")
-   ;; "needs-review" is the scope's pre-rename token — accepted so stale bookmarked URLs keep working.
-   :scope          (if (contains? #{"to-reconcile" "needs-review"} scope) :to-reconcile :all)
-   :hide-transfers (boolean hide-transfers)
-   :uncat          (boolean uncat)
-   :sort           (when (not (str/blank? sort-col))
-                     {:col (keyword sort-col) :dir (if (= "desc" sort-dir) :desc :asc)})
-   :page           (or page 0)
-   :page-size      (or page-size 25)})
+  [{:keys [search scope hide-transfers uncat sort-col sort-dir sort-col2 sort-dir2 page page-size]}]
+  (let [sort (parse-sort sort-col sort-dir)]
+    {:search         (or search "")
+     ;; "needs-review" is the scope's pre-rename token — accepted so stale bookmarked URLs keep working.
+     :scope          (if (contains? #{"to-reconcile" "needs-review"} scope) :to-reconcile :all)
+     :hide-transfers (boolean hide-transfers)
+     :uncat          (boolean uncat)
+     :sort           sort
+     :sort2          (parse-sort2 (:col sort) sort-col2 sort-dir2)
+     :page           (or page 0)
+     :page-size      (or page-size 25)}))
 
 (defn with-funnels
   "Add the header-funnel selections (account/institution/category id sets) to a view-state."
@@ -113,12 +137,25 @@
          :institutions (->id-set institutions)
          :categories (->id-set categories)))
 
+(defn clear-all-active?
+  "Whether the active-filters chip row should offer a 'Clear all': any FILTER is active —
+   search text, the Uncategorized chip, Hide transfers, any header-funnel selection, or the
+   statement lens narrowing the table (`lens?`, since the handler alone sees the live
+   $reconFrom/$reconTo signals it rides on — not part of this view-state). Deliberately
+   excludes :sort/:sort2 (a view preference, not a filter) and :scope (the work-queue
+   To-reconcile/All mode, a separate axis — see project_transfer_model / the monthly-close
+   docs — Clear all never touches it)."
+  [{:keys [search uncat hide-transfers accounts institutions categories]} lens?]
+  (boolean (or (not (str/blank? search)) uncat hide-transfers
+               (seq accounts) (seq institutions) (seq categories) lens?)))
+
 (defn signals->view-state
   "View-state from the live Datastar signals map (sent on every `@get`/`@put`)."
   [s]
   (with-funnels
     (view-state {:search (:search s) :scope (:scope s) :hide-transfers (:hideTransfers s)
                  :uncat (:uncat s) :sort-col (:sortCol s) :sort-dir (:sortDir s)
+                 :sort-col2 (:sortCol2 s) :sort-dir2 (:sortDir2 s)
                  :page (:page s) :page-size (:pageSize s)})
     (get-in s [:filter :account]) (get-in s [:filter :institution]) (get-in s [:filter :category])))
 
@@ -129,6 +166,7 @@
     (view-state {:search (get qp "q") :scope (get qp "scope")
                  :hide-transfers (= "1" (get qp "ht")) :uncat (= "1" (get qp "uncat"))
                  :sort-col (get qp "sortCol") :sort-dir (get qp "sortDir")
+                 :sort-col2 (get qp "sortCol2") :sort-dir2 (get qp "sortDir2")
                  :page (some-> (get qp "page") parse-long)
                  :page-size (some-> (get qp "pageSize") parse-long)})
     (csv-param qp "fa") (csv-param qp "fi") (csv-param qp "fc")))
@@ -145,14 +183,19 @@
 
 (defn vs->signals
   "Initial client signals derived from a view-state. page/page-size are taken from the
-   clamped view result so the signal matches what's rendered."
+   clamped view result so the signal matches what's rendered. The primary sort signals stay
+   blank/asc when the resolved sort is the canonical default (date asc) — mirroring the URL's
+   \"blank means default\" convention on the client too, so a fresh table's signals (and the
+   URL the url island reflects them into) stay clean."
   [vs month-str result]
   {:search        (:search vs)
    :scope         (if (= :to-reconcile (:scope vs)) "to-reconcile" "all")
    :hideTransfers (:hide-transfers vs)
    :uncat         (:uncat vs)
-   :sortCol       (if-let [s (:sort vs)] (name (:col s)) "")
-   :sortDir       (if-let [s (:sort vs)] (name (:dir s)) "asc")
+   :sortCol       (if (= default-sort (:sort vs)) "" (name (get-in vs [:sort :col])))
+   :sortDir       (if (= default-sort (:sort vs)) "asc" (name (get-in vs [:sort :dir])))
+   :sortCol2      (if-let [s2 (:sort2 vs)] (name (:col s2)) "")
+   :sortDir2      (if-let [s2 (:sort2 vs)] (name (:dir s2)) "asc")
    :page          (:page result)
    :pageSize      (:page-size result)
    :month         month-str
