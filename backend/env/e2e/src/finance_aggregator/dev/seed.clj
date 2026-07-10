@@ -9,7 +9,9 @@
    - a matched mortgage payment categorized Housing that stays visible under Hide
    - a transfer-typed transaction with no in-window counterpart (unmatched marker),
      plus an out-of-auto-window counterpart that manual Match can still find
-   - some real income/expense noise"
+   - some real income/expense noise
+   - a basis-lens straddler: posted Feb 2 (invisible to every posted-basis 2025-01 spec),
+     dated Jan 30 (appears in January only under the transaction-date basis)"
   (:require [datalevin.core :as d])
   (:import [java.time LocalDate ZoneOffset]))
 
@@ -144,4 +146,11 @@
                  :snapshot/date (inst "2025-01-31") :snapshot/balance -285.00M :snapshot/source :reported}
                 {:snapshot/id "acct-mortgage:2024-12-31" :snapshot/account [:account/external-id "acct-mortgage"]
                  :snapshot/date (inst "2024-12-31") :snapshot/balance -100000.00M :snapshot/source :reported}])
+  ;; The basis-lens straddler: posted Feb 2 (invisible to every posted-basis 2025-01 spec),
+  ;; dated Jan 30 (appears in January only under the transaction-date basis). Uncategorized
+  ;; and unmatched on purpose. Added last so it can't shift any earlier entity's eid.
+  (d/transact! conn
+               [{:transaction/external-id "seed-basis-straddle" :transaction/account [:account/external-id "acct-visa"]
+                 :transaction/amount -42.00M :transaction/payee "Hotel Deposit"
+                 :transaction/date (inst "2025-01-30") :transaction/posted-date (inst "2025-02-02")}])
   :seeded)

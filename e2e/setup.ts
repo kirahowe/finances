@@ -6,7 +6,8 @@
 //   BASE_URL=http://localhost:8099 node e2e/setup.ts
 //
 // The seed (env/e2e .../seed.clj) has 1 institution, a synced Plaid connection
-// ("Test Bank") owning 4 accounts (Chequing/Savings/Visa/Mortgage), 10 txns.
+// ("Test Bank") owning 4 accounts (Chequing/Savings/Visa/Mortgage), 11 txns
+// (the 10 January rows + the basis-lens straddler posted 2025-02).
 import { chromium } from '@playwright/test';
 
 const BASE = process.env.BASE_URL || 'http://localhost:8099';
@@ -31,9 +32,10 @@ check('no page errors', !logs.some((l) => l.startsWith('PAGEERROR')),
 const activeTab = await page.locator('.view-tab.is-active').innerText().catch(() => '');
 check('masthead Setup tab active', activeTab.trim() === 'Setup', `active="${activeTab.trim()}"`);
 
-// 2. Stats cards reflect the seed (1 / 4 / 10).
+// 2. Stats cards reflect the seed (1 institution / 4 accounts / 11 txns — the 10 January
+// rows plus the basis-lens straddler, which is posted into February but still counts here).
 const statValues = await page.locator('.stats-grid .stat-value').allInnerTexts();
-check('stat cards = [1, 4, 10]', JSON.stringify(statValues.map((s) => s.trim())) === '["1","4","10"]',
+check('stat cards = [1, 4, 11]', JSON.stringify(statValues.map((s) => s.trim())) === '["1","4","11"]',
   JSON.stringify(statValues));
 
 // 3. One connection card for "Test Bank".
