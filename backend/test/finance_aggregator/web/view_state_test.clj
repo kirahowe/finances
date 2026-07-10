@@ -52,6 +52,25 @@
     (is (= [] (vs/parse-splits-value nil)))
     (is (= [] (vs/parse-splits-value "[]")))))
 
+;; --- basis (the date-basis display lens) -------------------------------------
+
+(deftest basis-parsing-defaults-to-posted
+  (testing "absent, blank, or any garbage value defaults to :posted — only the literal
+            \"transaction\" token switches the lens"
+    (is (= :posted (:basis (vs/view-state {}))))
+    (is (= :posted (:basis (vs/view-state {:search "x"}))) "unrelated keys don't disturb it"))
+  (testing "\"transaction\" (from either query params or signals) parses to :transaction"
+    (is (= :transaction (:basis (vs/query->view-state {"basis" "transaction"}))))
+    (is (= :transaction (:basis (vs/signals->view-state {:basis "transaction"})))))
+  (testing "query params: absent/blank/garbage → :posted"
+    (is (= :posted (:basis (vs/query->view-state {}))))
+    (is (= :posted (:basis (vs/query->view-state {"basis" ""}))))
+    (is (= :posted (:basis (vs/query->view-state {"basis" "nonsense"})))))
+  (testing "signals: absent/blank/garbage → :posted"
+    (is (= :posted (:basis (vs/signals->view-state {}))))
+    (is (= :posted (:basis (vs/signals->view-state {:basis ""}))))
+    (is (= :posted (:basis (vs/signals->view-state {:basis "nonsense"}))))))
+
 ;; --- query → view-state -----------------------------------------------------
 
 (deftest query->view-state-defaults
@@ -193,6 +212,14 @@
       (is (= "" (:to s)))
       (is (= "2025-01-01" (:_pickerFrom s)))
       (is (= "2025-01-31" (:_pickerTo s))))))
+
+(deftest vs-basis-signals-round-trip
+  (testing "the posted default signals back BLANK (clean-URL convention, like sortCol)"
+    (is (= "" (:basis (vs/vs->signals (vs/query->view-state {}) month-seed {:page 0 :page-size 25})))))
+  (testing ":transaction basis signals back the literal token"
+    (is (= "transaction"
+           (:basis (vs/vs->signals (vs/query->view-state {"basis" "transaction"})
+                                   month-seed {:page 0 :page-size 25}))))))
 
 ;; --- column visibility ------------------------------------------------------
 

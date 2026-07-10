@@ -116,8 +116,13 @@
 (defn view-state
   "Build the web.view view-state from a generic accessor map (whose keys come from either the
    signals map or a query-param getter). Funnel selections are added by `with-funnels`;
-   omitting them = no category/account/institution filter."
-  [{:keys [search scope hide-transfers uncat sort-col sort-dir sort-col2 sort-dir2 page page-size]}]
+   omitting them = no category/account/institution filter.
+
+   :basis is a DISPLAY LENS — which date field the viewed period buckets the table/rollup/
+   counts by (:posted, the canonical default, or :transaction) — not a filter: it never
+   narrows which rows show, only how they're bucketed into the viewed span, so Clear all
+   never touches it (see clear-all-active?)."
+  [{:keys [search scope hide-transfers uncat sort-col sort-dir sort-col2 sort-dir2 page page-size basis]}]
   (let [sort (parse-sort sort-col sort-dir)]
     {:search         (or search "")
      ;; "needs-review" is the scope's pre-rename token — accepted so stale bookmarked URLs keep working.
@@ -127,7 +132,8 @@
      :sort           sort
      :sort2          (parse-sort2 (:col sort) sort-col2 sort-dir2)
      :page           (or page 0)
-     :page-size      (or page-size 25)}))
+     :page-size      (or page-size 25)
+     :basis          (if (= "transaction" basis) :transaction :posted)}))
 
 (defn with-funnels
   "Add the header-funnel selections (account/institution/category id sets) to a view-state."
@@ -156,7 +162,7 @@
     (view-state {:search (:search s) :scope (:scope s) :hide-transfers (:hideTransfers s)
                  :uncat (:uncat s) :sort-col (:sortCol s) :sort-dir (:sortDir s)
                  :sort-col2 (:sortCol2 s) :sort-dir2 (:sortDir2 s)
-                 :page (:page s) :page-size (:pageSize s)})
+                 :page (:page s) :page-size (:pageSize s) :basis (:basis s)})
     (get-in s [:filter :account]) (get-in s [:filter :institution]) (get-in s [:filter :category])))
 
 (defn query->view-state
@@ -168,7 +174,8 @@
                  :sort-col (get qp "sortCol") :sort-dir (get qp "sortDir")
                  :sort-col2 (get qp "sortCol2") :sort-dir2 (get qp "sortDir2")
                  :page (some-> (get qp "page") parse-long)
-                 :page-size (some-> (get qp "pageSize") parse-long)})
+                 :page-size (some-> (get qp "pageSize") parse-long)
+                 :basis (get qp "basis")})
     (csv-param qp "fa") (csv-param qp "fi") (csv-param qp "fc")))
 
 ;; ---------------------------------------------------------------------------
@@ -205,6 +212,9 @@
    :sortDir       (if (= default-sort (:sort vs)) "asc" (name (get-in vs [:sort :dir])))
    :sortCol2      (if-let [s2 (:sort2 vs)] (name (:col s2)) "")
    :sortDir2      (if-let [s2 (:sort2 vs)] (name (:dir s2)) "asc")
+   ;; The date-basis display lens — blank = :posted (the canonical default), the same
+   ;; clean-URL convention as sortCol.
+   :basis         (if (= :transaction (:basis vs)) "transaction" "")
    :page          (:page result)
    :pageSize      (:page-size result)
    :month         month

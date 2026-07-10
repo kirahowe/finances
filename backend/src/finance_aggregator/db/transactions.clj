@@ -84,15 +84,34 @@
   [tx]
   (-> tx with-effective-description with-effective-posted-date with-split-drift db-transfers/with-transfer-hidden))
 
+(defn- span-date-fn
+  "The date fn list-for-span filters on for `basis`: :posted reads the pre-annotated
+   :transaction/effective-posted-date (exactly as before basis existed); :transaction reads
+   data.ledger/effective-transaction-date straight off the pulled tx (there's no analogous
+   annotation for it — nothing else needs it on the wire)."
+  [basis]
+  (case basis
+    :transaction ledger/effective-transaction-date
+    :transaction/effective-posted-date))
+
 (defn list-for-span
-  "All transactions whose EFFECTIVE posted date (data.ledger/effective-posted-date — the
-   user's manual override when present, else the provider's posted-date guess, else the
-   transaction date) falls in [`start-date`, `end-date`) (end EXCLUSIVE), pulled with the
-   canonical pattern and annotated with the derived API fields. Excludes any transaction
-   that has split parts — the parts replace it at the row grain (see
-   doc/plans/splits-as-transactions.md). Shared by list-for-month (the calendar-month
-   special case) and any other span a view layer names (see web.period — a flexible
-   from/to range is an analysis lens over the same query).
+  "All transactions whose bucketing date — by default EFFECTIVE posted date
+   (data.ledger/effective-posted-date — the user's manual override when present, else the
+   provider's posted-date guess, else the transaction date) — falls in [`start-date`,
+   `end-date`) (end EXCLUSIVE), pulled with the canonical pattern and annotated with the
+   derived API fields. Excludes any transaction that has split parts — the parts replace it
+   at the row grain (see doc/plans/splits-as-transactions.md). Shared by list-for-month (the
+   calendar-month special case, always :posted — see its docstring) and any other span a view
+   layer names (see web.period — a flexible from/to range is an analysis lens over the same
+   query).
+
+   The optional 4th arg `basis` (:posted, the default, or :transaction) is the transactions
+   PAGE'S ANALYSIS LENS (web.view-state's :basis) — which date field the span buckets by.
+   :posted is the canonical read every other caller (reconciliation, coverage,
+   transfer-matching, list-for-month) uses; :transaction re-buckets by
+   data.ledger/effective-transaction-date (the plain purchase date, ignoring any posted-date
+   override) instead, for a user who wants to see 'when I spent it' rather than 'when the
+   bank posted it'. Nothing outside the lens should ever pass :transaction.
 
    Queries by external-id + not-split-parent only (the same shape as list-all) and
    span-filters in Clojure, AFTER annotating — the effective date isn't a datom
@@ -103,25 +122,29 @@
    pre-filtering on the stored posted-date) is what lets an override move a row across a
    span boundary in EITHER direction — into a span it wasn't imported into, or out of the
    one it was."
-  [conn ^Date start-date ^Date end-date]
-  (let [raw (d/q '[:find [(pull ?e pattern) ...]
-                   :in $ pattern
-                   :where
-                   [?e :transaction/external-id _]
-                   (not [?p :transaction/split-parent ?e])]
-                 (d/db conn) transaction-pull-pattern)]
-    (->> raw
-         (mapv with-derived-fields)
-         (filterv (fn [tx]
-                    (when-let [^Date d (:transaction/effective-posted-date tx)]
-                      (and (not (.before d start-date)) (.before d end-date))))))))
+  ([conn start-date end-date] (list-for-span conn start-date end-date :posted))
+  ([conn ^Date start-date ^Date end-date basis]
+   (let [date-fn (span-date-fn basis)
+         raw (d/q '[:find [(pull ?e pattern) ...]
+                    :in $ pattern
+                    :where
+                    [?e :transaction/external-id _]
+                    (not [?p :transaction/split-parent ?e])]
+                  (d/db conn) transaction-pull-pattern)]
+     (->> raw
+          (mapv with-derived-fields)
+          (filterv (fn [tx]
+                     (when-let [^Date d (date-fn tx)]
+                       (and (not (.before d start-date)) (.before d end-date)))))))))
 
 (defn list-for-month
   "The calendar-month special case of list-for-span: all transactions whose EFFECTIVE
    posted date (data.ledger/effective-posted-date — the user's manual override when
    present, else the provider's posted-date guess, else the transaction date) falls in
-   `month` (a YYYY-MM string). Shared by the JSON list endpoint and the server-rendered
-   transactions page."
+   `month` (a YYYY-MM string). ALWAYS :posted basis — this feeds the monthly-close model and
+   the close freeze, which reconcile on posted dates everywhere; the transactions page's
+   basis lens (list-for-span's 4th arg) must never reach this fn. Shared by the JSON list
+   endpoint and the server-rendered transactions page."
   [conn month]
   (let [{:keys [start-date end-date]} (utils/month-date-range month)]
     (list-for-span conn start-date end-date)))

@@ -156,6 +156,21 @@
       (:transaction/posted-date tx)
       (:transaction/date tx)))
 
+(defn effective-transaction-date
+  "THE TRANSACTION-DATE-basis analysis read for a transaction — the date the purchase
+   actually happened (Plaid's authorized_date; see plaid/data.clj), used ONLY by the
+   transactions page's `basis` lens (:transaction, an alternative to the default :posted
+   bucketing) to re-bucket the table/rollup/counts by when the money moved rather than when
+   the bank posted it. Deliberately IGNORES :transaction/user-posted-date — that override is
+   a POSTED-date correction (moving a guessed posted-date across a statement boundary; see
+   effective-posted-date), orthogonal to this basis, so it never wins here even when
+   :transaction/date is also present. Falls back through the effective-posted chain
+   (user-posted-date, then posted-date) when :transaction/date itself is absent — some
+   seeds/imports/manual entries carry only a posted-date. Reconciliation, coverage and
+   transfer-matching NEVER use this — they use effective-posted-date, always. Pure."
+  ^Date [tx]
+  (or (:transaction/date tx) (effective-posted-date tx)))
+
 (defn covered?
   "True when effective posted date `d` (java.util.Date — see effective-posted-date) falls
    inside any reconciled span in `spans`. Each span is {:start Date :end Date}; membership

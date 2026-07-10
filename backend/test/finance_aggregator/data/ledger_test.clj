@@ -197,6 +197,31 @@
   (testing "nil when nothing at all is present"
     (is (nil? (ledger/effective-posted-date {})))))
 
+;; --- effective-transaction-date ----------------------------------------------
+;; The transactions page's basis lens (:transaction basis) re-buckets by this date instead
+;; of the posted-date chain — deliberately ignoring the user-posted-date overlay, which is a
+;; POSTED-date correction, not a transaction-date one.
+
+(deftest effective-transaction-date-chain
+  (testing "the plain transaction date wins when present"
+    (is (= #inst "2025-01-30"
+           (ledger/effective-transaction-date {:transaction/date #inst "2025-01-30"
+                                               :transaction/posted-date #inst "2025-02-02"}))))
+  (testing "falls back to the posted-date chain when :transaction/date is absent"
+    (is (= #inst "2025-02-02"
+           (ledger/effective-transaction-date {:transaction/posted-date #inst "2025-02-02"}))))
+  (testing "falls back all the way to a user-posted-date override when that's all there is"
+    (is (= #inst "2025-05-10"
+           (ledger/effective-transaction-date {:transaction/user-posted-date #inst "2025-05-10"}))))
+  (testing "a user-posted-date override is IGNORED when :transaction/date is present — the
+            override is a posted-date correction, orthogonal to the transaction-date basis"
+    (is (= #inst "2025-04-01"
+           (ledger/effective-transaction-date {:transaction/user-posted-date #inst "2025-05-10"
+                                               :transaction/posted-date #inst "2025-05-01"
+                                               :transaction/date #inst "2025-04-01"}))))
+  (testing "nil when nothing at all is present"
+    (is (nil? (ledger/effective-transaction-date {})))))
+
 (deftest month-coverage-honors-manual-override
   (testing "an override moves an otherwise-uncovered txn inside a reconciled span"
     (let [;; Imported posted-date (2025-06-25) falls outside May's span; the user's

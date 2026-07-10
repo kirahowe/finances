@@ -24,10 +24,16 @@
       :sort {:col :date|:amount|:account|:institution|:payee|:category :dir :asc|:desc}
       :sort2 same shape as :sort, or nil        ; secondary (tie-break) sort, or none
       :page 0-indexed
-      :page-size pos-int}
+      :page-size pos-int
+      :basis :posted | :transaction  ; the date-basis DISPLAY LENS — which date field the
+                                     ; :date sort (and the caller's span query) buckets by;
+                                     ; not a filter (see web.view-state/view-state)}
    :sort is always present — the codec (web.view-state/view-state) resolves the documented
    default ({:col :date :dir :asc}) when no sort is carried, so every view-state this engine
-   sees already has a primary sort; sort-txs itself carries no default."
+   sees already has a primary sort; sort-txs itself carries no default. :basis likewise
+   always resolves to :posted or :transaction (never nil/blank) via that same codec, though
+   `view`/`view-with-linger` also tolerate a nil :basis (defaulting to :posted) for callers
+   that construct a partial view-state directly, e.g. in tests."
   (:require
    [clojure.string :as str]
    [finance-aggregator.data.ledger :as ledger]
@@ -91,10 +97,23 @@
 
 ;; --- Sorting ----------------------------------------------------------------
 
-(def ^:private sort-key-fns
-  ;; Numeric columns sort by value; string columns by lower-cased text
-  ;; (localeCompare-on-lowercased-cell-text).
-  {:date        #(if-let [d (:transaction/effective-posted-date %)] (.getTime ^java.util.Date d) 0)
+(defn- date-sort-key-fn
+  "The :date column's sort key for `basis`: :transaction reads data.ledger/
+   effective-transaction-date (the plain purchase date, ignoring any posted-date override —
+   the basis lens); :posted (default) reads the pre-annotated
+   :transaction/effective-posted-date, exactly as before the basis lens existed. Either way,
+   nil-safe (a missing date sorts as epoch 0, matching the old posted-date-only fallback)."
+  [basis]
+  (let [date-fn (if (= :transaction basis) ledger/effective-transaction-date
+                    :transaction/effective-posted-date)]
+    #(if-let [^java.util.Date d (date-fn %)] (.getTime d) 0)))
+
+(defn- sort-key-fns
+  "Column → sort-key fn, for `basis` (see date-sort-key-fn — the only basis-sensitive column).
+   Numeric columns sort by value; string columns by lower-cased text
+   (localeCompare-on-lowercased-cell-text)."
+  [basis]
+  {:date        (date-sort-key-fn basis)
    :amount      #(or (:transaction/amount %) 0)
    :account     #(str/lower-case (accounts/account-label (:transaction/account %)))
    :institution #(str/lower-case (or (get-in % [:transaction/account :account/institution :institution/name]) ""))
@@ -103,8 +122,8 @@
 
 (defn- apply-sort
   "One stable sort pass by a sortable column; no/unknown column leaves the order untouched."
-  [txs {:keys [col dir]}]
-  (if-let [k (get sort-key-fns col)]
+  [txs {:keys [col dir]} basis]
+  (if-let [k (get (sort-key-fns basis) col)]
     (sort-by k (if (= dir :desc) #(compare %2 %1) compare) txs)
     txs))
 
@@ -113,13 +132,16 @@
    then `sort` runs — since Clojure's sort-by is stable, that ordering survives among rows
    the primary sort treats as equal, so the composite reads as \"ordered by primary, ties
    broken by secondary\". No/unknown primary column leaves the order untouched (sort2 is
-   skipped too — there'd be nothing to break ties for)."
-  ([txs sort] (sort-txs txs sort nil))
-  ([txs sort sort2]
-   (if (get sort-key-fns (:col sort))
+   skipped too — there'd be nothing to break ties for). `basis` (:posted default, or
+   :transaction — the transactions page's date-basis lens) only affects the :date column's
+   key (date-sort-key-fn); every other column is basis-blind."
+  ([txs sort] (sort-txs txs sort nil :posted))
+  ([txs sort sort2] (sort-txs txs sort sort2 :posted))
+  ([txs sort sort2 basis]
+   (if (get (sort-key-fns basis) (:col sort))
      (cond-> txs
-       sort2 (apply-sort sort2)
-       :always (apply-sort sort))
+       sort2 (apply-sort sort2 basis)
+       :always (apply-sort sort basis))
      txs)))
 
 ;; --- Pagination -------------------------------------------------------------
@@ -143,11 +165,12 @@
 (defn view
   "filter → sort → paginate. Returns {:rows :total :page :page-count :page-size}; :total is
    the filtered transaction count (drives the pagination status). The toolbar count chips
-   are full-month and come from `facet-counts`, not from here."
-  [txs {:keys [sort sort2 page page-size] :as vs}]
+   are full-month and come from `facet-counts`, not from here. `:basis` (:posted default, or
+   :transaction) is the date-basis lens sort-txs' :date column reads (see sort-txs)."
+  [txs {:keys [sort sort2 page page-size basis] :as vs}]
   (-> txs
       (filter-txs vs)
-      (sort-txs sort sort2)
+      (sort-txs sort sort2 (or basis :posted))
       (paginate page page-size)))
 
 ;; --- Lingering --------------------------------------------------------------
@@ -162,7 +185,7 @@
    lingered), so a lingered row stays where it naturally sits. `sort-txs` is a stable sort, so
    when a sort is active the lingered row sorts into its proper place too. Returns the same
    shape as `view` plus `:stale-ids` (a set of db ids)."
-  [txs {:keys [sort sort2 page page-size] :as vs} linger-set]
+  [txs {:keys [sort sort2 page page-size basis] :as vs} linger-set]
   (let [linger-set  (or linger-set #{})
         matched-ids (set (map :db/id (filter-txs txs vs)))
         stale-ids   (into #{} (comp (map :db/id)
@@ -172,7 +195,7 @@
         visible     (filter #(or (contains? matched-ids (:db/id %))
                                  (contains? stale-ids (:db/id %)))
                             txs)]
-    (-> (sort-txs visible sort sort2)
+    (-> (sort-txs visible sort sort2 (or basis :posted))
         (paginate page page-size)
         (assoc :stale-ids stale-ids))))
 

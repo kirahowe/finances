@@ -143,6 +143,32 @@
           dated (assoc t2 :transaction/effective-posted-date (:transaction/posted-date t2))]
       (is (= [1 2] (ids (view/sort-txs [no-date dated] {:col :date :dir :asc})))))))
 
+(deftest date-sort-basis-lens
+  (testing "the :transaction basis sorts :date by data.ledger/effective-transaction-date
+            (the plain purchase date), not :transaction/effective-posted-date — a row
+            posted earlier than another but transacted later sorts accordingly"
+    (let [posted-early (assoc t1 :db/id 1 :transaction/date #inst "2025-01-20"
+                              :transaction/posted-date #inst "2025-01-01")
+          posted-late  (assoc t2 :db/id 2 :transaction/date #inst "2025-01-05"
+                              :transaction/posted-date #inst "2025-01-25")
+          rows [posted-early posted-late]]
+      (is (= [1 2] (ids (view/sort-txs rows {:col :date :dir :asc} nil :posted)))
+          ":posted basis (the default arity's behavior) sorts by posted-date: t1 (Jan 1) before t2 (Jan 25)")
+      (is (= [2 1] (ids (view/sort-txs rows {:col :date :dir :asc} nil :transaction)))
+          ":transaction basis sorts by the plain transaction date: t2 (Jan 5) before t1 (Jan 20)")))
+  (testing "the 4-arity's default basis (:posted, matching the 2/3-arity forms) sorts identically"
+    (let [rows [(assoc t3 :transaction/effective-posted-date #inst "2025-01-15")
+                (assoc t1 :transaction/effective-posted-date #inst "2025-01-01")]]
+      (is (= (ids (view/sort-txs rows {:col :date :dir :asc}))
+             (ids (view/sort-txs rows {:col :date :dir :asc} nil :posted))))))
+  (testing "the :transaction basis ignores a :transaction/user-posted-date override — it
+            reads the plain transaction date regardless of any posted-date correction"
+    (let [overridden (assoc t3 :db/id 3 :transaction/date #inst "2025-01-15"
+                            :transaction/user-posted-date #inst "2024-06-01")
+          plain (assoc t1 :db/id 1 :transaction/date #inst "2025-01-20")]
+      (is (= [3 1] (ids (view/sort-txs [overridden plain] {:col :date :dir :asc} nil :transaction)))
+          "Jan 15 (t3's plain date) sorts before Jan 20 (t1's), ignoring t3's June-2024 override"))))
+
 ;; --- Two-level sort -----------------------------------------------------------
 ;; sort-txs applies the SECONDARY sort first (establishing tie-break order), then the
 ;; PRIMARY — since both passes are Clojure's stable sort-by, rows land ordered by primary,

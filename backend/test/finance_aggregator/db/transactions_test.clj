@@ -142,6 +142,58 @@
                      (transactions/list-for-month setup/*test-conn* "2025-06"))))
         "list-for-month (the wrapper) still returns exactly the June rows")))
 
+(deftest list-for-span-basis-test
+  (testing "the :transaction basis buckets by :transaction/date instead of the posted-date chain
+            — a tx dated Jan 30 but posted Feb 2 shows in the January span only under
+            :transaction, and in the February span only under the default :posted"
+    (make-tx! "basis-straddle"
+              {:transaction/date (range-date 2025 1 30) :transaction/posted-date (range-date 2025 2 2)})
+    (is (= ["basis-straddle"]
+           (map :transaction/external-id
+                (transactions/list-for-span setup/*test-conn*
+                                            (range-date 2025 1 1) (range-date 2025 2 1) :transaction)))
+        "January span, :transaction basis — bucketed by the Jan 30 transaction date")
+    (is (= []
+           (transactions/list-for-span setup/*test-conn*
+                                       (range-date 2025 1 1) (range-date 2025 2 1) :posted))
+        "January span, :posted basis — the Feb 2 posted-date falls outside")
+    (is (= []
+           (map :transaction/external-id
+                (transactions/list-for-span setup/*test-conn*
+                                            (range-date 2025 2 1) (range-date 2025 3 1) :transaction)))
+        "February span, :transaction basis — the Jan 30 transaction date falls outside")
+    (is (= ["basis-straddle"]
+           (map :transaction/external-id
+                (transactions/list-for-span setup/*test-conn*
+                                            (range-date 2025 2 1) (range-date 2025 3 1) :posted)))
+        "February span, :posted basis — bucketed by the Feb 2 posted-date"))
+
+  (testing "a user-posted-date override moves the row under :posted but is IGNORED under :transaction"
+    (let [tx-id (make-tx! "basis-override"
+                          {:transaction/date (range-date 2025 3 10)
+                           :transaction/posted-date (range-date 2025 3 10)})]
+      (transactions/set-user-posted-date! setup/*test-conn* tx-id (range-date 2025 4 5))
+      (is (= ["basis-override"]
+             (map :transaction/external-id
+                  (transactions/list-for-span setup/*test-conn*
+                                              (range-date 2025 4 1) (range-date 2025 5 1) :posted)))
+          ":posted basis honors the override — moved into April")
+      (is (= []
+             (map :transaction/external-id
+                  (transactions/list-for-span setup/*test-conn*
+                                              (range-date 2025 4 1) (range-date 2025 5 1) :transaction)))
+          ":transaction basis ignores the override — not in April")
+      (is (= ["basis-override"]
+             (map :transaction/external-id
+                  (transactions/list-for-span setup/*test-conn*
+                                              (range-date 2025 3 1) (range-date 2025 4 1) :transaction)))
+          ":transaction basis still buckets by the plain March 10 transaction date")))
+
+  (testing "the 3-arity is equivalent to the 4-arity called with :posted"
+    (make-tx! "basis-eq" {:transaction/posted-date (range-date 2025 6 15)})
+    (is (= (transactions/list-for-span setup/*test-conn* (range-date 2025 6 1) (range-date 2025 7 1))
+           (transactions/list-for-span setup/*test-conn* (range-date 2025 6 1) (range-date 2025 7 1) :posted)))))
+
 (deftest with-derived-fields-effective-posted-date-test
   (testing "annotates :transaction/effective-posted-date, falling back through the chain"
     (let [tx-id (make-tx! "tx-eff-1" {:transaction/posted-date (range-date 2026 3 10)})
