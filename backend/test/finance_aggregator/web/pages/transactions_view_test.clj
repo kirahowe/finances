@@ -153,6 +153,32 @@
       (is (re-find #"This period matches" ok))
       (is (re-find #"Not checked yet" none)))))
 
+(deftest close-panel-focused-card-coverage-note-names-the-real-fix
+  (let [base {:account-id 2 :name "Visa" :opening nil :closing nil
+              :opening-date #inst "2026-04-30" :closing-date #inst "2026-05-31"
+              :expected nil :tracked 45M
+              :boundary-status :no-snapshot :boundary-difference nil
+              :statements []}
+        render (fn [coverage]
+                 (html (tv/close-panel {:rows [] :gate {} :closed? false
+                                        :focus (assoc base :coverage coverage)})))]
+    (testing "txns outside every period on file → suggest adding one, dated from the gap"
+      (let [h (render {:status :partial :uncovered 63 :first-uncovered #inst "2026-05-05"
+                       :gap-uncovered 63 :first-gap #inst "2026-05-05"})]
+        (is (re-find #"63 transactions not yet covered" h))
+        (is (re-find #"Add a period that covers activity from May 5, 2026" h))))
+    (testing "every txn inside a period that just doesn't match → reconcile it, don't add one"
+      (let [h (render {:status :partial :uncovered 63 :first-uncovered #inst "2026-05-05"
+                       :gap-uncovered 0 :first-gap nil})]
+        (is (not (re-find #"Add a period" h)))
+        (is (not (re-find #"not yet covered" h)))
+        (is (re-find #"63 transactions in an unreconciled period" h))
+        (is (re-find #"Reconcile all periods that span this month" h))))
+    (testing "the gap date is the first txn NO period spans, not the first uncovered one"
+      (let [h (render {:status :partial :uncovered 63 :first-uncovered #inst "2026-05-05"
+                       :gap-uncovered 10 :first-gap #inst "2026-05-22"})]
+        (is (re-find #"Add a period that covers activity from May 22, 2026" h))))))
+
 (deftest close-panel-focused-card-lists-statements
   (let [h (html (tv/close-panel
                  {:rows [] :gate {} :closed? false

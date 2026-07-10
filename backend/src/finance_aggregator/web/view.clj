@@ -485,8 +485,11 @@
    readout ('this period matches' / 'off by $X'). `:coverage` (data.ledger/month-coverage) is
    the ACCOUNT-LEVEL headline: whether EVERY month transaction is covered by a reconciled
    period — the boundary span (when it reconciles) and/or a reconciled statement — the
-   coverage-strict close check scoped to this one account. `name-fallback` names the account
-   when it has no activity."
+   coverage-strict close check scoped to this one account. `:coverage` additionally carries
+   `:gap-uncovered`/`:first-gap`: the same uncovered count/first date computed against every
+   period ON FILE regardless of verdict, so the card can tell 'no period spans this activity'
+   (add one) apart from 'a period spans it but doesn't tie out' (fix that period, don't add
+   another). `name-fallback` names the account when it has no activity."
   [txs {:keys [account-eid name-fallback opening closing opening-date closing-date statements]}]
   (let [row          (get (ledger/account-computed-deltas txs) account-eid)
         tracked      (or (:computed-delta row) 0M)
@@ -494,14 +497,20 @@
         acct-txs     (filter #(= account-eid (get-in % [:transaction/account :db/id])) txs)
         expected     (when (and opening closing) (- closing opening))
         boundary     (ledger/reconcile-period opening closing acct-txs)
-        statement-spans (->> statements
-                             (filter #(= :reconciled (:status %)))
-                             (map (fn [s] {:start (ledger/statement-opening-boundary (:start-date s))
-                                           :end (:end-date s)})))
-        spans        (cond-> statement-spans
+        stmt-spans   (fn [sts]
+                       (map (fn [s] {:start (ledger/statement-opening-boundary (:start-date s))
+                                     :end (:end-date s)})
+                            sts))
+        spans        (cond-> (stmt-spans (filter #(= :reconciled (:status %)) statements))
                        (= :reconciled (:status boundary)) (conj {:start opening-date :end closing-date}))
+        entered-spans (cond-> (stmt-spans statements)
+                        (and (some? expected) opening-date closing-date)
+                        (conj {:start opening-date :end closing-date}))
         any-periods? (or (some? expected) (seq statements))
-        coverage     (ledger/month-coverage acct-txs spans any-periods?)]
+        gap          (ledger/month-coverage acct-txs entered-spans any-periods?)
+        coverage     (assoc (ledger/month-coverage acct-txs spans any-periods?)
+                            :gap-uncovered (:uncovered gap)
+                            :first-gap     (:first-uncovered gap))]
     {:account-id          account-eid
      :name                nm
      :opening             opening

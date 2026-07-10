@@ -1232,22 +1232,31 @@
    transaction this month is inside a reconciled period (month-boundary and/or statement),
    not just the single month-boundary period's own verdict (that lives further down, in
    focus-month-section). This is the headline because it's the actual close-gate question for
-   this account; the month-end balances are just one of the ways to answer it."
-  [{:keys [status uncovered first-uncovered]}]
+   this account; the month-end balances are just one of the ways to answer it. The :partial
+   wording names the ACTUAL fix: only when transactions fall outside every period on file
+   (:gap-uncovered > 0) does it suggest adding one — dated by :first-gap, the first txn no
+   period spans — otherwise every txn already sits inside a period that just doesn't
+   reconcile, so both the headline and the hint say to reconcile those instead."
+  [{:keys [status uncovered first-uncovered gap-uncovered first-gap]}]
   (cond
     (= :reconciled status)
     [:div.reconcile-coverage.reconcile-coverage--ok
      [:p.reconcile-coverage-line [:span.reconcile-tick {:aria-hidden "true"} "✓ "] "Reconciled"]
      [:p.reconcile-coverage-note "Every transaction this month is inside a matching period."]]
     (= :partial status)
-    [:div.reconcile-coverage.reconcile-coverage--partial
-     [:p.reconcile-coverage-line
-      [:span.gate-mark {:aria-hidden "true"} "○ "]
-      (str uncovered " transaction" (when (not= 1 uncovered) "s") " not yet covered")]
-     [:p.reconcile-coverage-note
-      (str "Add a period that covers "
-           (if first-uncovered (str "activity from " (fmt/date first-uncovered)) "the remaining activity")
-           ".")]]
+    (let [unreconciled-period? (and (some? gap-uncovered) (zero? gap-uncovered))]
+      [:div.reconcile-coverage.reconcile-coverage--partial
+       [:p.reconcile-coverage-line
+        [:span.gate-mark {:aria-hidden "true"} "○ "]
+        (str uncovered " transaction" (when (not= 1 uncovered) "s")
+             (if unreconciled-period? " in an unreconciled period" " not yet covered"))]
+       [:p.reconcile-coverage-note
+        (if unreconciled-period?
+          "Reconcile all periods that span this month to cover them."
+          (let [gap-date (or first-gap first-uncovered)]
+            (str "Add a period that covers "
+                 (if gap-date (str "activity from " (fmt/date gap-date)) "the remaining activity")
+                 ".")))]])
     :else
     [:div.reconcile-coverage.reconcile-coverage--muted
      [:p.reconcile-coverage-line "○ Not checked yet"]

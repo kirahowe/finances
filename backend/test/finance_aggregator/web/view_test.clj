@@ -395,6 +395,34 @@
       (is (= 2 (:uncovered cov)) "the part rows t5+t6 (2025-01-20) fall outside the statement")
       (is (= #inst "2025-01-20" (:first-uncovered cov))))))
 
+(deftest focus-close-distinguishes-a-gap-from-a-non-matching-period
+  ;; Both read :partial, but the fix differs: a GAP (txns outside every period on file) needs a
+  ;; period ADDED, while activity inside a period that merely drifts needs THAT period fixed.
+  ;; :gap-uncovered/:first-gap are the verdict-blind recount the coverage note branches on.
+  (testing "a drifting statement spanning every txn → :partial but NO gap (nothing to add)"
+    (let [stmt {:start-date #inst "2024-12-31" :end-date #inst "2025-01-31" :status :drift}
+          cov (:coverage (view/focus-close txs {:account-eid 101 :opening nil :closing nil
+                                                :statements [stmt]}))]
+      (is (= :partial (:status cov)) "a drifting statement contributes no coverage")
+      (is (= 4 (:uncovered cov)) "t2 t4 t5 t6 all uncovered until the statement ties out")
+      (is (zero? (:gap-uncovered cov)) "yet every txn falls inside a period on file")
+      (is (nil? (:first-gap cov)))))
+  (testing "a drifting PARTIAL statement → the gap starts at the first txn NO period spans"
+    (let [stmt {:start-date #inst "2024-12-31" :end-date #inst "2025-01-12" :status :drift}
+          cov (:coverage (view/focus-close txs {:account-eid 101 :opening nil :closing nil
+                                                :statements [stmt]}))]
+      (is (= 4 (:uncovered cov)) "the drifting statement covers nothing")
+      (is (= #inst "2025-01-05" (:first-uncovered cov)))
+      (is (= 2 (:gap-uncovered cov)) "the Jan 20 part rows are outside every period on file")
+      (is (= #inst "2025-01-20" (:first-gap cov)) "the add-a-period suggestion dates from HERE")))
+  (testing "a drifting month-boundary balance → no gap either (the fix is the balances)"
+    (let [cov (:coverage (view/focus-close txs {:account-eid 100 :opening 0M :closing 2500M
+                                                :opening-date #inst "2024-12-31"
+                                                :closing-date #inst "2025-01-31"}))]
+      (is (= :partial (:status cov)))
+      (is (zero? (:gap-uncovered cov)))
+      (is (nil? (:first-gap cov))))))
+
 (deftest focus-close-counts-a-statements-inclusive-start-day
   ;; Pins the boundary shift at THIS call site (focus-close's span-building), independent of the
   ;; reconcile-month pin. Statement start-date == t2's date (2025-01-05, the only Visa txn that day,
