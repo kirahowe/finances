@@ -107,6 +107,7 @@
       (is (= "Chequing" (:external-name lunchflow-row)))
       (is (= "lunchflow-1" (:external-id lunchflow-row)))
       (is (true? (:lunchflow? lunchflow-row)))
+      (is (= "/setup/account/lunchflow-1/name" (:name-url lunchflow-row)))
       (is (= "/setup/sync-account?external-id=lunchflow-1" (:sync-url lunchflow-row)))
       (is (true? (:syncing? lunchflow-row))))
     (testing "a Plaid account row gets no sync affordance and no override yet"

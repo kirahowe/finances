@@ -56,27 +56,50 @@ check('Resync is a Datastar @post to /setup/resync', /@post\('\/setup\/resync/.t
   String(resyncAttr));
 check('no reload-causing resync form', await page.locator('form.connection-resync').count() === 0);
 
-// 6. The connection's account table has 4 rows. The Name cell is an inline rename
-//    form (input placeholder = the provider name, prefilled blank — no overrides in
-//    the seed) rather than plain text, sorted by the shown label.
+// 6. The connection's account table has 4 rows. The Name cell is an inline click-to-edit
+//    (resting text = the shown label; a hidden input commits over @put — web.inline-edit),
+//    sorted by the shown label. No form, no Save button, no bordered inputs at rest.
 const rowCount = await page.locator('.connection-card table.table tbody tr').count();
 check('account table has 4 rows', rowCount === 4, `rows=${rowCount}`);
-const nameInputs = page.locator('.connection-card table.table tbody tr td:nth-child(1) input[name="display-name"]');
-const placeholders = await nameInputs.evaluateAll((els) => els.map((el) => (el as HTMLInputElement).placeholder));
+const nameButtons = page.locator('.connection-card td.account-name-cell button.account-name-button');
+const restingNames = await nameButtons.allInnerTexts();
 check('account names sorted [Chequing, Mortgage, Savings, Visa]',
-  JSON.stringify(placeholders) === '["Chequing","Mortgage","Savings","Visa"]',
-  JSON.stringify(placeholders));
-const nameValues = await nameInputs.evaluateAll((els) => els.map((el) => (el as HTMLInputElement).value));
-check('no display-name overrides yet — every rename input is blank',
-  nameValues.every((v) => v === ''), JSON.stringify(nameValues));
+  JSON.stringify(restingNames.map((t) => t.trim())) === '["Chequing","Mortgage","Savings","Visa"]',
+  JSON.stringify(restingNames));
+check('no rename form / Save buttons anywhere',
+  (await page.locator('.connection-card form.account-rename-form').count()) === 0 &&
+  (await page.locator('.connection-card button:has-text("Save")').count()) === 0);
 check('no muted original-name caption shows without an override',
   await page.locator('.connection-card .account-original-name').count() === 0);
-const renameAction = await page.locator('.connection-card form.account-rename-form').first()
-  .getAttribute('action');
-check('rename form posts to /setup/account/name', renameAction === '/setup/account/name', String(renameAction));
-const externalIdValue = await page.locator('.connection-card form.account-rename-form input[name="external-id"]')
-  .first().getAttribute('value');
-check('rename form carries the account external-id', !!externalIdValue, String(externalIdValue));
+const commitJs = await page.locator('.connection-card input.account-name-input').first()
+  .getAttribute('data-on:keydown');
+check('name commit @puts /setup/account/<id>/name', /@put\('\/setup\/account\/.+\/name'\)/.test(commitJs || ''),
+  String(commitJs));
+
+// 6b. A real rename round-trip: click Chequing's name, type an override, Enter → the cell
+//     morphs back server-confirmed with a transient ✓ and the muted provider-name caption;
+//     then clear it back (blank commit retracts the override) so the shared seed DB leaves
+//     this spec exactly as it entered (the suite's trailing-reset convention).
+const chequingCell = page.locator('.connection-card td.account-name-cell', { hasText: 'Chequing' }).first();
+await chequingCell.locator('button.account-name-button').click();
+const chequingInput = chequingCell.locator('input.account-name-input');
+await chequingInput.fill('Daily Chequing');
+await chequingInput.press('Enter');
+await page.waitForFunction(() =>
+  document.querySelector('.connection-card .account-original-name') !== null, null, { timeout: 5000 });
+check('rename morphs back with the override as the resting name',
+  (await chequingCell.locator('button.account-name-button').innerText()).trim() === 'Daily Chequing');
+check('saved ✓ flashes in the morphed cell',
+  (await chequingCell.locator('.name-saved-check').count()) === 1);
+check('provider name shows muted alongside the override',
+  (await chequingCell.locator('.account-original-name').innerText()).trim() === 'Chequing');
+await chequingCell.locator('button.account-name-button').click();
+await chequingInput.fill('');
+await chequingInput.press('Enter');
+await page.waitForFunction(() =>
+  document.querySelector('.connection-card .account-original-name') === null, null, { timeout: 5000 });
+check('blank commit clears the override back to the provider name',
+  (await chequingCell.locator('button.account-name-button').innerText()).trim() === 'Chequing');
 
 // 7. Type column shows internal account types (no provider-type on seed data).
 const types = await page.locator('.connection-card table.table tbody tr td:nth-child(2)').allInnerTexts();

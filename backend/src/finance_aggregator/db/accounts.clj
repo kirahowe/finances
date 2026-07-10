@@ -19,6 +19,13 @@
          :where [?e :account/external-id _]]
        (d/db db-conn) account-pull-pattern))
 
+(defn by-external-id
+  "One account (same pull shape as list-with-institution) by its :account/external-id, or
+   nil when it doesn't resolve to an account. Used to re-render a single row after a write
+   (the /setup rename SSE patch) without refetching the whole account list."
+  [db-conn external-id]
+  (d/pull (d/db db-conn) account-pull-pattern [:account/external-id external-id]))
+
 (defn inverted-account-ids
   "Set of account external-ids whose :account/invert-amount is true - the
    accounts whose canonical transaction sign is flipped once at import (see
@@ -33,15 +40,21 @@
 (defn set-display-name!
   "Set (or clear) an account's :account/display-name overlay — a user-authored rename
    over the provider's canonical :account/external-name, which is never mutated. The
-   value is trimmed; a blank/whitespace-only/nil name retracts the override, falling
-   back to the provider name. Looked up by :account/external-id (what the setup rename
-   form posts); a no-op when the id doesn't resolve to an account."
+   value is trimmed; a blank/whitespace-only/nil name — or one EQUAL to the provider's
+   own name — retracts the override, falling back to the provider name. The equality
+   case matters because the inline rename cell edits the SHOWN label: opening an
+   un-renamed cell and clicking away commits the provider name verbatim, and storing
+   that would be a pointless override that drags the muted provider-name caption out
+   under an unchanged label. Looked up by :account/external-id (what the rename cell's
+   @put names in its path); a no-op when the id doesn't resolve to an account."
   [db-conn external-id display-name]
-  (when-let [eid (:db/id (d/pull (d/db db-conn) '[:db/id] [:account/external-id external-id]))]
-    (let [trimmed (some-> display-name str/trim not-empty)]
-      (d/transact! db-conn (if trimmed
-                             [{:db/id eid :account/display-name trimmed}]
-                             [[:db/retract eid :account/display-name]])))))
+  (let [{eid :db/id ext-name :account/external-name}
+        (d/pull (d/db db-conn) '[:db/id :account/external-name] [:account/external-id external-id])]
+    (when eid
+      (let [trimmed (some-> display-name str/trim not-empty)]
+        (d/transact! db-conn (if (and trimmed (not= trimmed ext-name))
+                               [{:db/id eid :account/display-name trimmed}]
+                               [[:db/retract eid :account/display-name]]))))))
 
 (defn external-ids-for-provider
   "Set of :account/external-id for accounts of `provider` already imported - the

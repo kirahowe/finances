@@ -46,6 +46,28 @@
     (accounts/set-display-name! setup/*test-conn* "a" nil)
     (is (nil? (display-name-of "a")))))
 
+(deftest set-display-name-provider-name-is-a-clear
+  ;; The inline rename cell edits the SHOWN label, so an untouched open-then-blur commits
+  ;; the provider name verbatim — that must never become a stored override (it would drag
+  ;; the muted provider-name caption out under an unchanged label).
+  (d/transact! setup/*test-conn* [{:account/external-id "e" :account/provider :plaid
+                                   :account/external-name "Chequing"}])
+  (testing "committing the provider's own name never sets an override"
+    (accounts/set-display-name! setup/*test-conn* "e" "Chequing")
+    (is (nil? (display-name-of "e"))))
+  (testing "committing it over an existing override clears that override"
+    (accounts/set-display-name! setup/*test-conn* "e" "Daily Driver")
+    (is (= "Daily Driver" (display-name-of "e")))
+    (accounts/set-display-name! setup/*test-conn* "e" "  Chequing  ")
+    (is (nil? (display-name-of "e")))))
+
 (deftest set-display-name-no-op-for-unknown-external-id
   (testing "an external-id that doesn't resolve to an account is a silent no-op"
     (is (nil? (accounts/set-display-name! setup/*test-conn* "does-not-exist" "X")))))
+
+(deftest by-external-id-fetches-one-account-or-nil
+  (put-account! "a" nil)
+  (testing "a known external-id pulls that account"
+    (is (= "a" (:account/external-id (accounts/by-external-id setup/*test-conn* "a")))))
+  (testing "an unknown external-id is nil, not a throw"
+    (is (nil? (accounts/by-external-id setup/*test-conn* "does-not-exist")))))

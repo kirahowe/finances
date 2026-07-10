@@ -1,28 +1,86 @@
-/* Setup: the per-connection accounts table (web.pages.setup-view/accounts-table) —
-   the Name cell's inline rename form + the provider's original-name caption, and the
-   trailing per-row Lunchflow Sync action. Scoped under .connection-card so it never
-   touches the transactions workspace's own .table rules. */
+/* Setup: the per-connection accounts table (web.pages.setup-view/accounts-table). The Name
+   cell is an inline-edit-in-place cell (finance-aggregator.web.inline-edit) styled to match
+   the transactions table's description cell — resting text, no border, click to edit — so
+   the two tables read as one grammar instead of the account rows carrying their own bordered
+   form + Save button. Scoped under .connection-card so it never touches the transactions
+   workspace's own .table rules. */
 
 .connection-card .account-name-cell,
 .connection-card .account-sync-cell {
   /* .table td defaults to a fixed-ellipsis single line (load-bearing for the dense
-     transactions grid) — this cell needs room for a form / button instead. */
+     transactions grid) — this cell needs room for the muted provider-name caption. */
   overflow: visible;
   white-space: normal;
   max-width: none;
 }
 
-.account-rename-form {
-  display: flex;
-  align-items: center;
-  gap: var(--spacing-xs);
+/* Match the transactions table's row rhythm now that the rename form's taller
+   bordered input + Save button are gone — nothing else here needs the roomier
+   default .table padding. */
+.connection-card .table th,
+.connection-card .table td {
+  padding-top: var(--spacing-xs);
+  padding-bottom: var(--spacing-xs);
 }
 
-.account-rename-form .form-input {
-  width: auto;
-  flex: 1 1 12rem;
-  padding: var(--control-pad-y-sm) var(--spacing-sm);
-  font-size: var(--text-sm);
+/* Resting button + editing input share one box (the category-field convention —
+   variables.css §3), mirroring .description-button/.description-input. */
+.account-name-button {
+  background: none;
+  border: 1px solid transparent;
+  color: inherit;
+  cursor: text;
+  padding: var(--category-field-padding-y) var(--category-field-padding-x);
+  margin: calc(-1 * var(--category-field-padding-y))
+    calc(-1 * var(--category-field-padding-x));
+  border-radius: var(--radius-sm);
+  font-family: inherit;
+  font-size: inherit;
+  text-align: left;
+  width: 100%;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  transition: background-color var(--duration-fast) var(--ease-out),
+    border-color var(--duration-fast) var(--ease-out);
+}
+
+.account-name-button:hover {
+  background-color: var(--color-accent-soft);
+  border-color: var(--color-accent-soft-border);
+}
+
+.account-name-input {
+  width: 100%;
+  padding: var(--category-field-padding-y) var(--category-field-padding-x);
+  margin: calc(-1 * var(--category-field-padding-y))
+    calc(-1 * var(--category-field-padding-x));
+  border: 1px solid var(--color-primary);
+  border-radius: var(--radius-sm);
+  font-family: inherit;
+  font-size: inherit;
+  line-height: inherit;
+  color: var(--color-ink);
+  background: var(--color-surface);
+  box-shadow: var(--focus-ring);
+}
+
+.account-name-input:focus {
+  outline: none;
+}
+
+/* The resting button and the editing input share the cell; an `editing` class on
+   the cell swaps which is shown (mirrors .description-cell.editing). */
+.account-name-cell .account-name-input {
+  display: none;
+}
+
+.account-name-cell.editing .account-name-button {
+  display: none;
+}
+
+.account-name-cell.editing .account-name-input {
+  display: block;
 }
 
 .account-original-name {
@@ -30,6 +88,27 @@
   margin-top: var(--spacing-xs);
   color: var(--color-text-muted);
   font-size: var(--text-2xs);
+}
+
+/* Transient save confirmation — a quiet ✓ that fades on its own, no layout shift
+   (inline beside the name, not absolutely positioned, since the cell already
+   reflows freely). Gone for good once the next morph re-renders without saved?. */
+.name-saved-check {
+  margin-left: var(--spacing-xs);
+  color: var(--color-primary);
+  font-size: var(--text-sm);
+  animation: name-saved-fade 1.6s ease forwards;
+}
+
+@keyframes name-saved-fade {
+  0%, 60% { opacity: 1; }
+  100%    { opacity: 0; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .name-saved-check {
+    animation: none;
+  }
 }
 
 .connection-card .account-sync-cell {
