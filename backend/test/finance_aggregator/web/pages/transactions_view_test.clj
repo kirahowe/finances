@@ -9,7 +9,8 @@
    [finance-aggregator.web.month :as month]
    [finance-aggregator.web.pages.transactions-view :as tv]
    [finance-aggregator.web.period :as period]
-   [finance-aggregator.web.render :as r]))
+   [finance-aggregator.web.render :as r])
+  (:import [java.time LocalDate]))
 
 (defn- html [hiccup] (str (r/render hiccup)))
 
@@ -373,7 +374,7 @@
 ;; --- Period navigation preserves view state (Task B); range view adds a back-to-month × -----
 
 (deftest period-navigator-month-view-keeps-href-fallback-and-preserves-state-on-click
-  (let [h (html (tv/period-navigator {:kind :month :year 2025 :month 6}))]
+  (let [h (html (tv/period-navigator {:kind :month :year 2025 :month 6} (LocalDate/of 2025 6 15)))]
     (testing "hrefs remain the no-JS fallback, unchanged month math"
       (is (re-find #"href=\"/\?month=2025-05\"" h) "previous")
       (is (re-find #"href=\"/\?month=2025-07\"" h) "next"))
@@ -391,7 +392,7 @@
 
 (deftest period-navigator-range-view-shows-computed-titles-and-a-back-to-month-x
   (let [p (period/parse {:from "2026-06-10" :to "2026-07-09"})
-        h (html (tv/period-navigator p))
+        h (html (tv/period-navigator p (LocalDate/of 2026 7 9)))
         prev-label (tv/period-label (period/prev p))
         next-label (tv/period-label (period/next p))
         containing (month/display (period/containing-month p))]
@@ -405,6 +406,87 @@
       (is (re-find (re-pattern (str "Back to " containing)) h))
       (is (re-find #"href=\"/\?month=2026-07\"" h))
       (is (re-find #"p.delete\(&apos;from&apos;\); p.delete\(&apos;to&apos;\); p.set\(&apos;month&apos;, &apos;2026-07&apos;\)" h)))))
+
+;; --- Period picker (the popover under the dateline) ---------------------------
+
+(deftest period-navigator-dateline-toggles-the-period-picker
+  (let [h (html (tv/period-navigator {:kind :month :year 2026 :month 7} (LocalDate/of 2026 7 9)))]
+    (testing "the dateline is a toggle button carrying the live morph target unchanged"
+      (is (re-find #"id=\"period-toggle\"" h))
+      (is (re-find #"aria-haspopup=\"dialog\"" h))
+      (is (re-find #"\$_periodOpen = !\$_periodOpen" h))
+      (is (re-find #"aria-expanded" h))
+      (is (re-find #"id=\"period-navigator-display\"" h)
+          "the rows handler's #period-navigator-display morph target stays inside the button"))
+    (testing "the popover renders closed, click-outside + Escape close it"
+      (is (re-find #"id=\"period-picker\"" h))
+      (is (re-find #"data-show=\"\$_periodOpen\"" h))
+      (is (re-find #"\$_periodOpen &amp;&amp; \(\$_periodOpen = false\)" h))
+      (is (re-find #"evt.key === &apos;Escape&apos; &amp;&amp; \(\$_periodOpen = false\)" h)))))
+
+(deftest period-picker-rail-quick-links
+  (let [today (LocalDate/of 2026 7 9)
+        h (html (tv/period-picker {:kind :month :year 2026 :month 7} today))]
+    (testing "eight quick links: this month, the five before it, YTD, last 90 days"
+      (is (= 8 (count (re-seq #"period-picker-rail-item" h))))
+      (is (re-find #"period-picker-rail-divider" h)))
+    (testing "the link naming the viewed period is marked selected"
+      (is (re-find #"is-selected[^>]*>This month<" h))
+      (is (not (re-find #"is-selected[^>]*>June 2026<" h))))
+    (testing "a month link carries the period's own href (the no-JS fallback)"
+      (is (re-find #"href=\"/\?month=2026-06\"[^>]*>June 2026<" h)))
+    (testing "the range shortcuts carry today-anchored from/to hrefs"
+      (is (re-find #"from=2026-01-01&amp;to=2026-07-09" h) "Year to date")
+      (is (re-find #"from=2026-04-11&amp;to=2026-07-09" h) "Last 90 days"))
+    (testing "viewing a PAST month marks that rail link selected instead"
+      (let [h2 (html (tv/period-picker {:kind :month :year 2026 :month 5} today))]
+        (is (re-find #"is-selected[^>]*>May 2026<" h2))
+        (is (not (re-find #"is-selected[^>]*>This month<" h2)))))))
+
+(deftest period-picker-months-grid-classes-and-steppers
+  (let [p {:kind :month :year 2026 :month 5}
+        h (html (tv/period-picker-months 2026 p {:year 2026 :month 7}))]
+    (testing "the pane is the stable #period-picker-months morph target with the year label"
+      (is (re-find #"id=\"period-picker-months\"" h))
+      (is (re-find #">2026<" h)))
+    (testing "the steppers bake year±1 into their @gets — the fragment is the state machine"
+      (is (re-find #"@get\(&apos;/transactions/period-picker/months\?year=2025&apos;\)" h))
+      (is (re-find #"@get\(&apos;/transactions/period-picker/months\?year=2027&apos;\)" h)))
+    (testing "the viewed month is selected, the current calendar month ringed, later months muted"
+      (is (re-find #"period-picker-month is-selected[^>]*>May<" h))
+      (is (re-find #"period-picker-month is-current[^>]*>Jul<" h))
+      (is (re-find #"period-picker-month is-future[^>]*>Aug<" h))
+      (is (re-find #"period-picker-month is-future[^>]*>Dec<" h))
+      (is (re-find #"period-picker-month\"[^>]*>Jan<" h) "a plain past month carries no modifier"))
+    (testing "a month cell navigates to its month (href fallback + state-preserving click)"
+      (is (re-find #"href=\"/\?month=2026-08\"" h))
+      (is (re-find #"p.set\(&apos;month&apos;, &apos;2026-08&apos;\)" h)))
+    (testing "a different shown year: nothing selected/current, everything before now unmuted"
+      (let [h2 (html (tv/period-picker-months 2024 p {:year 2026 :month 7}))]
+        (is (not (re-find #"is-selected" h2)))
+        (is (not (re-find #"is-current" h2)))
+        (is (not (re-find #"is-future" h2)))))))
+
+(deftest period-picker-footer-custom-range
+  (testing "month view seeds the inputs with the month's own bounds"
+    (let [h (html (tv/period-picker {:kind :month :year 2026 :month 7} (LocalDate/of 2026 7 9)))]
+      (is (re-find #"id=\"picker-from\"[^>]*value=\"2026-07-01\"" h))
+      (is (re-find #"id=\"picker-to\"[^>]*value=\"2026-07-31\"" h))
+      (is (re-find #"aria-label=\"Range start\"" h))
+      (is (re-find #"aria-label=\"Range end\"" h))
+      (is (re-find #"\$_pickerFrom = evt.target.value" h) "one-way push, not data-bind")
+      (is (not (re-find #"data-bind=\"_pickerFrom\"" h)))))
+  (testing "range view seeds the range's own bounds"
+    (let [h (html (tv/period-picker (period/parse {:from "2026-06-10" :to "2026-07-09"})
+                                    (LocalDate/of 2026 7 9)))]
+      (is (re-find #"value=\"2026-06-10\"" h))
+      (is (re-find #"value=\"2026-07-09\"" h))))
+  (testing "Apply is disabled until both dates are set and from <= to, then navigates"
+    (let [h (html (tv/period-picker {:kind :month :year 2026 :month 7} (LocalDate/of 2026 7 9)))]
+      (is (re-find #"disabled: !\$_pickerFrom \|\| !\$_pickerTo \|\| \$_pickerFrom &gt; \$_pickerTo" h))
+      (is (re-find #"p.delete\(&apos;month&apos;\); p.delete\(&apos;page&apos;\)" h))
+      (is (re-find #"p.set\(&apos;from&apos;, \$_pickerFrom\); p.set\(&apos;to&apos;, \$_pickerTo\)" h))
+      (is (re-find #"location.href = &apos;/\?&apos; \+ p" h)))))
 
 ;; --- Active-filter chips + Clear all (Task C) --------------------------------
 

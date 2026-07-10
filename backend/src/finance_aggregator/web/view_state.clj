@@ -188,12 +188,15 @@
    \"blank means default\" convention on the client too, so a fresh table's signals (and the
    URL the url island reflects them into) stay clean.
 
-   `period-signals` is the page's period seed (web.period/signal-seed — this ns stays a pure
-   codec and never requires web.period itself, so the caller supplies the seed map): :month is
-   ALWAYS the containing month (so month-bound handlers keep working even in range view);
-   :from/:to are blank in month view, the ISO bounds of the range in range view — the client's
-   own cue for which lens is currently active."
-  [vs {:keys [month from to]} result]
+   `period-signals` is the page's period seed (web.period/signal-seed merged with
+   web.period/picker-seed — this ns stays a pure codec and never requires web.period itself,
+   so the caller supplies the seed map): :month is ALWAYS the containing month (so month-bound
+   handlers keep working even in range view); :from/:to are blank in month view, the ISO
+   bounds of the range in range view — the client's own cue for which lens is currently
+   active. :picker-from/:picker-to (the viewed span's own bounds, never blank) seed the
+   ephemeral :_pickerFrom/:_pickerTo signals — client-side couriers for the period picker's
+   custom-range Apply button, underscore-prefixed so they never ride a backend request."
+  [vs {:keys [month from to picker-from picker-to]} result]
   {:search        (:search vs)
    :scope         (if (= :to-reconcile (:scope vs)) "to-reconcile" "all")
    :hideTransfers (:hide-transfers vs)
@@ -207,6 +210,8 @@
    :month         month
    :from          from
    :to            to
+   :_pickerFrom   picker-from
+   :_pickerTo     picker-to
    :editValue     ""
    :catValue      ""
    :splitValue    ""
@@ -247,6 +252,8 @@
                   :institution (csv-param qp "fi")
                   :category (csv-param qp "fc")}
          :_colsOpen false
+         ;; The period-picker popover under the dateline (ephemeral open state, like _colsOpen).
+         :_periodOpen false
          ;; Summary-column panels default open; collapse state is ephemeral (survives
          ;; SSE morphs of #reconciliation/#category-rollup, resets on a full reload).
          :_reconcileOpen true

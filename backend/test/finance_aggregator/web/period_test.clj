@@ -141,3 +141,45 @@
 
   (testing "nil for a :month period"
     (is (nil? (period/range-dates (mo 2026 7))))))
+
+(deftest quick-links-test
+  (testing "a fixed today (2026-07-09): This month, 5 previous months, then two range shortcuts"
+    (let [links (period/quick-links (ld 2026 7 9))]
+      (is (= 8 (count links)) "This month + 5 previous months + YTD + Last 90 days")
+      (is (= [{:label "This month"    :period (mo 2026 7)}
+              {:label "June 2026"     :period (mo 2026 6)}
+              {:label "May 2026"      :period (mo 2026 5)}
+              {:label "April 2026"    :period (mo 2026 4)}
+              {:label "March 2026"    :period (mo 2026 3)}
+              {:label "February 2026" :period (mo 2026 2)}
+              {:label "Year to date"  :period (rng 2026 1 1 2026 7 9)}
+              {:label "Last 90 days"  :period (rng 2026 4 11 2026 7 9)}]
+             links))))
+
+  (testing "previous months cross a year boundary"
+    (let [links (period/quick-links (ld 2026 2 15))
+          labels (map :label links)]
+      (is (= ["This month" "January 2026" "December 2025" "November 2025"
+              "October 2025" "September 2025" "Year to date" "Last 90 days"]
+             labels))))
+
+  (testing "on the last day of January, Year to date spans exactly the calendar month and
+            canonicalizes to the :month shape — the rail then marks it selected when viewing
+            January itself, same as the This month link"
+    (let [links (period/quick-links (ld 2026 1 31))
+          ytd (some #(when (= "Year to date" (:label %)) (:period %)) links)]
+      (is (= (mo 2026 1) ytd)))))
+
+(deftest picker-seed-test
+  (testing "a month period seeds its own first/last day"
+    (is (= {:picker-from "2026-07-01" :picker-to "2026-07-31"} (period/picker-seed (mo 2026 7)))))
+
+  (testing "leap February"
+    (is (= {:picker-from "2024-02-01" :picker-to "2024-02-29"} (period/picker-seed (mo 2024 2)))))
+
+  (testing "non-leap February"
+    (is (= {:picker-from "2026-02-01" :picker-to "2026-02-28"} (period/picker-seed (mo 2026 2)))))
+
+  (testing "a range period seeds its own bounds"
+    (is (= {:picker-from "2026-06-10" :picker-to "2026-07-09"}
+           (period/picker-seed (rng 2026 6 10 2026 7 9))))))

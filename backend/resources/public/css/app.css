@@ -23,6 +23,7 @@
 @import "components/grid-navigation.css";
 @import "components/month-navigator.css";
 @import "components/pagination.css";
+@import "components/period-picker.css";
 @import "components/posted-date.css";
 @import "components/provider-connection.css";
 @import "components/reconciliation.css";

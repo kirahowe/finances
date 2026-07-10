@@ -176,3 +176,40 @@
   (when (= :range (:kind p))
     {:from (utils/string->date (str (:from p)))
      :to (utils/string->date (str (:to p)))}))
+
+;; ---------------------------------------------------------------------------
+;; Period picker (the popover under the dateline)
+;; ---------------------------------------------------------------------------
+
+(defn quick-links
+  "The picker popover's LEFT RAIL: quick-jump links, each `{:label :period}` — exactly what
+   the popover view renders as a period-href/period-nav-js anchor (identical state-preserving
+   navigation to the prev/next arrows). Built once from `today` (a LocalDate) so the page's
+   one clock read (the handler) feeds this, like every other today-dependent affordance; views
+   never call `month/current` themselves. Fixed link order: this month, the five calendar
+   months before it (most recent first), then two range shortcuts anchored to today — a range
+   whose bounds exactly span one calendar month canonicalizes away (see `canonicalize`), which
+   is why an on-the-last-day-of-January YTD reads as the January month link itself, not a
+   distinct range."
+  [^LocalDate today]
+  (let [this-month (assoc {:year (.getYear today) :month (.getMonthValue today)} :kind :month)
+        prev-months (take 5 (rest (iterate month/prev-month this-month)))
+        month-link (fn [m] {:label (month/display m) :period (assoc m :kind :month)})
+        year-start (LocalDate/of (.getYear today) 1 1)]
+    (into [{:label "This month" :period this-month}]
+          (concat
+           (map month-link prev-months)
+           [{:label "Year to date" :period (canonicalize {:kind :range :from year-start :to today})}
+            {:label "Last 90 days" :period (canonicalize {:kind :range :from (.minusDays today 89) :to today})}]))))
+
+(defn picker-seed
+  "The custom-range footer's seed — {:picker-from :picker-to} ISO strings spanning `p`: a
+   range's own bounds, or a month's first/last day. Kept distinct from `signal-seed`'s
+   :from/:to (blank in month view — the client's own cue for which lens is active): the
+   footer inputs always show SOMETHING, even in month view, so Apply starts from the span
+   on screen instead of forcing the user to pick both ends from scratch."
+  [p]
+  (case (:kind p)
+    :month (let [ym (YearMonth/of (:year p) (:month p))]
+             {:picker-from (str (.atDay ym 1)) :picker-to (str (.atEndOfMonth ym))})
+    :range {:picker-from (str (:from p)) :picker-to (str (:to p))}))

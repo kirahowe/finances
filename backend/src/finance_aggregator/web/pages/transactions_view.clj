@@ -12,7 +12,8 @@
    [finance-aggregator.web.period :as period]
    [finance-aggregator.web.render :as r]
    [finance-aggregator.web.shell :as shell]
-   [finance-aggregator.web.view-state :as vs]))
+   [finance-aggregator.web.view-state :as vs])
+  (:import [java.time LocalDate]))
 
 ;; ---------------------------------------------------------------------------
 ;; Columns
@@ -440,13 +441,130 @@
   [p]
   (str "/?" (str/join "&" (map (fn [[k v]] (str k "=" v)) (period/url-params p)))))
 
+;; --- Period picker (the popover under the dateline) -------------------------
+;; Clicking the dateline opens a popover: a rail of quick links (this month, recent months,
+;; YTD, last 90 days), a year-steppable month grid, and a custom-range footer. Every
+;; destination navigates exactly like the prev/next arrows (period-href fallback +
+;; period-nav-js state-preserving click), so the picker is just more ways to say the same
+;; thing. Only the month grid round-trips (SSE re-patch on year step); the rest is static.
+
+(defn- period-link
+  "One picker destination as an anchor: `period-href` fallback + `period-nav-js`
+   state-preserving navigation, `.is-selected` when it names the viewed period `p`."
+  [base-class target p label & [attrs]]
+  [:a (merge {:class (str base-class (when (= target p) " is-selected"))
+              :href (period-href target)
+              "data-on:click" (period-nav-js target)}
+             attrs)
+   label])
+
+(defn- period-picker-rail
+  "The quick-links rail: `links` is period/quick-links' ordered [{:label :period}…] — this
+   month + the five before it, then (under a divider) the two today-anchored range shortcuts."
+  [links p]
+  (let [[months ranges] (split-at 6 links)
+        item #(period-link "period-picker-rail-item" (:period %) p (:label %))]
+    [:nav.period-picker-rail {:aria-label "Quick periods"}
+     (map item months)
+     [:div.period-picker-rail-divider {:aria-hidden "true"}]
+     (map item ranges)]))
+
+(def ^:private month-abbrevs
+  ["Jan" "Feb" "Mar" "Apr" "May" "Jun" "Jul" "Aug" "Sep" "Oct" "Nov" "Dec"])
+
+(defn period-picker-months
+  "The picker's month-grid pane for `year` — the #period-picker-months morph target the
+   year steppers re-patch over SSE (GET /transactions/period-picker/months). The fragment
+   IS the year state machine: each render bakes year∓1 into the steppers' @get literals,
+   so no year signal exists anywhere. Cell classes: `.is-selected` when the viewed period
+   `p` is that month, `.is-current` a subtle ring on the real calendar month
+   (`current-month`, {:year :month} — computed by the handler; this view never reads the
+   clock), `.is-future` mutes months after it (still clickable — muting is a hint, not a
+   gate)."
+  [year p current-month]
+  (let [step (fn [y label glyph]
+               [:button.button.button-secondary.period-picker-year-step
+                {:type "button" :aria-label (str label ", show " y)
+                 "data-on:click" (str "@get('/transactions/period-picker/months?year=" y "')")}
+                glyph])
+        cur (+ (* 12 (:year current-month)) (:month current-month))]
+    [:div#period-picker-months.period-picker-months
+     [:div.period-picker-year
+      (step (dec year) "Previous year" (chevron-left))
+      [:span.period-picker-year-label (str year)]
+      (step (inc year) "Next year" (chevron-right))]
+     (into [:div.period-picker-grid]
+           (for [m (range 1 13)
+                 :let [target {:kind :month :year year :month m}
+                       cls (str "period-picker-month"
+                                (when (= (+ (* 12 year) m) cur) " is-current")
+                                (when (> (+ (* 12 year) m) cur) " is-future"))]]
+             (period-link cls target p (nth month-abbrevs (dec m))
+                          {:aria-label (month/display target)})))]))
+
+(def ^:private picker-apply-js
+  ;; Navigate to the custom range the $_pickerFrom/$_pickerTo couriers hold — the same
+  ;; state-preserving URL rewrite as period-nav-js, but built from the live signals instead
+  ;; of a render-time target (delete the month shape's key + page, set from/to).
+  (str "const p = new URLSearchParams(location.search);"
+       " p.delete('month'); p.delete('page');"
+       " p.set('from', $_pickerFrom); p.set('to', $_pickerTo);"
+       " location.href = '/?' + p"))
+
+(defn- period-picker-footer
+  "The custom-range footer: two NATIVE date inputs (deliberate — the browser gives both its
+   single-date picker and segmented typing, the exact pairing asked for) seeded server-side
+   from period/picker-seed and pushed one-way into the $_pickerFrom/$_pickerTo couriers on
+   change (data-bind's write-back would clobber segment editing mid-keystroke — see the
+   form/date-input convention on add-transaction-modal). Apply stays disabled until both are
+   set and from <= to (ISO yyyy-MM-dd compares correctly as plain strings)."
+  [p]
+  (let [{:keys [picker-from picker-to]} (period/picker-seed p)]
+    [:div.period-picker-footer
+     [:p.period-picker-footer-label "Custom range"]
+     [:div.period-picker-footer-row
+      [:input#picker-from.form-input.period-picker-date
+       {:type "date" :value picker-from :aria-label "Range start"
+        "data-on:change" "$_pickerFrom = evt.target.value"}]
+      [:span.period-picker-range-sep {:aria-hidden "true"} "–"]
+      [:input#picker-to.form-input.period-picker-date
+       {:type "date" :value picker-to :aria-label "Range end"
+        "data-on:change" "$_pickerTo = evt.target.value"}]
+      [:button.button.button-primary.period-picker-apply
+       {:type "button"
+        "data-attr" "{disabled: !$_pickerFrom || !$_pickerTo || $_pickerFrom > $_pickerTo}"
+        "data-on:click" picker-apply-js}
+       "Apply"]]]))
+
+(defn period-picker
+  "The period-picker popover, anchored under the dateline inside .month-navigator (which is
+   position: relative). $_periodOpen drives visibility; click-outside and Escape close it
+   (keydown__window — the row-actions-menu convention, so Escape works wherever focus sits).
+   `today` is the handler's one clock read (LocalDate, UTC), passed down so the quick links,
+   the grid's initial year, and the current-month ring all agree with the server's idea of
+   now — this view never reads the clock itself."
+  [p ^LocalDate today]
+  [:div#period-picker.period-picker
+   {"data-show" "$_periodOpen"
+    "data-on:click__outside" "$_periodOpen && ($_periodOpen = false)"
+    "data-on:keydown__window" "evt.key === 'Escape' && ($_periodOpen = false)"
+    :role "dialog" :aria-label "Choose period"}
+   [:div.period-picker-panes
+    (period-picker-rail (period/quick-links today) p)
+    (period-picker-months (:year (period/containing-month p)) p
+                          {:year (.getYear today) :month (.getMonthValue today)})]
+   (period-picker-footer p)])
+
 (defn period-navigator
-  "The dateline + prev/next steppers for period `p` (period/prev / period/next). Month view
-   reads \"Previous/Next month\"; range view reads the actual target span (\"Previous: Jun 3 –
+  "The dateline + prev/next steppers for period `p` (period/prev / period/next), plus the
+   period-picker popover the dateline toggles open ($_periodOpen — the dateline is a button
+   now, keeping #period-navigator-display inside it unchanged as the rows handler's live
+   morph target). `today` (LocalDate) feeds the picker — see period-picker. Month view reads
+   \"Previous/Next month\"; range view reads the actual target span (\"Previous: Jun 3 –
    Jun 9, 2026\") since a step's length varies (see period/prev's docstring), and gets a
    trailing × back to the range's containing month — the one way to leave range view."
-  ([p] (period-navigator p nil nil))
-  ([p lens-from lens-to]
+  ([p today] (period-navigator p today nil nil))
+  ([p today lens-from lens-to]
    (let [range? (not (period/month? p))
          prev (period/prev p)
          next (period/next p)
@@ -456,7 +574,16 @@
        [:a.button.button-secondary.month-nav-button
         {:href (period-href prev) :title (nav-label "Previous" prev) :aria-label (nav-label "Previous" prev)
          "data-on:click" (period-nav-js prev)} (chevron-left)]
-       (period-display (period-label p lens-from lens-to))
+       ;; `__stop` so the open-click isn't also seen as the popover's click-outside
+       ;; (the column-picker/funnel convention).
+       [:button#period-toggle.month-navigator-toggle
+        {:type "button" :aria-haspopup "dialog"
+         "data-on:click__stop" "$_periodOpen = !$_periodOpen"
+         ;; String 'true'/'false' (not a bare boolean): Datastar drops a false-valued attr,
+         ;; which would strip aria-expanded entirely.
+         "data-attr" "{'aria-expanded': $_periodOpen ? 'true' : 'false'}"}
+        (period-display (period-label p lens-from lens-to))
+        (chevron-down)]
        [:a.button.button-secondary.month-nav-button
         {:href (period-href next) :title (nav-label "Next" next) :aria-label (nav-label "Next" next)
          "data-on:click" (period-nav-js next)} (chevron-right)]
@@ -466,7 +593,8 @@
             {:href (period-href cm) :title (str "Back to " (month/display cm))
              :aria-label (str "Back to " (month/display cm))
              "data-on:click" (period-nav-js cm)}
-            "×"]))]])))
+            "×"]))]
+      (period-picker p today)])))
 
 (defn search-box []
   [:div.table-search
@@ -496,10 +624,10 @@
     "data-class" (str "{'is-active': $" signal "}")}
    label [:span.filter-count {:id span-id} count]])
 
-(defn toolbar [period counts undo]
+(defn toolbar [period today counts undo]
   [:div.toolbar
    [:div.toolbar-controls
-    (period-navigator period)
+    (period-navigator period today)
     [:span.toolbar-divider {:aria-hidden "true"}]
     (search-box)
     (scope-toggle counts)
@@ -1575,10 +1703,12 @@
 
 (defn page-body
   "The full transactions workspace body (everything inside layout/document). Dumb: the handler
-   supplies the `period` (a month, or a from/to analysis range — see web.period), masthead
-   `stats`, `categories` (for the combobox model), `view-st` (funnel selections), the presented
-   `model`, the `undo` labels, and whether the period is `empty?` of transactions."
-  [{:keys [period stats categories view-st model undo empty?]}]
+   supplies the `period` (a month, or a from/to analysis range — see web.period), `today` (the
+   handler's one clock read, a UTC LocalDate — feeds the period picker's quick links and
+   current-month ring; see period-picker), masthead `stats`, `categories` (for the combobox
+   model), `view-st` (funnel selections), the presented `model`, the `undo` labels, and
+   whether the period is `empty?` of transactions."
+  [{:keys [period today stats categories view-st model undo empty?]}]
   ;; `cat-opts` is the model's category *funnel* option list — kept distinct from the
   ;; `category-options` view fn (the hidden combobox source list) it would otherwise shadow.
   (let [{:keys [result counts account-options institution-options rollup]
@@ -1589,7 +1719,7 @@
      (sr-status)
      [:div.transactions-layout
       [:div.card
-       (toolbar period counts undo)
+       (toolbar period today counts undo)
        (active-filters account-options institution-options cat-opts view-st
                        ;; A fresh full-page load never has the statement lens active (its
                        ;; $reconFrom/$reconTo couriers aren't URL-persisted — see url.ts).

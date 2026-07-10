@@ -279,11 +279,34 @@
        (layout/document
         {:title "Finance Aggregator"
          :islands ["combobox" "url" "grid-nav" "resize" "split-editor" "modal"]
-         :signals (merge (vs/client-signals view-st (period/signal-seed p) (:result model) qp)
+         :signals (merge (vs/client-signals view-st
+                                            (merge (period/signal-seed p) (period/picker-seed p))
+                                            (:result model) qp)
                          (recon-signals close-model))}
-        (page-body {:period p :stats (db-stats/entity-counts db-conn) :categories categories
+        ;; :today is the page's one clock read (UTC — the same convention as month/current),
+        ;; passed down so the period picker's quick links + current-month ring stay pure views.
+        (page-body {:period p :today (java.time.LocalDate/now java.time.ZoneOffset/UTC)
+                    :stats (db-stats/entity-counts db-conn) :categories categories
                     :view-st view-st :model model :undo (undo-labels auth/user-id)
                     :empty? (empty? txs)}))})))
+
+(defn picker-months
+  "GET /transactions/period-picker/months — re-render the period picker's month-grid pane
+   for the ?year the stepper buttons bake in server-side (fallback: the viewed period's
+   containing year off the live signals). SSE-patches the #period-picker-months fragment;
+   the fragment IS the year state machine — each response bakes year∓1 into the next
+   steppers' @gets, so no year signal exists. No db access: pure calendar math over the
+   viewed period + the current calendar month (month/current — the handler's clock read;
+   the view stays dumb)."
+  [_deps]
+  (fn [req]
+    (let [signals (r/read-signals req)
+          p (signals-period signals)
+          year (or (some-> (get-in req [:query-params "year"]) parse-long)
+                   (:year (period/containing-month p)))]
+      (sse-response req
+       (fn [sse]
+         (patch! sse (tv/period-picker-months year p (month/current))))))))
 
 (defn rows
   "GET /transactions/rows — a pure view change: clear lingering, re-run the view, morph the tbody +

@@ -1,0 +1,174 @@
+/* The period-picker popover, anchored under the dateline (.month-navigator is
+   position: relative). Same surface treatment as the header-filter popover
+   (filter.css): surface + strong border + shadow, everything token-driven so
+   dark mode is automatic. Three regions: the quick-links rail (sunken, left),
+   the year-steppable month grid (right), and the custom-range footer (sunken,
+   full width, under both). */
+.period-picker {
+  position: absolute;
+  top: calc(100% + 6px);
+  left: 0;
+  z-index: 1000;
+  background: var(--color-surface);
+  border: 1px solid var(--color-border-strong);
+  border-radius: var(--radius-lg);
+  box-shadow: var(--shadow-md);
+  overflow: hidden;
+  width: max-content;
+}
+
+.period-picker-panes {
+  display: flex;
+}
+
+/* Quick links — this month, the five before it, then the range shortcuts. */
+.period-picker-rail {
+  width: 10.5rem;
+  background: var(--color-surface-sunken);
+  border-right: 1px solid var(--color-border);
+  padding: var(--spacing-sm) 0;
+}
+
+.period-picker-rail-item {
+  display: block;
+  padding: var(--spacing-xs) var(--spacing-md);
+  font-size: var(--text-sm);
+  color: var(--color-text);
+  text-decoration: none;
+}
+
+.period-picker-rail-item:hover {
+  background: var(--color-hover-neutral);
+}
+
+.period-picker-rail-item:focus-visible {
+  outline: none;
+  box-shadow: var(--focus-ring);
+}
+
+.period-picker-rail-item.is-selected {
+  background: var(--color-accent-soft);
+  color: var(--color-primary);
+  font-weight: 600;
+}
+
+.period-picker-rail-divider {
+  border-top: 1px solid var(--color-border);
+  margin: var(--spacing-xs) var(--spacing-md);
+}
+
+/* Year stepper + month grid. */
+.period-picker-months {
+  padding: var(--spacing-sm) var(--spacing-md);
+}
+
+.period-picker-year {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: var(--spacing-sm);
+  margin-bottom: var(--spacing-sm);
+}
+
+.period-picker-year-label {
+  font-family: var(--font-display);
+  font-size: var(--text-base);
+  font-weight: 500;
+}
+
+/* The steppers are standard secondary buttons at the small square footprint. */
+.period-picker-year-step {
+  width: var(--control-square-sm);
+  height: var(--control-square-sm);
+  min-width: var(--control-square-sm);
+  padding: 0;
+}
+
+.period-picker-year-step svg {
+  width: var(--spacing-md);
+  height: var(--spacing-md);
+}
+
+.period-picker-grid {
+  display: grid;
+  grid-template-columns: repeat(3, 4rem);
+  gap: var(--spacing-xs);
+}
+
+/* Month cells: the viewed month fills, the real current calendar month gets a
+   subtle ring, months after it are muted (but stay clickable — the muting is
+   a hint, not a gate). */
+.period-picker-month {
+  height: 2.125rem;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: var(--text-sm);
+  border-radius: var(--radius-sm);
+  color: var(--color-text);
+  text-decoration: none;
+}
+
+.period-picker-month:hover {
+  background: var(--color-hover-neutral);
+}
+
+.period-picker-month:focus-visible {
+  outline: none;
+  box-shadow: var(--focus-ring);
+}
+
+.period-picker-month.is-current {
+  box-shadow: inset 0 0 0 1px var(--color-primary);
+}
+
+.period-picker-month.is-future {
+  color: var(--color-text-muted);
+}
+
+.period-picker-month.is-selected {
+  background: var(--color-primary);
+  color: var(--color-on-accent);
+  font-weight: 600;
+}
+
+/* Custom range — two native date inputs + Apply. */
+.period-picker-footer {
+  border-top: 1px solid var(--color-border);
+  background: var(--color-surface-sunken);
+  padding: var(--spacing-sm) var(--spacing-md);
+}
+
+/* The app's eyebrow treatment (matches .view-menu-group-label / table heads). */
+.period-picker-footer-label {
+  margin: 0;
+  font-size: var(--text-2xs);
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  color: var(--color-text-muted);
+}
+
+.period-picker-footer-row {
+  display: flex;
+  align-items: center;
+  gap: var(--spacing-sm);
+  margin-top: var(--spacing-xs);
+}
+
+/* The date inputs are standard .form-input at a fixed footprint (form-input's
+   width: 100% would fight the flex row). */
+.period-picker-date {
+  width: 9.5rem;
+}
+
+.period-picker-range-sep {
+  color: var(--color-text-muted);
+}
+
+/* Apply sits at the toolbar control height so the footer row reads as one rule. */
+.period-picker-apply {
+  height: var(--toolbar-control-height);
+  padding: var(--control-pad-y-sm) var(--control-pad-x-sm);
+  font-size: var(--text-sm);
+}

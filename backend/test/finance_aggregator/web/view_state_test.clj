@@ -134,8 +134,9 @@
 ;; --- view-state → signals (initial seed) ------------------------------------
 
 (def ^:private month-seed
-  "A period-signals seed for month view (web.period/signal-seed's :month shape) — blank from/to."
-  {:month "2025-01" :from "" :to ""})
+  "A period-signals seed for month view (web.period/signal-seed merged with picker-seed's
+   :month shape) — blank from/to, but the picker couriers carry the month's own bounds."
+  {:month "2025-01" :from "" :to "" :picker-from "2025-01-01" :picker-to "2025-01-31"})
 
 (deftest vs->signals-mapping
   (testing "page/page-size come from the clamped view result, not the requested view-state"
@@ -177,15 +178,21 @@
   (testing "a RANGE seed lands its from/to in the signals, and :month is the containing month
             (not blank) — month-bound handlers keep working even in range view"
     (let [s (vs/vs->signals (vs/query->view-state {})
-                            {:month "2026-07" :from "2026-06-10" :to "2026-07-09"}
+                            {:month "2026-07" :from "2026-06-10" :to "2026-07-09"
+                             :picker-from "2026-06-10" :picker-to "2026-07-09"}
                             {:page 0 :page-size 25})]
       (is (= "2026-07" (:month s)))
       (is (= "2026-06-10" (:from s)))
-      (is (= "2026-07-09" (:to s)))))
-  (testing "a MONTH seed lands blank from/to"
+      (is (= "2026-07-09" (:to s)))
+      (is (= "2026-06-10" (:_pickerFrom s)) "a range seeds the picker couriers with its own bounds")
+      (is (= "2026-07-09" (:_pickerTo s)))))
+  (testing "a MONTH seed lands blank from/to, but the picker couriers carry the month's bounds
+            (the custom-range inputs always open showing the viewed span)"
     (let [s (vs/vs->signals (vs/query->view-state {}) month-seed {:page 0 :page-size 25})]
       (is (= "" (:from s)))
-      (is (= "" (:to s))))))
+      (is (= "" (:to s)))
+      (is (= "2025-01-01" (:_pickerFrom s)))
+      (is (= "2025-01-31" (:_pickerTo s))))))
 
 ;; --- column visibility ------------------------------------------------------
 
@@ -224,6 +231,7 @@
       (is (= [] (get-in s [:filter :institution])))
       (is (= ["10" "11"] (get-in s [:filter :category])))
       (is (false? (:_colsOpen s)) "ephemeral UI signals seeded")
+      (is (false? (:_periodOpen s)) "the period picker opens closed")
       (is (= "" (:_openFunnel s)))
       (is (= "" (:_funnelQuery s)))
       (is (= 0 (:_funnelX s)))
