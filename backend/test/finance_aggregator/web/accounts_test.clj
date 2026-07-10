@@ -114,6 +114,20 @@
       (is (false? (:lunchflow? plaid-row)))
       (is (false? (:syncing? plaid-row)) "its OWN connection (plaid:a) isn't :syncing"))))
 
+(deftest connection-groups-carry-institution-logo
+  (let [connections [{:connection/id "plaid:b" :connection/provider :plaid
+                      :connection/institution-name "Bravo" :connection/status :synced}
+                     {:connection/id "plaid:a" :connection/provider :plaid
+                      :connection/institution-name "Alpha" :connection/status :synced}]
+        accounts [(assoc (acct "Acct-B1" "plaid:b")
+                          :account/institution {:institution/name "Bravo" :institution/logo "bravo.png"})
+                  (acct "Acct-A1" "plaid:a")]
+        {:keys [groups]} (accounts/connection-groups connections accounts fixed-now)]
+    (testing "a connection whose accounts pulled an institution logo surfaces it"
+      (is (= "bravo.png" (:institution-logo (first (filter #(= "plaid:b" (:id %)) groups))))))
+    (testing "a connection with no institution logo on any account gets nil"
+      (is (nil? (:institution-logo (first (filter #(= "plaid:a" (:id %)) groups))))))))
+
 (deftest present-bundles-stats-and-groups
   (let [model (accounts/present {:stats {:accounts 1} :connections [] :accounts [] :now fixed-now})]
     (is (= {:accounts 1} (:stats model)))

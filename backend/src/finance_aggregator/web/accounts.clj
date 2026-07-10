@@ -94,21 +94,26 @@
 
 (defn- connection-group
   "Presentation map for one connection: its badge, status pill, humanized
-   last-synced, error, and the (display-shaped) accounts stamped to it."
+   last-synced, error, the (display-shaped) accounts stamped to it, and
+   :institution-logo — the first non-nil :institution/logo among the connection's
+   raw accounts (before account-display flattens them), for the setup card's
+   avatar."
   [now accounts-by-conn
    {:connection/keys [id provider institution-name status last-success-at error-message]}]
-  {:id               id
-   :provider         provider
-   :badge-label      (provider-label provider)
-   :badge-class      (str "badge-" (if provider (name provider) "unknown"))
-   :institution-name (or institution-name (provider-label provider))
-   :status-kw        status
-   :status           (connection-status status)
-   :last-synced      (fmt/relative-time last-success-at now)
-   :error-message    error-message
-   :resync-url       (resync-url id)
-   :accounts         (mapv (partial account-display (= :syncing status))
-                           (sort-accounts (get accounts-by-conn id [])))})
+  (let [raw-accounts (get accounts-by-conn id [])]
+    {:id               id
+     :provider         provider
+     :badge-label      (provider-label provider)
+     :badge-class      (str "badge-" (if provider (name provider) "unknown"))
+     :institution-name (or institution-name (provider-label provider))
+     :institution-logo (some #(get-in % [:account/institution :institution/logo]) raw-accounts)
+     :status-kw        status
+     :status           (connection-status status)
+     :last-synced      (fmt/relative-time last-success-at now)
+     :error-message    error-message
+     :resync-url       (resync-url id)
+     :accounts         (mapv (partial account-display (= :syncing status))
+                             (sort-accounts raw-accounts))}))
 
 (defn connection-groups
   "Build the setup view's connection groups: one per connection (ordered by

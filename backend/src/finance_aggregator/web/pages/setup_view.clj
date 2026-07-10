@@ -74,13 +74,14 @@
   "One sync connection: institution + provider badge, status pill, last-synced,
    a Resync action (Datastar @post — patches the card live, no page reload), an
    optional error line, and the accounts it owns. Disabled while :syncing."
-  [{:keys [badge-label badge-class institution-name status-kw status last-synced
-           error-message resync-url accounts]}]
+  [{:keys [badge-label badge-class institution-name institution-logo status-kw status
+           last-synced error-message resync-url accounts]}]
   (let [syncing? (= :syncing status-kw)]
     [:div.card.connection-card
      [:div.connection-head
       [:div.connection-id
        [:span {:class (str "badge " badge-class)} badge-label]
+       (shell/institution-avatar {:name institution-name :logo institution-logo})
        [:span.connection-name institution-name]]
       [:div.connection-meta
        [:span {:class (str "status-pill status-pill--" (:tone status))} (:label status)]
@@ -145,7 +146,7 @@
 (defn- lunchflow-institution [{:keys [institution-name institution-logo accounts]}]
   [:div.provider-institution
    [:h3.provider-institution-name
-    (when institution-logo [:img.provider-institution-logo {:src institution-logo :alt ""}])
+    (shell/institution-avatar {:name institution-name :logo institution-logo})
     institution-name]
    [:ul.provider-account-list
     (for [{:keys [external-id name connected?]} accounts]

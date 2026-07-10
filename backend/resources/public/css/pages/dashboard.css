@@ -259,6 +259,11 @@
   gap: var(--spacing-sm);
 }
 
+.connection-id .institution-avatar {
+  width: 20px;
+  height: 20px;
+}
+
 .connection-name {
   font-family: var(--font-display);
   font-size: var(--text-md);

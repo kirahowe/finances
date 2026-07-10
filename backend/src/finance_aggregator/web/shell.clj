@@ -1,5 +1,6 @@
 (ns finance-aggregator.web.shell
-  "Shared page chrome (the masthead) for server-rendered pages."
+  "Shared page chrome (the masthead) and small cross-page components for
+   server-rendered pages."
   (:require
    [clojure.string :as str]
    [finance-aggregator.web.format :as fmt]))
@@ -38,3 +39,20 @@
        [:span [:b (fmt/integer (:accounts stats))] " acct."]
        [:span.dot "·"]
        [:span [:b (fmt/integer (:transactions stats))] " txns"]])]])
+
+(defn institution-avatar
+  "A small round institution mark: `inst`'s :logo image when there is one, else a
+   single-letter circle from the first [A-Za-z0-9] character of :name (upper-cased,
+   \"?\" when :name has none). `inst` is {:name str-or-nil :logo str-or-nil} and may
+   itself be nil. Returns nil when there's nothing to show (no inst, or an inst with
+   neither a non-blank name nor a logo) so a call site can splice it in unconditionally.
+
+   Decorative by design (alt \"\"/aria-hidden) — every call site already renders the
+   institution name as adjacent text, so the mark would only double up what a screen
+   reader announces."
+  [{:keys [name logo] :as inst}]
+  (when (and inst (or (not (str/blank? name)) (not (str/blank? logo))))
+    (if-not (str/blank? logo)
+      [:img.institution-avatar {:src logo :alt "" :aria-hidden "true"}]
+      (let [letter (or (some->> name (re-find #"[A-Za-z0-9]") str/upper-case) "?")]
+        [:span.institution-avatar.institution-avatar--letter {:aria-hidden "true"} letter]))))

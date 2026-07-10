@@ -36,11 +36,9 @@
   border-bottom: 1px solid var(--color-border);
 }
 
-.provider-institution-logo {
-  width: 1.25rem;
-  height: 1.25rem;
-  object-fit: contain;
-  border-radius: var(--radius-sm);
+.provider-institution-name .institution-avatar {
+  width: 20px;
+  height: 20px;
 }
 
 .provider-account-list {
