@@ -86,12 +86,12 @@
    badges, the three funnel option lists (faceted counts), and the active-filter chips.
    `lens?` (whether the statement lens is narrowing the table — the caller alone sees the live
    $reconFrom/$reconTo signals it rides on) feeds the chip row's Clear-all visibility."
-  [sse {:keys [counts account-options institution-options category-options]} view-st lens?]
+  [sse {:keys [counts account-options institution-options category-options category-labels]} view-st lens?]
   (patch! sse (counts-fragment counts))
   (patch! sse (funnel-list "account" account-options))
   (patch! sse (funnel-list "institution" institution-options))
   (patch! sse (funnel-list "category" category-options))
-  (patch! sse (active-filters account-options institution-options category-options view-st
+  (patch! sse (active-filters account-options institution-options category-options category-labels view-st
                              (vs/clear-all-active? view-st lens?))))
 
 ;; --- Courier / money parsers (shared by the reconcile + modal handlers) ----

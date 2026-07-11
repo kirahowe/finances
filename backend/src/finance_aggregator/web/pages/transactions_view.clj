@@ -939,12 +939,17 @@
    dumb and never reads signals itself). #active-filters morph target, re-patched on every view
    change. The chip row shows whenever there's a chip OR clear-all? is true — a search term or
    the Uncategorized chip has no chip of its own, but still needs a way to clear it here."
-  [account-opts institution-opts category-opts {:keys [accounts institutions categories]} clear-all?]
+  [account-opts institution-opts category-opts category-labels {:keys [accounts institutions categories]} clear-all?]
   (let [label-of (fn [opts id] (some #(when (= (:id %) id) (:label %)) opts))
+        ;; Category chips resolve against the FULL model (category-labels, id→name), not the
+        ;; present-this-month funnel options — a rollup group drill rides inactive-child ids
+        ;; (category-rollup group :ids), which the funnel omits, and those must still name their
+        ;; chips instead of falling back to "—".
+        cat-label (fn [id] (or (get category-labels id) (label-of category-opts id)))
         chips (concat
                (for [id accounts]     (active-filter-chip "account"     "Account"     (label-of account-opts id) id))
                (for [id institutions] (active-filter-chip "institution" "Institution" (label-of institution-opts id) id))
-               (for [id categories]   (active-filter-chip "category"    "Category"    (label-of category-opts id) id)))
+               (for [id categories]   (active-filter-chip "category"    "Category"    (cat-label id) id)))
         show? (or (seq chips) clear-all?)]
     (into [:div.active-chips (cond-> {:id "active-filters"} (not show?) (assoc :hidden true))]
           (concat chips (when clear-all? [(active-filters-clear-all)])))))
@@ -1815,7 +1820,7 @@
   ;; `cat-opts` is the model's category *funnel* option list — kept distinct from the
   ;; `category-options` view fn (the hidden combobox source list) it would otherwise shadow.
   (let [{:keys [result counts account-options institution-options rollup]
-         close-model :close cat-opts :category-options} model]
+         close-model :close cat-opts :category-options cat-labels :category-labels} model]
     [:div.container.container--workspace {"data-on:keydown__window" undo-key-js}
      (shell/masthead {:active :transactions :stats stats})
      (error-banner)
@@ -1823,7 +1828,7 @@
      [:div.transactions-layout
       [:div.card
        (toolbar period today counts undo)
-       (active-filters account-options institution-options cat-opts view-st
+       (active-filters account-options institution-options cat-opts cat-labels view-st
                        ;; A fresh full-page load never has the statement lens active (its
                        ;; $reconFrom/$reconTo couriers aren't URL-persisted — see url.ts).
                        (vs/clear-all-active? view-st false))

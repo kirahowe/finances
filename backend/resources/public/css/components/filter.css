@@ -425,7 +425,12 @@
   display: inline-flex;
   align-items: center;
   gap: var(--spacing-xs);
-  padding: var(--spacing-xs) var(--spacing-xs) var(--spacing-xs) var(--spacing-sm);
+  /* Snap to the shared toolbar-control height so chips line up with the count
+     chips/scope toggle directly above them; the fixed height drives the vertical
+     centering, so only horizontal padding is set (reduced on the right, where the
+     remove button carries its own hit area). */
+  height: var(--toolbar-control-height);
+  padding: 0 var(--spacing-xs) 0 var(--control-pad-x-sm);
   border: 1px solid var(--color-border-strong);
   border-radius: var(--border-radius);
   background: var(--color-surface);
@@ -457,7 +462,9 @@
   color: var(--color-text-muted);
   cursor: pointer;
   border-radius: var(--radius-sm);
-  font-size: var(--glyph);
+  /* Sized to the chip's own text, not the standalone icon-button --glyph: at 16px
+     the "×" filled its 16px box edge-to-edge and read oversized next to the value. */
+  font-size: var(--text-sm);
   line-height: 1;
 }
 

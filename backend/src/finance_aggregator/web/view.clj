@@ -601,5 +601,10 @@
              :counts              (facet-counts txs view-st)
              :account-options     (account-options txs view-st)
              :institution-options (institution-options txs view-st)
-             :category-options    (category-funnel-options txs categories view-st)}
+             :category-options    (category-funnel-options txs categories view-st)
+             ;; Full id→name map for the active-filter chips: the funnel options above only
+             ;; carry categories PRESENT this month, but a rollup group drill puts inactive-child
+             ;; ids into $filter.category (category-rollup group :ids), so their chips must name
+             ;; themselves from the whole model rather than fall back to a bare "—".
+             :category-labels     (into {} (map (juxt :db/id :category/name)) categories)}
       rollup (assoc :rollup rollup))))

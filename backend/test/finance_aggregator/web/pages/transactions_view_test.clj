@@ -653,17 +653,17 @@
 
 (deftest active-filters-clear-all-visibility-and-reset
   (testing "no filters, clear-all? false → the row is hidden and carries no clear-all button"
-    (let [h (html (tv/active-filters [] [] [] {:accounts #{} :institutions #{} :categories #{}} false))]
+    (let [h (html (tv/active-filters [] [] [] {} {:accounts #{} :institutions #{} :categories #{}} false))]
       (is (re-find #"hidden" h))
       (is (not (re-find #"active-chips-clear" h)))))
   (testing "clear-all? true with ZERO chips (e.g. only a search term is active) still shows the
             row — a search term has no chip of its own, but still needs a way to clear it"
-    (let [h (html (tv/active-filters [] [] [] {:accounts #{} :institutions #{} :categories #{}} true))]
+    (let [h (html (tv/active-filters [] [] [] {} {:accounts #{} :institutions #{} :categories #{}} true))]
       (is (not (re-find #"hidden" h)))
       (is (re-find #"active-chips-clear" h))
       (is (re-find #"Clear all" h))))
   (testing "clear-all resets every filter signal, not sort or scope"
-    (let [h (html (tv/active-filters [] [] [] {:accounts #{} :institutions #{} :categories #{}} true))]
+    (let [h (html (tv/active-filters [] [] [] {} {:accounts #{} :institutions #{} :categories #{}} true))]
       (is (re-find #"\$search = &apos;&apos;" h))
       (is (re-find #"\$uncat = false" h))
       (is (re-find #"\$hideTransfers = false" h))
@@ -675,11 +675,24 @@
       (is (not (re-find #"\$sortCol" h)) "sort untouched")
       (is (not (re-find #"\$scope" h)) "scope (the work-queue mode) untouched")))
   (testing "a chip alone (clear-all? false) still shows the row without the clear-all button"
-    (let [h (html (tv/active-filters [{:id 1 :label "Chequing"}] [] []
+    (let [h (html (tv/active-filters [{:id 1 :label "Chequing"}] [] [] {}
                                      {:accounts #{1} :institutions #{} :categories #{}} false))]
       (is (not (re-find #"hidden" h)))
       (is (re-find #"active-chip\"" h))
       (is (not (re-find #"active-chips-clear" h))))))
+
+(deftest active-filter-category-chips-name-inactive-drill-ids
+  (testing "a category id absent from the present-month funnel options still names its chip from
+            the full-model label map — a rollup group drill rides inactive-child ids, and those
+            must not fall back to a bare em-dash"
+    (let [h (html (tv/active-filters [] [] [{:id 5 :label "Decor"}]
+                                     {5 "Decor" 9 "Baby consumables"}
+                                     {:accounts #{} :institutions #{} :categories #{5 9}}
+                                     false))]
+      (is (re-find #"Decor" h) "the present child names its chip")
+      (is (re-find #"Baby consumables" h)
+          "the inactive child (missing from the funnel options) still names its chip")
+      (is (not (re-find #"—" h)) "no bare em-dash placeholder"))))
 
 (deftest empty-state-copy-per-period-kind
   (testing "month view keeps today's copy verbatim"
