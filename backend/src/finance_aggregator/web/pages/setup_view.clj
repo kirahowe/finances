@@ -5,8 +5,10 @@
    (web.pages.setup) wires the model in.
 
    Surfaces: the stats strip, the action bar (Sync all + the link affordances),
-   and one card per sync connection (status pill, humanized last-synced, a Resync
-   action, and the accounts the connection owns)."
+   and one card per institution on each sync connection (status pill, humanized
+   last-synced, a Resync action, and that institution's accounts) — the presenter
+   splits a multi-institution connection (Lunchflow) into per-institution cards so
+   every provider reads the same way."
   (:require
    [clojure.string :as str]
    [finance-aggregator.web.format :as fmt]
@@ -97,8 +99,10 @@
        [:td.account-sync-cell (account-sync-button account)]])]])
 
 (defn- connection-card
-  "One sync connection: institution + provider badge, status pill, last-synced,
-   a Resync action (Datastar @post — patches the card live, no page reload), an
+  "One institution's card on a sync connection: institution + provider badge,
+   status pill, last-synced, a Resync action (Datastar @post — patches the card
+   live, no page reload; scoped to the card's accounts on a shared Lunchflow
+   connection, connection-wide otherwise — the presenter picks the URL), an
    optional error line, and the accounts it owns. Disabled while :syncing."
   [{:keys [badge-label badge-class institution-name institution-logo status-kw status
            last-synced error-message resync-url accounts]}]

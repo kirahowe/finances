@@ -115,6 +115,74 @@
       (is (false? (:lunchflow? plaid-row)))
       (is (false? (:syncing? plaid-row)) "its OWN connection (plaid:a) isn't :syncing"))))
 
+(defn- with-inst [account inst-name logo]
+  (assoc account :account/institution
+         (cond-> {:institution/name inst-name} logo (assoc :institution/logo logo))))
+
+(deftest connection-groups-split-a-multi-institution-connection-by-institution
+  (let [connections [{:connection/id "lunchflow" :connection/provider :lunchflow
+                      :connection/status :synced
+                      :connection/last-success-at (java.util.Date. (- 1700000000000 (* 3 60 1000)))}
+                     {:connection/id "plaid:rbc" :connection/provider :plaid
+                      :connection/institution-name "RBC" :connection/status :synced}]
+        accounts [(with-inst (acct "Visa" "lunchflow" {:provider :lunchflow :external-id "lf-3"})
+                    "Tangerine" nil)
+                  (with-inst (acct "Chequing" "lunchflow" {:provider :lunchflow :external-id "lf-1"})
+                    "BMO" "bmo.png")
+                  (with-inst (acct "Savings" "lunchflow" {:provider :lunchflow :external-id "lf-2"})
+                    "BMO" "bmo.png")
+                  (acct "RBC Visa" "plaid:rbc")]
+        {:keys [groups]} (accounts/connection-groups connections accounts fixed-now)]
+    (testing "one card per institution, interleaved across connections by name"
+      (is (= ["BMO" "RBC" "Tangerine"] (map :institution-name groups))))
+    (testing "each card carries only its institution's accounts + its own logo"
+      (let [[bmo _ tangerine] groups]
+        (is (= ["Chequing" "Savings"] (map :name (:accounts bmo))))
+        (is (= "bmo.png" (:institution-logo bmo)))
+        (is (= ["Visa"] (map :name (:accounts tangerine))))
+        (is (nil? (:institution-logo tangerine)))))
+    (testing "split cards share their connection's id, badge and status"
+      (let [[bmo _ tangerine] groups]
+        (is (= "lunchflow" (:id bmo) (:id tangerine)))
+        (is (= "Lunchflow" (:badge-label bmo) (:badge-label tangerine)))
+        (is (= {:label "Synced" :tone "ok"} (:status bmo) (:status tangerine)))
+        (is (= "3 min ago" (:last-synced bmo) (:last-synced tangerine)))))))
+
+(deftest connection-groups-scope-a-lunchflow-cards-resync-to-its-accounts
+  (let [connections [{:connection/id "lunchflow" :connection/provider :lunchflow
+                      :connection/status :synced}
+                     {:connection/id "plaid:a" :connection/provider :plaid
+                      :connection/institution-name "Alpha" :connection/status :synced}]
+        accounts [(with-inst (acct "Savings" "lunchflow" {:provider :lunchflow :external-id "lf-2"})
+                    "BMO" nil)
+                  (with-inst (acct "Chequing" "lunchflow" {:provider :lunchflow :external-id "lf-1"})
+                    "BMO" nil)
+                  (acct "Visa" "plaid:a")]
+        {:keys [groups]} (accounts/connection-groups connections accounts fixed-now)
+        by-name (fn [n] (first (filter #(= n (:institution-name %)) groups)))]
+    (testing "a Lunchflow card's Resync scopes to the card's own accounts (label order)"
+      (is (= "/setup/sync-account?external-id=lf-1&external-id=lf-2"
+             (:resync-url (by-name "BMO")))))
+    (testing "a Plaid card keeps the connection-level resync"
+      (is (= "/setup/resync?connection-id=plaid%3Aa" (:resync-url (by-name "Alpha")))))
+    (testing "an account-less Lunchflow connection keeps the connection-level resync"
+      (let [{:keys [groups]} (accounts/connection-groups
+                              [{:connection/id "lunchflow" :connection/provider :lunchflow
+                                :connection/status :pending}] [] fixed-now)]
+        (is (= ["Lunchflow"] (map :institution-name groups)))
+        (is (= "/setup/resync?connection-id=lunchflow" (:resync-url (first groups))))))))
+
+(deftest connection-groups-fall-back-to-the-connection-name-without-institutions
+  (let [connections [{:connection/id "lunchflow" :connection/provider :lunchflow
+                      :connection/status :synced}]
+        accounts [(acct "Chequing" "lunchflow" {:provider :lunchflow :external-id "lf-1"})
+                  (with-inst (acct "Visa" "lunchflow" {:provider :lunchflow :external-id "lf-2"})
+                    "BMO" nil)]
+        {:keys [groups]} (accounts/connection-groups connections accounts fixed-now)]
+    (testing "institution-less accounts get a card named for the connection/provider"
+      (is (= ["BMO" "Lunchflow"] (map :institution-name groups)))
+      (is (= ["Chequing"] (map :name (:accounts (second groups))))))))
+
 (deftest connection-groups-carry-institution-logo
   (let [connections [{:connection/id "plaid:b" :connection/provider :plaid
                       :connection/institution-name "Bravo" :connection/status :synced}

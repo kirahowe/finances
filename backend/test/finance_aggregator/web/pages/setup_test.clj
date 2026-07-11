@@ -93,6 +93,70 @@
              (str "/setup/sync-account?external-id="
                   (java.net.URLEncoder/encode "lunchflow-1" "UTF-8"))))))))
 
+(deftest page-splits-a-multi-institution-connection-into-per-institution-cards
+  (let [conn setup/*test-conn*]
+    (d/transact! conn [{:user/id "test-user" :user/created-at (Date.)}])
+    (connections/ensure-connection! conn {:id "lunchflow" :provider :lunchflow})
+    (connections/record-success! conn "lunchflow" :synced)
+    (d/transact! conn [{:institution/id "ins_bmo" :institution/name "BMO"}
+                       {:institution/id "ins_tng" :institution/name "Tangerine"}])
+    (d/transact! conn [{:account/external-id "lf-1" :account/external-name "Chequing"
+                        :account/provider :lunchflow
+                        :account/institution [:institution/id "ins_bmo"]
+                        :account/connection [:connection/id "lunchflow"]
+                        :account/user [:user/id "test-user"]}
+                       {:account/external-id "lf-2" :account/external-name "Visa"
+                        :account/provider :lunchflow
+                        :account/institution [:institution/id "ins_tng"]
+                        :account/connection [:connection/id "lunchflow"]
+                        :account/user [:user/id "test-user"]}])
+    (let [body (:body ((setup-page/page {:db-conn conn}) {}))]
+      (testing "the one Lunchflow connection renders one card per institution"
+        (is (= 2 (count (re-seq #"badge-lunchflow" body))))
+        (is (str/includes? body ">BMO<"))
+        (is (str/includes? body ">Tangerine<")))
+      (testing "each card's Resync is scoped to its own accounts, not the connection"
+        (is (str/includes? body "/setup/sync-account?external-id=lf-1"))
+        (is (str/includes? body "/setup/sync-account?external-id=lf-2"))
+        (is (not (str/includes? body "/setup/resync?connection-id=lunchflow")))))))
+
+;; --- Per-account resync scoping (SSE) ---------------------------------------
+
+(defn- post-sync-account! [conn deps-extra params]
+  (with-redefs [hk/->sse-response sse-test/->sse-response]
+    ((setup-page/sync-account (merge {:db-conn conn} deps-extra)) {:params params})))
+
+(deftest sync-account-scopes-the-resync-to-connected-lunchflow-accounts
+  (let [conn setup/*test-conn*
+        captured (atom nil)]
+    (d/transact! conn [{:user/id "test-user" :user/created-at (Date.)}])
+    (connections/ensure-connection! conn {:id "lunchflow" :provider :lunchflow})
+    (d/transact! conn [{:account/external-id "lf-1" :account/external-name "Chequing"
+                        :account/provider :lunchflow
+                        :account/connection [:connection/id "lunchflow"]
+                        :account/user [:user/id "test-user"]}
+                       {:account/external-id "lf-2" :account/external-name "Savings"
+                        :account/provider :lunchflow
+                        :account/connection [:connection/id "lunchflow"]
+                        :account/user [:user/id "test-user"]}])
+    (with-redefs [resync/resync-connection!
+                  (fn [deps target]
+                    (reset! captured {:only (get-in deps [:extra-opts :only-account-ids])
+                                      :target target})
+                    :synced)]
+      (testing "repeated external-id params scope the resync; unknown ids are dropped"
+        (let [resp (post-sync-account! conn {} {"external-id" ["lf-1" "lf-2" "nope"]})]
+          (is (= {:only #{"lf-1" "lf-2"} :target {:connection/id "lunchflow"}} @captured))
+          (is (seq @(:body resp)) "patches the connections fragment")))
+      (testing "a single id keeps the per-row Sync behavior"
+        (post-sync-account! conn {} {"external-id" "lf-1"})
+        (is (= #{"lf-1"} (:only @captured))))
+      (testing "only-unknown ids patch nothing and never run a resync"
+        (reset! captured nil)
+        (let [resp (post-sync-account! conn {} {"external-id" "nope"})]
+          (is (= [] @(:body resp)))
+          (is (nil? @captured)))))))
+
 (deftest lunchflow-page-renders-selection
   (with-redefs [provider/available-accounts
                 (fn [_ _] [{:external-id "lunchflow-1" :name "Chequing"

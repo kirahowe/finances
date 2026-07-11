@@ -4,6 +4,7 @@
    hiccup lives in web.pages.setup-view. The sync actions fire a background resync
    (statuses persist; refreshing /setup shows progress) and redirect back."
   (:require
+   [clojure.set :as set]
    [finance-aggregator.auth :as auth]
    [finance-aggregator.db.accounts :as db-accounts]
    [finance-aggregator.db.connections :as db-connections]
@@ -27,6 +28,12 @@
 
 (defn- redirect-to-setup []
   {:status 303 :headers {"Location" "/setup"}})
+
+(defn- form-set
+  "Coerce a wrap-params field (absent / single string / repeated -> vector) into a
+   set of strings."
+  [v]
+  (set (cond (nil? v) nil (string? v) [v] :else v)))
 
 (defn- background
   "Run an action in the background, logging (never propagating) failures outside
@@ -95,28 +102,29 @@
                (patch-connections! sse-chan db-conn #{})))))))
 
 (defn sync-account
-  "Factory: POST /setup/sync-account?external-id=… — live-resync ONE Lunchflow account
-   over SSE: flip the shared \"lunchflow\" connection's card to Syncing… (clearing any
-   error), run a resync scoped to just that account (:extra-opts :only-account-ids —
-   lunchflow.provider restricts fetch-accounts/fetch-transactions to it and computes its
-   OWN `from` window, so a stale account's pull isn't clamped by a fresher sibling's
-   date), then patch the result. Reuses the same SSE helpers as resync-connection.
-   Unknown external-ids, or ids not already a connected Lunchflow account, close the
-   stream with no change. Lunchflow is the only provider with per-account resync — a
-   single static-key connection covering every imported account; Plaid's sync is
-   item-level (cursor-based), so no per-account scoping exists there."
+  "Factory: POST /setup/sync-account?external-id=…&external-id=… — live-resync one or
+   more Lunchflow accounts over SSE: flip the shared \"lunchflow\" connection's cards to
+   Syncing… (clearing any error), run a resync scoped to just those accounts
+   (:extra-opts :only-account-ids — lunchflow.provider restricts fetch-accounts/
+   fetch-transactions to them and computes each account's OWN `from` window, so a stale
+   account's pull isn't clamped by a fresher sibling's date), then patch the result. The
+   per-row Sync button sends one id; a per-institution card's Resync sends that card's
+   ids (Lunchflow is one shared connection spanning institutions, so its card-level
+   resync scopes by account where Plaid's is item-level/cursor-based). Ids that aren't
+   already-connected Lunchflow accounts are dropped; none left — or no lunchflow
+   connection — closes the stream with no change."
   [{:keys [db-conn] :as deps}]
   (fn [req]
-    (let [ext-id (not-empty (get-in req [:params "external-id"]))]
+    (let [ext-ids (form-set (get-in req [:params "external-id"]))]
       (sse req
            (fn [sse-chan]
-             (when (and ext-id
-                        (db-connections/get-connection db-conn "lunchflow")
-                        (contains? (db-accounts/external-ids-for-provider db-conn :lunchflow) ext-id))
-               (patch-connections! sse-chan db-conn #{"lunchflow"})
-               (resync/resync-connection! (assoc deps :extra-opts {:only-account-ids #{ext-id}})
-                                          {:connection/id "lunchflow"})
-               (patch-connections! sse-chan db-conn #{})))))))
+             (let [target (set/intersection ext-ids (db-accounts/external-ids-for-provider db-conn :lunchflow))]
+               (when (and (seq target)
+                          (db-connections/get-connection db-conn "lunchflow"))
+                 (patch-connections! sse-chan db-conn #{"lunchflow"})
+                 (resync/resync-connection! (assoc deps :extra-opts {:only-account-ids target})
+                                            {:connection/id "lunchflow"})
+                 (patch-connections! sse-chan db-conn #{}))))))))
 
 (defn page
   "Factory: GET /setup — render the stats strip + connection cards."
@@ -181,12 +189,6 @@
        :headers {"Content-Type" "text/html"}
        :body (layout/document {:title "Connect Lunchflow · Finance Aggregator"}
                               (view/lunchflow-body model))})))
-
-(defn- form-set
-  "Coerce a wrap-params form field (absent / single string / repeated -> vector)
-   into a set of strings."
-  [v]
-  (set (cond (nil? v) nil (string? v) [v] :else v)))
 
 (defn lunchflow-connect
   "Factory: POST /setup/lunchflow — ensure the single Lunchflow connection and
