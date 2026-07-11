@@ -216,6 +216,17 @@
     :accounts       (assoc vs :accounts #{})
     :institutions   (assoc vs :institutions #{})))
 
+(defn- scoping-view-state
+  "The view-state slice the ROLLUP follows: the SCOPING filters — search, the account/
+   institution funnels, Hide transfers ('which money are we looking at') — with the DRILL/
+   WORKFLOW axes neutralized (drop-facet): the category funnel + Uncategorized chip, and the
+   To-reconcile scope. The rollup IS the navigation control for the category axis — a pane
+   that reflected its own filter would collapse to the clicked row and strand the user — and
+   the scope switch is a work queue, not a money question, so the pane stays whole relative
+   to both."
+  [vs]
+  (-> vs (drop-facet :scope) (drop-facet :category-dim)))
+
 (defn facet-counts
   "The four toolbar counts, faceted (each computed with its own control neutralized):
    :total/:unreconciled reflect every filter except scope; :uncategorized reflects every filter
@@ -575,11 +586,15 @@
    `:result` is the paginated page — lingering (an edited-out row stays visible) when a
    `:linger` set is supplied, a plain view otherwise; `:counts` are the faceted toolbar counts;
    the three `:*-options` are the faceted funnel option lists; `:rollup` (only when
-   `:categories` is supplied) is the whole-month category breakdown. The monthly-close
-   panel model is assembled separately by the handler (it needs the account filter + the
-   snapshot history), not here."
+   `:categories` is supplied) is the whole-period category breakdown over the SCOPING-filtered
+   rows (scoping-view-state — search/account/institution/hide-transfers narrow it; the
+   category/uncat/scope drill axes never do, so the pane stays whole relative to its own
+   navigation). The monthly-close panel model is assembled separately by the handler (it needs
+   the account filter + the snapshot history), not here — and its net-now / close freeze call
+   category-rollup DIRECTLY over the unfiltered month, never through this fn."
   [txs view-st {:keys [linger categories]}]
-  (let [rollup (when categories (category-rollup txs categories))]
+  (let [rollup (when categories
+                 (category-rollup (filter-txs txs (scoping-view-state view-st)) categories))]
     (cond-> {:result              (if (some? linger)
                                     (view-with-linger txs view-st linger)
                                     (view txs view-st))

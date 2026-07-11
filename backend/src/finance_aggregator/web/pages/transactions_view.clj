@@ -1183,12 +1183,16 @@
       [:button.button.button-secondary {:type "button" "data-on:click" close-modal-js} "Done"]]]]])
 
 ;; --- Category rollup pane --------------------------------------------------
-;; Whole-month breakdown (web.view/category-rollup) rendered beside the table. A row's filter is
-;; "active" when $filter.category exactly matches its ids (or $uncat for the Uncategorized row);
-;; clicking toggles that filter (set/clear) — pure reuse of the funnel filter signals. The pane
-;; reflects edits (a recategorize moves money between rows), so it's re-patched by id on edits,
-;; not on filter/sort changes (whole-month → a filter change leaves the breakdown unchanged; the
-;; active highlight updates client-side via data-class).
+;; Whole-period breakdown (web.view/category-rollup) rendered beside the table, over the
+;; SCOPING-filtered rows (web.view/present: search/account/institution/hide-transfers narrow
+;; its sums — "which money are we looking at" follows the table). It deliberately IGNORES its
+;; own drill axes — the category funnel, the $uncat chip, and the To-reconcile scope — since
+;; the pane IS the navigation control for those: reflecting them would collapse it to the
+;; clicked row. A row's filter is "active" when $filter.category exactly matches its ids (or
+;; $uncat for the Uncategorized row); clicking toggles that filter (set/clear) — pure reuse of
+;; the funnel filter signals, with the active highlight client-side via data-class. Re-patched
+;; by id on edits (a recategorize moves money between rows) AND on view changes (`rows` — a
+;; scoping-filter change moves the sums; a drill click just morphs it to itself).
 
 (defn rollup-active-expr [{:keys [uncategorized? ids]}]
   (if uncategorized?

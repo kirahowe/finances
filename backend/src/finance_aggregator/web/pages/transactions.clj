@@ -223,10 +223,12 @@
     (when (and (= :posted (:basis view-st)) from to acct) {:account acct :from from :to to})))
 
 (defn- table-and-facets
-  "The presented view-model for a view change. The FUNNEL OPTION LISTS and the ROLLUP are
-   always computed over the whole PERIOD (the calendar month, or the analysis-lens range) — so
-   the account funnel never collapses to the focused account (which would clear the
-   $filter.account binding that drives the focus) and those figures stay stable. The reconcile
+  "The presented view-model for a view change. The FUNNEL OPTION LISTS are always computed
+   over the whole PERIOD (the calendar month, or the analysis-lens range) — so the account
+   funnel never collapses to the focused account (which would clear the $filter.account
+   binding that drives the focus). The ROLLUP is whole-period too but SCOPING-FILTERED
+   (web.view/present: search/account/institution/hide-transfers narrow its sums; its own
+   category/uncat/scope drill axes never do). The reconcile
    narrowing is a LENS, not a real filter, and applies in MONTH VIEW ONLY (a range period has no
    monthly-close panel to open it from): :result AND :counts (the toolbar badges —
    scope/uncategorized/hide-transfers) are swapped for the narrowed span slice when a reconcile
@@ -327,7 +329,10 @@
   "GET /transactions/rows — a pure view change: clear lingering, re-run the view, morph the tbody +
    pagination bar, patch $page back to the clamped value. Also re-renders #reconciliation so the
    panel stays in sync with the account filter: filtering to one account drills the panel into that
-   account's focused card, clearing it returns to the overview (the drill/back actions ARE this)."
+   account's focused card, clearing it returns to the overview (the drill/back actions ARE this).
+   Re-patches #category-rollup too — the rollup follows the SCOPING filters (search/account/
+   institution/hide-transfers; see web.view/present), so a view change can move its sums; its own
+   drill axes (category/uncat/scope) never do, so those clicks just morph it to itself."
   [{:keys [db-conn]}]
   (fn [req]
     (commands/clear-linger! auth/user-id)
@@ -335,8 +340,8 @@
           p (signals-period signals)
           view-st (vs/signals->view-state signals)
           ;; :categories keeps the category funnel in user sort-order on every re-patch (see
-          ;; category-funnel-options); present also computes a whole-period rollup this response
-          ;; never reads — accepted at single-user scale rather than splitting present's shape.
+          ;; category-funnel-options) and feeds the scoping-filtered rollup this response
+          ;; re-patches below.
           model (table-and-facets db-conn p signals view-st
                                   {:categories (db-categories/list-all db-conn)})
           close-model (close-or-note db-conn p view-st)
@@ -363,6 +368,10 @@
          (patch! sse (tv/period-picker-footer p lens-from-iso lens-to-iso))
          (patch-view! sse model view-st (boolean lens))
          (patch! sse (tv/close-panel close-model))
+         ;; The rollup follows the scoping filters, so a view change re-patches it (the
+         ;; statement lens is NOT a scoping filter — the pane keeps the whole period's sums
+         ;; behind the lens, scoped only by the account focus that opened it).
+         (patch! sse (rollup-pane (:rollup model)))
          (d*/patch-signals!
           sse (r/signals
                (merge {:page (:page result)}
@@ -381,8 +390,9 @@
    any $reconFrom/$reconTo still sitting in the live signals from a prior visit is blanked before
    table-and-facets ever sees it, and the couriers are reset in the signal patch below); the WHOLE
    navigator fragment re-renders (period-navigator — its dateline moves along with everything
-   else, so there's no separate period-display patch); and the rollup re-patches too, since —
-   unlike a filter/sort/paginate change — a period change moves the whole-period totals it sums.
+   else, so there's no separate period-display patch); and the rollup re-patches with a whole
+   new BASELINE — a period change swaps the very row set its scoping-filtered sums are drawn
+   from (`rows` re-patches it too, for scoping-filter changes within one period).
    The final signal patch re-seeds $month/$from/$to from the period's OWN canonical signal-seed
    (period/parse may canonicalize an applied from/to range to its containing month — see
    period/canonicalize — so this is what makes that canonical shape stick client-side) and
@@ -408,7 +418,8 @@
          (patch! sse (tv/period-navigator p today))
          (patch-view! sse model view-st false)
          (patch! sse (tv/close-panel close-model))
-         ;; A period change moves the whole-period rollup (unlike a plain filter change).
+         ;; A period change swaps the rollup's whole baseline (rows re-patches it too, for
+         ;; scoping-filter changes within one period).
          (patch! sse (rollup-pane (:rollup model)))
          (d*/patch-signals!
           sse (r/signals

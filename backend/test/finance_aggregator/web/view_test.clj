@@ -781,3 +781,48 @@
   (let [cats [(rcat 1 "Transportation" :expense nil 2) (rcat 2 "Housing" :expense nil 1)]
         rows (get-in (view/category-rollup [(rtx 10 -50M 1) (rtx 11 -100M 2)] cats) [:expenses :rows])]
     (is (= ["Housing" "Transportation"] (map :name rows)))))
+
+;; --- Rollup scoping: the pane follows SCOPING filters, ignores DRILL filters --
+;; Scoping = "which money are we looking at" (search, account/institution funnels, Hide
+;; transfers) — the rollup re-buckets with them. Drill = the rollup's own navigation axes
+;; (category funnel, Uncategorized chip, To-reconcile scope) — reflecting those would
+;; collapse the pane to the clicked row / turn it into a work-queue artifact, so present
+;; neutralizes them (web.view/scoping-view-state) before summing.
+
+(defn- rollup-row-named [rollup section nm]
+  (first (filter #(= nm (:name %)) (get-in rollup [section :rows]))))
+
+(deftest rollup-follows-scoping-filters-ignores-drill
+  (let [cats [(rcat 10 "Salary" :income) (rcat 11 "Groceries" :expense) (rcat 12 "Housing" :expense)]
+        rollup-of (fn [vs] (:rollup (view/present [t1 t2 t3 t4] vs {:categories cats})))
+        baseline (rollup-of {})]
+    (testing "unfiltered baseline holds all four rows"
+      (is (rollup-row-named baseline :income "Salary"))
+      (is (rollup-row-named baseline :expenses "Groceries"))
+      (is (rollup-row-named baseline :expenses "Housing"))
+      (is (rollup-row-named baseline :expenses "Uncategorized")))
+    (testing "the account funnel scopes the pane (Visa = t2 + t4 only)"
+      (let [r (rollup-of {:accounts #{101}})]
+        (is (nil? (rollup-row-named r :income "Salary")) "Chequing income leaves")
+        (is (nil? (rollup-row-named r :expenses "Housing")) "Chequing expense leaves")
+        (is (≈ 85 (:amount (rollup-row-named r :expenses "Groceries"))))
+        (is (≈ 50 (:amount (rollup-row-named r :expenses "Uncategorized"))))))
+    (testing "search scopes the pane"
+      (let [r (rollup-of {:search "superstore"})]
+        (is (≈ 85 (:amount (rollup-row-named r :expenses "Groceries"))))
+        (is (nil? (rollup-row-named r :income "Salary")))
+        (is (nil? (rollup-row-named r :expenses "Uncategorized")))))
+    (testing "Hide transfers scopes the pane (transfer-hidden t3 leaves)"
+      (let [r (rollup-of {:hide-transfers true})]
+        (is (nil? (rollup-row-named r :expenses "Housing")))
+        (is (rollup-row-named r :income "Salary") "everything else stays")))
+    (testing "the category funnel does NOT change the pane (its own drill axis)"
+      (is (= baseline (rollup-of {:categories #{11}}))))
+    (testing "the Uncategorized chip does NOT change the pane"
+      (is (= baseline (rollup-of {:uncat true}))))
+    (testing "the To-reconcile scope does NOT change the pane (t2 is reconciled but stays summed)"
+      (is (= baseline (rollup-of {:scope :to-reconcile}))))
+    (testing ":result keeps reflecting EVERY filter while :rollup follows scoping only"
+      (let [m (view/present [t1 t2 t3 t4] {:categories #{11} :page 0 :page-size 25} {:categories cats})]
+        (is (= 1 (get-in m [:result :total])) "the table narrows to the one Groceries row")
+        (is (= baseline (:rollup m)) "the pane stays whole")))))
