@@ -17,11 +17,15 @@
 
 /* The whole account row is a drill button: name (truncated) left, status
    hard against the right edge. min-width:0 on the account span lets the
-   ellipsis actually shrink instead of pushing the row wider. */
+   ellipsis actually shrink instead of pushing the row wider. Center-aligned,
+   not baseline: the account span leads with the avatar, and a flex container
+   exports its FIRST item's baseline — an image's bottom edge — which would
+   drag the status off the name's actual baseline (like every other avatar
+   surface: .connection-id, .provider-institution-name). */
 .reconcile-drill {
   display: grid;
   grid-template-columns: minmax(0, 1fr) auto;
-  align-items: baseline;
+  align-items: center;
   gap: var(--spacing-sm);
   width: 100%;
   padding: var(--spacing-xs) var(--spacing-sm);
@@ -106,9 +110,10 @@
   min-width: 0;
 }
 
+/* Center, not baseline, for the same avatar-baseline reason as .reconcile-drill. */
 .reconcile-focus-head {
   display: flex;
-  align-items: baseline;
+  align-items: center;
   gap: var(--spacing-sm);
   min-width: 0;
 }
