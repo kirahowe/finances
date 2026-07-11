@@ -49,6 +49,18 @@
   box-shadow: none;
 }
 
+/* Form-modal variant: the floating input replaces a .form-combo-trigger that
+   wears .form-input's box, so it takes the trigger's exact metrics — same
+   padding, radius, and type size, no negative margin — and overlays it
+   border-for-border instead of jumping to the grid cell's smaller box. */
+.category-dropdown.is-form-field .category-dropdown-input {
+  margin: 0;
+  padding: var(--control-pad-y) var(--spacing-sm);
+  border-radius: var(--border-radius);
+  font-size: var(--text-base);
+  line-height: 1.5;
+}
+
 .category-dropdown-list {
   position: absolute;
   top: 100%;

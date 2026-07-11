@@ -108,6 +108,10 @@ function mount(root: HTMLElement): void {
         anchor: btn,
         placeholder: labelFor(row.categoryId),
         seed,
+        // The button wears .form-input's box (split-modal.css), so the floating
+        // input takes the same metrics — without this it opens in the grid
+        // cell's smaller box and the field visibly jumps.
+        rootClass: 'is-form-field',
         onCommit(categoryId, label) {
           row.categoryId = categoryId;
           btn.textContent = categoryId == null ? 'Select category…' : label;

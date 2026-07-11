@@ -447,11 +447,15 @@ function readAccountOptions(): FlatOption[] {
   }));
 }
 
-function openFormTrigger(btn: HTMLElement): void {
+function openFormTrigger(btn: HTMLElement, seed?: string | null): void {
   const label = btn.querySelector<HTMLElement>('.form-combo-label');
   openCombobox({
     anchor: btn,
     placeholder: label?.textContent?.trim() || '',
+    seed,
+    // The trigger is styled like a .form-input; this variant gives the floating
+    // input the trigger's exact box so opening doesn't shift the field.
+    rootClass: 'is-form-field',
     options: btn.dataset.combo === 'account' ? readAccountOptions() : undefined,
     onCommit(id, itemLabel) {
       if (label) label.textContent = itemLabel;
@@ -473,6 +477,19 @@ function openFormTrigger(btn: HTMLElement): void {
 document.addEventListener('click', (e) => {
   const btn = (e.target as HTMLElement).closest<HTMLElement>('.form-combo-trigger');
   if (btn) openFormTrigger(btn);
+});
+
+// Type-to-open (mirrors the grid's type-to-edit): a printable keystroke on a focused
+// trigger opens the combobox already filtering on that character, so the user doesn't
+// have to click/Enter first. Space is left to the button's native click activation,
+// and modified keys (shortcuts) pass through untouched.
+document.addEventListener('keydown', (e) => {
+  const btn = (e.target as HTMLElement).closest?.<HTMLElement>('.form-combo-trigger');
+  if (!btn) return;
+  if (e.key.length === 1 && e.key !== ' ' && !e.ctrlKey && !e.metaKey && !e.altKey) {
+    e.preventDefault();
+    openFormTrigger(btn, e.key);
+  }
 });
 
 // Expose the reusable core on `window` (the established island-interop pattern, like

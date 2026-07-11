@@ -67,10 +67,23 @@ const pickCategory = async (row, name) => {
 // --- Type-to-open: focusing a row's category button and typing a printable character
 // opens the combobox pre-filtered by it (mirrors the grid's type-to-edit). Escape closes
 // only the combobox (Zag's dismissable layer swallows it) — the modal must stay open.
-await dataRows.nth(0).locator('.split-category-cell .category-button').focus();
+const catButton = dataRows.nth(0).locator('.split-category-cell .category-button');
+const catButtonBox = await catButton.boundingBox();
+await catButton.focus();
 await page.keyboard.press('g');
 await dropdown.waitFor({ state: 'visible', timeout: 5000 });
 check('typing on a focused category button opens the combobox', (await dropdown.count()) === 1);
+// The floating input must overlay the button border-for-border — regression: without
+// `.is-form-field` (+ the button's line-height matching its .form-input siblings) it
+// opened in the grid cell's smaller box and the field visibly jumped.
+const comboInputBox = await page.locator('.category-dropdown-input').boundingBox();
+const off = (a?: number, b?: number) => Math.abs((a ?? 0) - (b ?? 0));
+check('floating input overlays the category button exactly (no jump on open)',
+  catButtonBox && comboInputBox &&
+    off(catButtonBox.x, comboInputBox.x) <= 1 && off(catButtonBox.y, comboInputBox.y) <= 1 &&
+    off(catButtonBox.width, comboInputBox.width) <= 1 &&
+    off(catButtonBox.height, comboInputBox.height) <= 1,
+  `button=${JSON.stringify(catButtonBox)} input=${JSON.stringify(comboInputBox)}`);
 check('the typed character seeds the filter',
   (await page.locator('.category-dropdown-input').inputValue()) === 'g');
 await page.keyboard.press('Escape');

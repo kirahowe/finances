@@ -93,13 +93,37 @@ check('focus returns to the trigger after the combobox closes',
 check('the modal stayed open through the combobox round-trip', (await modal.count()) === 1);
 
 // 1b. Category picked through the same combobox (pointer path): click the trigger, type,
-//     click the match.
+//     click the match. The floating input must overlay the trigger border-for-border —
+//     regression: it used to open in the grid cell's smaller box (`.is-form-field` was
+//     missing) and the field visibly jumped.
+const triggerBox = await categoryTrigger.boundingBox();
 await categoryTrigger.click();
 await dropdown.waitFor({ state: 'visible', timeout: 5000 });
+const inputBox = await page.locator('.category-dropdown-input').boundingBox();
+const off = (a?: number, b?: number) => Math.abs((a ?? 0) - (b ?? 0));
+check('floating input overlays the trigger exactly (no jump on open)',
+  triggerBox && inputBox &&
+    off(triggerBox.x, inputBox.x) <= 1 && off(triggerBox.y, inputBox.y) <= 1 &&
+    off(triggerBox.width, inputBox.width) <= 1 && off(triggerBox.height, inputBox.height) <= 1,
+  `trigger=${JSON.stringify(triggerBox)} input=${JSON.stringify(inputBox)}`);
 await page.locator('.category-dropdown-input').type('groc');
 await page.locator('.category-dropdown-item', { hasText: /^Groceries$/ }).first().click();
 await dropdown.waitFor({ state: 'hidden', timeout: 5000 }).catch(() => {});
 check('category pick updates the trigger label',
+  (await categoryTrigger.locator('.form-combo-label').innerText()).trim() === 'Groceries');
+
+// 1b'. Type-to-open: a printable keystroke on a FOCUSED trigger opens the combobox
+//      pre-filtered by it — no click/Enter first (the pointer commit above hands focus
+//      back to the trigger). Escape closes it again without committing.
+await page.keyboard.press('g');
+await dropdown.waitFor({ state: 'visible', timeout: 5000 });
+check('typing on a focused trigger opens the combobox pre-filtered by the keystroke',
+  (await page.locator('.category-dropdown-input').inputValue()) === 'g');
+check('the pre-filtered list highlights the best match',
+  (await page.locator('.category-dropdown-item.highlighted').count()) === 1);
+await page.keyboard.press('Escape');
+await dropdown.waitFor({ state: 'hidden', timeout: 5000 }).catch(() => {});
+check('Escape closes the typed-open combobox without committing',
   (await categoryTrigger.locator('.form-combo-label').innerText()).trim() === 'Groceries');
 
 // 1c. REGRESSION (date one-way fix): typing digits into the date's keyboard segments must

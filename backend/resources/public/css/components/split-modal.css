@@ -99,6 +99,10 @@
   width: 100%;
   margin: 0;
   padding: var(--control-pad-y) var(--spacing-sm);
+  /* Same line box as the sibling .form-input (and the floating combobox input
+     that overlays this button) — a button's default is `normal`, which sat
+     2.5px shorter than the row's inputs. */
+  line-height: 1.5;
   border-radius: var(--border-radius);
   border: 1px solid var(--color-border-strong);
   background: transparent;
