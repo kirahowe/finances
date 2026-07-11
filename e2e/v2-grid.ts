@@ -68,13 +68,19 @@ await page.waitForFunction((cell) => {
 check('typed + Enter persists the description',
   await page.evaluate((cell) => document.querySelector(`[data-cell="${cell}"] .description-button`)?.textContent.trim() === 'Keyboard note', `${r2}:tx:description`));
 
-// Regression: an Enter commit removes the focused input from the morphed tbody, dropping focus to
-// <body> — grid-nav must restore it to the active cell so arrow nav keeps working. (The restore is
-// async — it rides the commit's morph — so wait for the cell to regain focus before arrowing; a
-// real user can't press a key inside that sub-ms window, but the test can.)
+// An Enter commit ADVANCES: the active cell walks to the description cell of the row below,
+// in navigation mode (the editor is not re-opened — unlike the floating combobox, the
+// description editor lives in the tbody the commit morphs). Focus must survive that morph
+// so arrow nav keeps working. (The wait covers the morph transiently resetting attributes;
+// a real user can't press a key inside that window, but the test can.)
 await page.waitForFunction(() => document.activeElement?.classList.contains('grid-cell-active'),
   null, { timeout: 3000 }).catch(() => {});
 const afterCommit = await active();
+check('Enter advances the active cell to the row below',
+  !!afterCommit && /:tx:description$/.test(afterCommit) && afterCommit !== `${r2}:tx:description`,
+  `${r2}:tx:description → ${afterCommit}`);
+check('the advanced cell is in navigation mode (no editor re-opened)',
+  await page.evaluate(() => !document.querySelector('.description-cell.editing')));
 await page.keyboard.press('ArrowDown');
 await page.waitForTimeout(150);
 check('arrow nav still works after an Enter commit', (await active()) !== afterCommit && (await active()) != null,

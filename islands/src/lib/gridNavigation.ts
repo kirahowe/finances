@@ -104,6 +104,16 @@ export function isInlineEditable(col: ColId): boolean {
   return col !== 'reconciled';
 }
 
+// Whether an Enter-commit KEEPS EDITING as it walks down the column (the rapid
+// categorization flow). Only the category combobox: it floats outside the table,
+// so it survives the tbody morph its commit's @put triggers. The description
+// editor lives inside the row that morph re-renders — a re-opened editor would be
+// stomped mid-typing — so its Enter lands on the row below in navigation mode
+// instead (spreadsheet Enter).
+function walksEditing(col: ColId): boolean {
+  return col === 'category';
+}
+
 // ---------------------------------------------------------------------------
 // Keymap: keystroke -> intent (data-driven)
 // ---------------------------------------------------------------------------
@@ -270,13 +280,14 @@ export function navReducer(state: NavState, intent: Intent, model: GridModel): N
 
     case 'commit-down': {
       // Enter inside an editor: move down a row, and keep editing if the cell
-      // below is the same column and also inline-editable — this is the rapid
-      // "Enter walks the column" categorization flow. If we can't move (last row)
-      // or the target isn't editable in this column, fall back to navigation.
+      // below is the same column and its editor walks in edit mode (see
+      // walksEditing) — the rapid "Enter walks the column" categorization flow.
+      // Otherwise (last row, column changed, or a row-embedded editor like the
+      // description's) land on the cell below in navigation mode.
       const next = moveVertical(active, rows, +1);
       const nextIdx = rowIndexOf(rows, next.key);
       const moved = nextIdx !== i;
-      const stayEditing = moved && next.col === active.col && isInlineEditable(next.col);
+      const stayEditing = moved && next.col === active.col && walksEditing(next.col);
       return { active: next, mode: stayEditing ? 'edit' : 'navigation' };
     }
     case 'commit-close':

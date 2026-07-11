@@ -54,12 +54,16 @@
     (is (str/includes? js "el.value || 'Sam\\'s Club Card'"))))
 
 (deftest keydown-js-grid-dispatches-gridedit-non-grid-does-not
-  (testing "grid config: Escape hands focus back to grid-nav via a gridedit cancel event"
+  (testing "grid config: Enter advances to the row below, Escape hands focus back — both
+            reported to grid-nav via gridedit events, each stopPropagation'd so the same
+            keystroke can't also run grid-nav's navigation handler"
     (let [js (ie/keydown-js grid-opts)]
       (is (str/includes? js "evt.key === 'Enter' && ("))
       (is (str/includes? js "evt.key === 'Escape'"))
       (is (str/includes? js "el.closest('[data-cell]').dispatchEvent(new CustomEvent('gridedit'"))
-      (is (str/includes? js "{detail: {action: 'cancel'}, bubbles: true}"))))
+      (is (str/includes? js "{detail: {action: 'advance'}, bubbles: true}"))
+      (is (str/includes? js "{detail: {action: 'cancel'}, bubbles: true}"))
+      (is (= 2 (count (re-seq #"evt\.stopPropagation\(\)" js))))))
   (testing "setup config: no grid-nav on that page, so no gridedit dispatch"
     (let [js (ie/keydown-js plain-opts)]
       (is (str/includes? js "evt.key === 'Escape'"))

@@ -28,12 +28,14 @@
      :input-aria-label  — the input's aria-label
      :add-aria-label    — the button's aria-label when the value is blank (nil = none, same
                           as omitting the attribute entirely)
-     :grid?             — true on grid-nav pages (transactions): Escape also dispatches a
-                          `gridedit` cancel CustomEvent so keyboard nav gets focus back
-                          (grid-nav's keydown listener only fires inside the scroll
-                          container — without this, an Escape-closed editor stalls focus on
-                          a hidden input). false on the setup table, which has no grid-nav:
-                          `el.closest('[data-cell]')` would find nothing there and throw."
+     :grid?             — true on grid-nav pages (transactions): Enter and Escape also
+                          dispatch a `gridedit` CustomEvent (`advance` / `cancel`) so
+                          keyboard nav follows the editor — Enter walks focus to the row
+                          below, Escape gets focus back onto the cell (grid-nav's keydown
+                          listener only fires inside the scroll container — without this,
+                          a closed editor stalls focus on a hidden input). false on the
+                          setup table, which has no grid-nav: `el.closest('[data-cell]')`
+                          would find nothing there and throw."
   (:require
    [clojure.string :as str]))
 
@@ -60,13 +62,21 @@
        " el.closest('." cell-class "').classList.remove('editing')"))
 
 (defn keydown-js
-  "Enter commits; Escape reverts the input to its server value and closes the editor —
-   grid pages additionally hand focus back via the `gridedit` cancel event (see the ns
-   docstring's :grid? note); stopPropagation keeps that same Escape from also bubbling to
-   grid-nav's own navigation handler, which would otherwise clear the active cell now that
-   the editor is closed."
+  "Enter commits; Escape reverts the input to its server value and closes the editor.
+   Grid pages additionally report both to keyboard nav via the `gridedit` event (see the
+   ns docstring's :grid? note): Enter dispatches `advance` (grid-nav moves focus to the
+   row below) and Escape dispatches `cancel` (focus back onto the cell). Each branch
+   stopPropagation's before its dispatch: the dispatch moves focus off this input
+   synchronously, so the same keystroke bubbling on to grid-nav's navigation handler
+   would re-open an editor on the just-landed cell (Enter) or clear the active cell
+   (Escape)."
   [{:keys [cell-class grid?] :as opts}]
-  (str "evt.key === 'Enter' && (" (commit-js opts) "); "
+  (str "evt.key === 'Enter' && (" (commit-js opts)
+       (if grid?
+         (str ", evt.stopPropagation(), el.closest('[data-cell]').dispatchEvent(new CustomEvent('gridedit',"
+              " {detail: {action: 'advance'}, bubbles: true})))")
+         ")")
+       "; "
        "evt.key === 'Escape' && (evt.stopPropagation(), el.value = el.defaultValue,"
        " el.closest('." cell-class "').classList.remove('editing')"
        (if grid?

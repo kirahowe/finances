@@ -170,11 +170,12 @@ describe('navReducer', () => {
     expect(navReducer(ghost, 'up', model)).toEqual(at(0, 'category'));
   });
 
-  it('commit-down keeps editing when the row below offers the same inline column', () => {
-    // The rapid "Enter walks the column" flow works across ANY adjacent rows now —
-    // a split part is just a row, so a family boundary never breaks the walk.
+  it('commit-down from a description lands on the row below in navigation mode', () => {
+    // Unlike the floating category combobox, the description editor lives inside
+    // the row the commit's morph re-renders — a re-opened editor would be stomped
+    // mid-typing. Enter moves focus down without re-opening (spreadsheet Enter).
     expect(navReducer(editAt(0, 'description'), 'commit-down', model)).toEqual(
-      editAt(1, 'description')
+      at(1, 'description')
     );
   });
 });

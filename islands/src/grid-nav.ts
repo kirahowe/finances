@@ -13,9 +13,11 @@
 // OPENS an editor (clicking the description button runs its Datastar open handler; a
 // category cell dispatches `open-combobox` to the combobox island), and the editors
 // report back through a bubbling `gridedit` DOM event — detail.action `advance`
-// (Enter: persist + walk down the column, re-opening the next editor) or `cancel`
-// (Escape / combobox close: return focus to the cell). The grid yields the keyboard
-// whenever an editor owns focus; it only claims Tab (commit + move) while editing.
+// (Enter: persist + walk down the column; the reducer decides whether the next
+// editor re-opens — the floating combobox keeps editing, a description Enter lands
+// on the cell below in navigation mode) or `cancel` (Escape / combobox close:
+// return focus to the cell). The grid yields the keyboard whenever an editor owns
+// focus; it only claims Tab (commit + move) while editing.
 
 import {
   resolveIntent,
@@ -204,8 +206,9 @@ if (scroll && table) {
     focusActive();
   });
 
-  // Editor callbacks (bubbling DOM events): advance walks down the column re-opening
-  // the editor; cancel returns focus to the cell.
+  // Editor callbacks (bubbling DOM events): advance walks down the column (re-opening
+  // the editor only when the reducer keeps edit mode — the category walk); cancel
+  // returns focus to the cell.
   scroll.addEventListener('gridedit', (e) => {
     const action = (e as CustomEvent).detail?.action;
     if (!state.active) return;
