@@ -119,6 +119,15 @@
          (catch Exception _
            (throw (ex-info "That date isn't valid." {:type :bad-request}))))))
 
+(defn- url-lens-date
+  "A yyyy-MM-dd statement-lens param straight off the URL, passed through only when it
+   actually parses — blank/malformed → nil, so a mangled shared link DEGRADES to \"no
+   lens\" (the never-throws bar period/parse + month/parse set for all URL input)
+   instead of riding courier-date's :bad-request throw (deliberate in the edit flows,
+   where it surfaces the error bar) into a 400 that eats the whole page load."
+  [v]
+  (when (try (courier-date v) (catch Exception _ nil)) v))
+
 ;; --- Monthly-close panel model --------------------------------------------
 ;; Assembled in the handler (not web.view/present) because it needs the account filter + the
 ;; snapshot history: the all-accounts overview, or a focused single-account card when the
@@ -296,7 +305,10 @@
           ;; other handler uses instead of a bespoke lens-aware empty check.
           txs (db-transactions/list-for-span db-conn start-date end-date (:basis view-st))
           categories (db-categories/list-all db-conn)
-          lens-signals {:reconFrom (get qp "reconFrom") :reconTo (get qp "reconTo")}
+          ;; url-lens-date (not raw qp strings): a malformed lens param means no lens,
+          ;; never a broken load — see its docstring.
+          lens-signals {:reconFrom (url-lens-date (get qp "reconFrom"))
+                        :reconTo (url-lens-date (get qp "reconTo"))}
           lens (when (period/month? p) (reconcile-range lens-signals view-st))
           lens-from-iso (some-> lens :from u/date->local-date str)
           lens-to-iso (some-> lens :to u/date->local-date str)

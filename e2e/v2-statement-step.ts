@@ -120,6 +120,14 @@ check('url reconTo shifts to 2025-02-20', urlAfterFallback.searchParams.get('rec
 
 check('still no page errors after the fallback step', !logs.length, logs.join('; '));
 
+// 7. A mangled lens param in a shared/hand-edited URL degrades to "no lens" — the page still
+//    loads (never a 400 eating the whole render; url-lens-date in the `page` handler) and the
+//    dateline falls back to the whole month. courier-date's throw fires before any account
+//    check, so no fa param is needed to exercise the parse path.
+await page.goto(`${BASE}/?month=2025-01&reconFrom=garbage&reconTo=2025-01-20`, { waitUntil: 'networkidle' });
+check('a mangled reconFrom degrades to no lens (page loads, whole-month dateline)',
+  /January 2025/.test(await dateline().innerText()), await dateline().innerText());
+
 await browser.close();
 // Trailing reset (shared-DB convention — see e2e/README.md): the created statements + the
 // account-filter/lens state this spec leaves behind never carry into the next spec.
