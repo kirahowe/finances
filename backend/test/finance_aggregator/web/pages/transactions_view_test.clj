@@ -497,17 +497,52 @@
           "previous target's signal-seed")
       (is (re-find #"\$_periodOpen = false; \$month = &apos;2025-07&apos;; \$from = &apos;&apos;; \$to = &apos;&apos;; \$page = 0" h)
           "next target's signal-seed")
-      ;; Scoped to each arrow's own <a> tag — the navigator embeds the whole picker, whose
-      ;; rail/grid/Apply destinations all @get the same endpoint, so a global count says nothing.
-      (doseq [dir ["Previous month" "Next month"]]
+      ;; Scoped to each arrow's own <a> tag (found by its href, since month view no longer
+      ;; carries a static aria-label — see the lens-branching test below) — the navigator embeds
+      ;; the whole picker, whose rail/grid/Apply destinations all @get the same endpoint, so a
+      ;; global count says nothing.
+      (doseq [href ["/?month=2025-05" "/?month=2025-07"]]
         (is (re-find #"@get\(&apos;/transactions/period&apos;\)"
-                     (or (re-find (re-pattern (str "<a[^>]*aria-label=\"" dir "\"[^>]*>")) h) ""))
-            (str "the " dir " arrow @gets the period endpoint in place")))
+                     (or (re-find (re-pattern (str "<a[^>]*href=\"" (str/replace href "?" "\\?")
+                                                   "\"[\\s\\S]*?</a>")) h) ""))
+            (str "the arrow to " href " falls through to the period endpoint in place")))
       (is (not (re-find #"location.href" h)) "no full-page navigation left anywhere"))
-    (testing "month view: plain 'Previous/Next month' titles, no × back-to-month affordance"
-      (is (re-find #"Previous month" h))
-      (is (re-find #"Next month" h))
+    (testing "month view: no × back-to-month affordance (that's a range-view-only escape)"
       (is (not (re-find #"month-nav-clear" h))))))
+
+(deftest period-navigator-month-view-arrows-step-the-statement-lens-when-live
+  ;; Month view's arrows branch on the LIVE $reconFrom/$reconTo signals (not render-time state —
+  ;; the render only knows the period on load/morph, not what the user has since narrowed the
+  ;; table to via the reconcile panel): active lens -> step it to the adjacent statement; else ->
+  ;; fall through to the ordinary period step. See web.statement-lens/adjacent-span and the
+  ;; GET /transactions/statement-step handler that actually performs the step server-side.
+  (let [h (html (tv/period-navigator {:kind :month :year 2025 :month 6} (LocalDate/of 2025 6 15)))
+        prev-block (re-find #"<a[^>]*href=\"/\?month=2025-05\"[\s\S]*?</a>" h)
+        next-block (re-find #"<a[^>]*href=\"/\?month=2025-07\"[\s\S]*?</a>" h)]
+    (testing "each arrow's data-on:click checks the live lens signals before falling through"
+      (is (re-find #"if \(\$reconFrom &amp;&amp; \$reconTo\)" prev-block))
+      (is (re-find #"if \(\$reconFrom &amp;&amp; \$reconTo\)" next-block)))
+    (testing "an active lens steps via statement-step, closing the picker and resetting the page"
+      (is (re-find #"evt.preventDefault\(\); \$_periodOpen = false; \$page = 0;" prev-block))
+      (is (re-find #"@get\(&apos;/transactions/statement-step\?dir=prev&apos;\)" prev-block))
+      (is (re-find #"@get\(&apos;/transactions/statement-step\?dir=next&apos;\)" next-block)))
+    (testing "title/aria-label go live off the same lens check via data-attr, not a static attr"
+      (is (not (re-find #"<a[^>]*aria-label=\"Previous month\"" h))
+          "no longer a plain static attribute in month view")
+      (is (re-find #"data-attr=\"\{title: \(\$reconFrom &amp;&amp; \$reconTo\) \? &apos;Previous statement period&apos; : &apos;Previous month&apos;" prev-block))
+      (is (re-find #"&apos;aria-label&apos;: \(\$reconFrom &amp;&amp; \$reconTo\) \? &apos;Previous statement period&apos; : &apos;Previous month&apos;" prev-block))
+      (is (re-find #"&apos;Next statement period&apos; : &apos;Next month&apos;" next-block)))
+    (testing "href fallbacks still name the plain month step (no-JS degrades to month stepping — the lens is JS-only)"
+      (is (re-find #"href=\"/\?month=2025-05\"" prev-block))
+      (is (re-find #"href=\"/\?month=2025-07\"" next-block)))))
+
+(deftest period-navigator-range-view-arrows-never-branch-on-the-lens
+  ;; A range period never has an active statement lens (see reconcile-range's month-view-only
+  ;; guard), so range view keeps the plain, unconditional period-nav-js + static titles.
+  (let [p (period/parse {:from "2026-06-10" :to "2026-07-09"})
+        h (html (tv/period-navigator p (LocalDate/of 2026 7 9)))]
+    (is (not (re-find #"reconFrom" h)))
+    (is (not (re-find #"statement-step" h)))))
 
 (deftest period-navigator-range-view-shows-computed-titles-and-a-back-to-month-x
   (let [p (period/parse {:from "2026-06-10" :to "2026-07-09"})

@@ -449,6 +449,34 @@
   [p]
   (str "/?" (str/join "&" (map (fn [[k v]] (str k "=" v)) (period/url-params p)))))
 
+;; --- Statement-lens stepping (month-view arrows only) -----------------------
+;; The reconcile panel can narrow the table to a statement's span (the $reconFrom/$reconTo
+;; couriers — see reconcile-range in web.pages.transactions). While that lens is live, the
+;; navigator's arrows step it to the account's adjacent statement instead of the plain period —
+;; but a render only knows the period as of the last load/morph, not whatever the user has since
+;; narrowed to client-side, so the branch has to read the LIVE signals, not render-time state.
+
+(defn- statement-step-click-js
+  "Month view only: the arrow's data-on:click, checking the live $reconFrom/$reconTo signals
+   before falling through — an active lens steps it via GET /transactions/statement-step?dir=
+   `dir` (\"prev\"/\"next\"; the server re-checks and is the actual authority — see
+   statement-step), closing the picker and resetting to page 0 first, same as any other
+   in-place period navigation; otherwise falls through to the ordinary `period-nav-js` step on
+   `target`, unchanged."
+  [dir target]
+  (str "if ($reconFrom && $reconTo) {"
+       " evt.preventDefault(); $_periodOpen = false; $page = 0;"
+       " @get('/transactions/statement-step?dir=" dir "')"
+       " } else { " (period-nav-js target) " }"))
+
+(defn- statement-step-attr-js
+  "Month view only: the arrow's `data-attr` object naming what the click will actually do —
+   '`dir-word` statement period' while the live lens is active, '`dir-word` month' otherwise —
+   mirroring `statement-step-click-js`'s own branch so the label never lies about the target."
+  [dir-word]
+  (str "{title: ($reconFrom && $reconTo) ? '" dir-word " statement period' : '" dir-word " month',"
+       " 'aria-label': ($reconFrom && $reconTo) ? '" dir-word " statement period' : '" dir-word " month'}"))
+
 ;; --- Period picker (the popover under the dateline) -------------------------
 ;; Clicking the dateline opens a popover: a rail of quick links (this month, recent months,
 ;; YTD, last 90 days), a year-steppable month grid, and a custom-range footer. Every
@@ -615,26 +643,47 @@
   "The dateline + prev/next steppers for period `p` (period/prev / period/next), plus the
    period-picker popover the dateline toggles open ($_periodOpen — the dateline is a button
    now, keeping #period-navigator-display inside it unchanged as the rows handler's live
-   morph target). `today` (LocalDate) feeds the picker — see period-picker. Month view reads
-   \"Previous/Next month\"; range view reads the actual target span (\"Previous: Jun 3 –
-   Jun 9, 2026\") since a step's length varies (see period/prev's docstring), and gets a
-   trailing × back to the range's containing month — the one way to leave range view.
-   `#period-navigator` on the root is a stable SSE morph target: the period handler
-   (GET /transactions/period) re-renders this whole fragment wholesale on every period
-   change — arrows, dateline label, ×, and the entire picker inside it (rail selection, grid
-   year + selected cell, footer seeds) all come back correct in one morph. `$_periodOpen` is
-   an ephemeral (client-only) signal, so it keeps working across the morph."
+   morph target). `today` (LocalDate) feeds the picker — see period-picker. `lens-from`/
+   `lens-to` (Dates, optional — the 2-arity passes nil/nil) are the active statement lens's own
+   span, when the table is currently narrowed to one: the dateline shows the narrowed span via
+   `period-label` instead of the whole period, exactly what `period-change-response`'s
+   statement-step branch (web.pages.transactions) and a full page load restoring the lens from
+   the URL both feed in. Month view reads \"Previous/Next month\" UNLESS the live
+   $reconFrom/$reconTo signals show the lens is active, in which case each arrow instead steps
+   the lens to the account's adjacent statement (GET /transactions/statement-step — see
+   statement-step-click-js/statement-step-attr-js) — a client-side branch on the LIVE signals,
+   since a render only knows the period as of the last load/morph, not what the user has since
+   narrowed to; the server independently re-checks and is the actual authority (see
+   web.pages.transactions/reconcile-range). Range view never has this branch (a range has no
+   statement lens) and reads the actual target span (\"Previous: Jun 3 – Jun 9, 2026\") since a
+   step's length varies (see period/prev's docstring), gaining a trailing × back to the range's
+   containing month — the one way to leave range view. `#period-navigator` on the root is a
+   stable SSE morph target: a period OR statement-step change (GET /transactions/period,
+   /transactions/statement-step) re-renders this whole fragment wholesale — arrows, dateline
+   label, ×, and the entire picker inside it (rail selection, grid year + selected cell, footer
+   seeds) all come back correct in one morph. `$_periodOpen` is an ephemeral (client-only)
+   signal, so it keeps working across the morph."
   ([p today] (period-navigator p today nil nil))
   ([p today lens-from lens-to]
    (let [range? (not (period/month? p))
          prev (period/prev p)
          next (period/next p)
-         nav-label (fn [dir target] (if range? (str dir ": " (period-label target)) (str dir " month")))]
+         nav-label (fn [dir target] (if range? (str dir ": " (period-label target)) (str dir " month")))
+         ;; Range view keeps the plain, unconditional period-nav-js + static titles (a range
+         ;; never has an active statement lens — see reconcile-range's month-view-only guard).
+         ;; Month view's arrows branch on the live lens signals instead — see
+         ;; statement-step-click-js/statement-step-attr-js above.
+         arrow-attrs (fn [dir-word target dir]
+                       (if range?
+                         {:title (nav-label dir-word target) :aria-label (nav-label dir-word target)
+                          "data-on:click" (period-nav-js target)}
+                         {"data-attr" (statement-step-attr-js dir-word)
+                          "data-on:click" (statement-step-click-js (name dir) target)}))]
      [:div#period-navigator.month-navigator
       [:div.month-navigator-controls
        [:a.button.button-secondary.month-nav-button
-        {:href (period-href prev) :title (nav-label "Previous" prev) :aria-label (nav-label "Previous" prev)
-         "data-on:click" (period-nav-js prev)} (chevron-left)]
+        (merge {:href (period-href prev)} (arrow-attrs "Previous" prev :prev))
+        (chevron-left)]
        ;; `__stop` so the open-click isn't also seen as the popover's click-outside
        ;; (the column-picker/funnel convention).
        [:button#period-toggle.month-navigator-toggle
@@ -646,8 +695,8 @@
         (period-display (period-label p lens-from lens-to))
         (chevron-down)]
        [:a.button.button-secondary.month-nav-button
-        {:href (period-href next) :title (nav-label "Next" next) :aria-label (nav-label "Next" next)
-         "data-on:click" (period-nav-js next)} (chevron-right)]
+        (merge {:href (period-href next)} (arrow-attrs "Next" next :next))
+        (chevron-right)]
        (when range?
          (let [cm (assoc (period/containing-month p) :kind :month)]
            [:a.month-nav-clear

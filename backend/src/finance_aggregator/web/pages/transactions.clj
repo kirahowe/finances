@@ -29,6 +29,7 @@
             rollup-pane split-editor-modal sr-status suggestion-row-stale tbody
             undo-redo-controls]]
    [finance-aggregator.web.render :as r]
+   [finance-aggregator.web.statement-lens :as statement-lens]
    [finance-aggregator.web.view :as view]
    [finance-aggregator.web.view-state :as vs]
    [starfederation.datastar.clojure.adapter.http-kit :as hk]
@@ -380,54 +381,109 @@
                          :_pickerTo (or lens-to-iso picker-to)})
                       (recon-signals close-model)))))))))
 
+(defn- period-change-response
+  "The shared SSE response for a period-CHANGING navigation — re-run the view for `p` and morph
+   the page in place, `table-and-facets` + `close-or-note` exactly like `rows`, but with the
+   three differences that follow from it being a period change rather than a filter change: the
+   WHOLE navigator fragment re-renders (period-navigator — its dateline moves along with
+   everything else, so there's no separate period-display patch); the rollup re-patches with a
+   whole new BASELINE (a period change swaps the very row set its scoping-filtered sums are
+   drawn from — `rows` re-patches it too, for scoping-filter changes within one period); and the
+   final signal patch re-seeds $month/$from/$to from `p`'s OWN canonical signal-seed
+   (period/parse may canonicalize an applied from/to range to its containing month — see
+   period/canonicalize — so this is what makes that canonical shape stick client-side).
+   `lens` distinguishes the two callers: nil for `period` (an ordinary period step / rail
+   quick-link / month-cell / × / custom-range Apply) — the statement lens is ignored outright
+   (it's a month-view-only affordance keyed to the account being drilled into, see
+   reconcile-range, and doesn't carry meaning across an ordinary period change), so any
+   $reconFrom/$reconTo still sitting in the live signals from a prior visit is blanked before
+   `table-and-facets` ever sees it and the couriers are reset in the signal patch. Or, for
+   `statement-step`, `{:from :to Date :from-iso :to-iso String}` — the account's adjacent
+   statement span (or a month-shifted fallback — see web.statement-lens/adjacent-span): the
+   couriers are instead SET to the new span, so `table-and-facets` narrows to it, the navigator
+   (4-arity) shows its dateline, and $_pickerFrom/$_pickerTo seed from it — the footer converts
+   what's on screen into a real range, same as the lens-narrowed case `rows` already handles."
+  [db-conn req signals p lens]
+  (let [view-st (vs/signals->view-state signals)
+        lens-couriers (if lens
+                        {:reconFrom (:from-iso lens) :reconTo (:to-iso lens)}
+                        {:reconFrom "" :reconTo ""})
+        model (table-and-facets db-conn p (merge signals lens-couriers) view-st
+                                {:categories (db-categories/list-all db-conn)})
+        close-model (close-or-note db-conn p view-st)
+        result (:result model)
+        today (java.time.LocalDate/now java.time.ZoneOffset/UTC)]
+    (sse-response req
+     (fn [sse]
+       (patch! sse (error-banner))
+       (patch! sse (sr-status (str (:total result)
+                                   (if (= 1 (:total result)) " transaction" " transactions"))))
+       (patch! sse (tbody (:rows result)))
+       (patch! sse (pagination-bar result))
+       (patch! sse (tv/period-navigator p today (:from lens) (:to lens)))
+       (patch-view! sse model view-st (boolean lens))
+       (patch! sse (tv/close-panel close-model))
+       ;; A period change swaps the rollup's whole baseline (rows re-patches it too, for
+       ;; scoping-filter changes within one period).
+       (patch! sse (rollup-pane (:rollup model)))
+       (d*/patch-signals!
+        sse (r/signals
+             (merge {:page (:page result)} lens-couriers
+                    (period/signal-seed p)
+                    (if lens
+                      {:_pickerFrom (:from-iso lens) :_pickerTo (:to-iso lens)}
+                      (let [{:keys [picker-from picker-to]} (period/picker-seed p)]
+                        {:_pickerFrom picker-from :_pickerTo picker-to}))
+                    (recon-signals close-model))))))))
+
 (defn period
   "GET /transactions/period — a period change (arrow / rail quick-link / month-cell / × /
-   custom-range Apply, all via period-nav-js or picker-apply-js): re-run the view for the NEW
-   period and morph the page in place over SSE, `table-and-facets` + `close-or-note` exactly like
-   `rows`, but three differences follow from it being a PERIOD change rather than a filter change:
-   the statement lens is ignored outright (it's a month-view-only affordance keyed to the account
-   being drilled into — see reconcile-range — and doesn't carry meaning across a period change, so
-   any $reconFrom/$reconTo still sitting in the live signals from a prior visit is blanked before
-   table-and-facets ever sees it, and the couriers are reset in the signal patch below); the WHOLE
-   navigator fragment re-renders (period-navigator — its dateline moves along with everything
-   else, so there's no separate period-display patch); and the rollup re-patches with a whole
-   new BASELINE — a period change swaps the very row set its scoping-filtered sums are drawn
-   from (`rows` re-patches it too, for scoping-filter changes within one period).
-   The final signal patch re-seeds $month/$from/$to from the period's OWN canonical signal-seed
-   (period/parse may canonicalize an applied from/to range to its containing month — see
-   period/canonicalize — so this is what makes that canonical shape stick client-side) and
-   $_pickerFrom/$_pickerTo from its picker-seed, restoring the footer to the new period's bounds."
+   custom-range Apply, all via period-nav-js or picker-apply-js): re-run the view for the new
+   period and morph the page in place over SSE (period-change-response, lens nil — the
+   statement lens is always blanked by an ordinary period change). Stepping the lens ITSELF
+   while it's active lives on its own endpoint — GET /transactions/statement-step, which the
+   navigator's arrows @get instead of this one when they see the live $reconFrom/$reconTo
+   signals (see statement-step-click-js in transactions-view)."
+  [{:keys [db-conn]}]
+  (fn [req]
+    (commands/clear-linger! auth/user-id)
+    (let [signals (r/read-signals req)
+          p (signals-period signals)]
+      (period-change-response db-conn req signals p nil))))
+
+(defn statement-step
+  "GET /transactions/statement-step?dir=next|prev — the navigator arrow's click while the
+   statement lens is active: step the lens to the account's REAL adjacent statement
+   (web.statement-lens/adjacent-span — the next/prev statement by start-date, or a
+   ±1-calendar-month shift of the current span when none exists in that direction), landing the
+   viewed period on the :month containing the new span's END date. `dir` names the request —
+   anything but \"prev\" is treated as \"next\", the same fat-finger-safe default the reconciled
+   toggle's :v path param uses. The client only routes here when IT sees the lens live (see
+   statement-step-click-js); this handler re-checks server-side (reconcile-range, same as every
+   other lens-reading handler) and is the actual authority — stale $reconFrom/$reconTo couriers
+   left over from a different account/period, or a direct hit with none set, fall back to a
+   PLAIN period step (period/next / period/prev, lens nil) instead of erroring."
   [{:keys [db-conn]}]
   (fn [req]
     (commands/clear-linger! auth/user-id)
     (let [signals (r/read-signals req)
           p (signals-period signals)
           view-st (vs/signals->view-state signals)
-          model (table-and-facets db-conn p (assoc signals :reconFrom "" :reconTo "") view-st
-                                  {:categories (db-categories/list-all db-conn)})
-          close-model (close-or-note db-conn p view-st)
-          result (:result model)
-          today (java.time.LocalDate/now java.time.ZoneOffset/UTC)]
-      (sse-response req
-       (fn [sse]
-         (patch! sse (error-banner))
-         (patch! sse (sr-status (str (:total result)
-                                     (if (= 1 (:total result)) " transaction" " transactions"))))
-         (patch! sse (tbody (:rows result)))
-         (patch! sse (pagination-bar result))
-         (patch! sse (tv/period-navigator p today))
-         (patch-view! sse model view-st false)
-         (patch! sse (tv/close-panel close-model))
-         ;; A period change swaps the rollup's whole baseline (rows re-patches it too, for
-         ;; scoping-filter changes within one period).
-         (patch! sse (rollup-pane (:rollup model)))
-         (d*/patch-signals!
-          sse (r/signals
-               (merge {:page (:page result) :reconFrom "" :reconTo ""}
-                      (period/signal-seed p)
-                      (let [{:keys [picker-from picker-to]} (period/picker-seed p)]
-                        {:_pickerFrom picker-from :_pickerTo picker-to})
-                      (recon-signals close-model)))))))))
+          dir (if (= "prev" (get-in req [:query-params "dir"])) :prev :next)
+          active (when (period/month? p) (reconcile-range signals view-st))]
+      (if-let [{:keys [account from to]} active]
+        (let [spans (map (fn [{:keys [start-date end-date]}]
+                            {:from (u/date->local-date start-date) :to (u/date->local-date end-date)})
+                          (db-statements/list-for-account db-conn account))
+              current {:from (u/date->local-date from) :to (u/date->local-date to)}
+              {:keys [^java.time.LocalDate from ^java.time.LocalDate to]}
+              (statement-lens/adjacent-span spans current dir)
+              lens {:from (u/string->date (str from)) :to (u/string->date (str to))
+                    :from-iso (str from) :to-iso (str to)}
+              new-p {:kind :month :year (.getYear to) :month (.getMonthValue to)}]
+          (period-change-response db-conn req signals new-p lens))
+        (period-change-response db-conn req signals
+                                (if (= :prev dir) (period/prev p) (period/next p)) nil)))))
 
 (defn- edit-response
   "Shared SSE response after any edit/undo/redo: re-render the tbody (lingering the touched
