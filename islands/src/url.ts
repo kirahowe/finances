@@ -1,9 +1,10 @@
 // URL view-state reflector for the server-authoritative /v2 page.
 //
 // Persistent view state (search / scope / chips / sort / page / column visibility / header
-// funnels) lives in Datastar signals; this island reflects them into the query string so a
-// reload or shared link restores the view (URL, never localStorage). The READ side is
-// server-side (web/pages/transactions query->view-state seeds the signals on load). All the
+// funnels / the viewed period / the statement lens) lives in Datastar signals; this island
+// reflects them into the query string so a reload or shared link restores the view (URL, never
+// localStorage). The READ side is server-side (web/pages/transactions query->view-state seeds
+// the signals on load; `page` also restores the statement lens — see reconcile-range). All the
 // serialization rules live here in one place; a Datastar `data-on-signal-patch` (scoped to
 // the persistent signals) calls window.__syncUrl with the current values.
 
@@ -27,6 +28,13 @@ interface ViewState {
   fa?: unknown[];
   fi?: unknown[];
   fc?: unknown[];
+  // The viewed PERIOD (a month XOR a from/to range) and the statement lens narrowing the table
+  // to one account's statement span — see the mutual-exclusivity handling below.
+  month?: string;
+  from?: string;
+  to?: string;
+  reconFrom?: string;
+  reconTo?: string;
 }
 
 const csv = (a: unknown[] | undefined): string => (a ?? []).filter(Boolean).join(',');
@@ -66,6 +74,26 @@ const csv = (a: unknown[] | undefined): string => (a ?? []).filter(Boolean).join
   set('fa', csv(s.fa));
   set('fi', csv(s.fi));
   set('fc', csv(s.fc));
+  // The viewed PERIOD: a month XOR a from/to range, mutually exclusive in the URL — mirrors
+  // web.period/url-params. $month is NEVER blank (it's always the containing month, even in
+  // range view — see web.period/signal-seed), so it can't be the "is a range active" signal;
+  // a non-blank from/to pair is, and wins the range shape (deleting month); otherwise month
+  // wins (deleting from/to).
+  if (s.from && s.to) {
+    p.delete('month');
+    p.set('from', s.from);
+    p.set('to', s.to);
+  } else {
+    p.delete('from');
+    p.delete('to');
+    set('month', s.month ?? '');
+  }
+  // The statement lens narrowing the table to one account's statement span (month view only —
+  // see web.pages.transactions/reconcile-range). Persisted so a reload restores the same
+  // narrowed table (the page handler re-derives it from these two params — see the `page`
+  // handler); blank when the lens isn't active.
+  set('reconFrom', s.reconFrom ?? '');
+  set('reconTo', s.reconTo ?? '');
 
   history.replaceState(null, '', `${u.pathname}?${p.toString()}`);
 };

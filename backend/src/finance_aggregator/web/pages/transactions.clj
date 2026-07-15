@@ -276,7 +276,13 @@
 
 (defn page
   "GET / — full page. Seeds the view-state (and the viewed PERIOD — a month, or a from/to
-   analysis range) from the URL; a fresh load clears lingering."
+   analysis range) from the URL; a fresh load clears lingering. Also restores the STATEMENT
+   LENS from the URL (?reconFrom/?reconTo — see url.ts + reconcile-range) when it's still
+   valid there (month view, one account focused, posted basis): the table renders already
+   narrowed to it (via `table-and-facets`, same presenter every other handler routes through,
+   in place of a bare `view/present`) and the navigator's dateline shows its span (`page-body`'s
+   `:lens-from`/`:lens-to`) — \"refreshing the page never changes what you're looking at\" holds
+   for the lens exactly like every other piece of view state."
   [{:keys [db-conn]}]
   (fn [req]
     (commands/clear-linger! auth/user-id)
@@ -284,13 +290,23 @@
           p (period/parse {:month (get qp "month") :from (get qp "from") :to (get qp "to")})
           {:keys [start-date end-date]} (period/date-range p)
           view-st (vs/query->view-state qp)
+          ;; Kept for the `empty?` check below — table-and-facets runs its own span query to
+          ;; build the model (possibly narrowed further to the lens); a second query on a full
+          ;; load is accepted so `page` stays a thin composition of the same presenter every
+          ;; other handler uses instead of a bespoke lens-aware empty check.
           txs (db-transactions/list-for-span db-conn start-date end-date (:basis view-st))
           categories (db-categories/list-all db-conn)
+          lens-signals {:reconFrom (get qp "reconFrom") :reconTo (get qp "reconTo")}
+          lens (when (period/month? p) (reconcile-range lens-signals view-st))
+          lens-from-iso (some-> lens :from u/date->local-date str)
+          lens-to-iso (some-> lens :to u/date->local-date str)
           ;; The reconciliation panel is assembled here (it needs the account filter + the
           ;; snapshot history): the all-accounts overview, or the focused card when the URL
           ;; filters to a single account — in range view, a quiet note instead (close-or-note).
           close-model (close-or-note db-conn p view-st)
-          model (assoc (view/present txs view-st {:categories categories}) :close close-model)]
+          model (assoc (table-and-facets db-conn p lens-signals view-st {:categories categories})
+                       :close close-model)
+          {:keys [picker-from picker-to]} (period/picker-seed p)]
       {:status 200
        :headers {"Content-Type" "text/html"}
        :body
@@ -298,7 +314,10 @@
         {:title "Finance Aggregator"
          :islands ["combobox" "url" "grid-nav" "resize" "split-editor" "modal"]
          :signals (merge (vs/client-signals view-st
-                                            (merge (period/signal-seed p) (period/picker-seed p))
+                                            (merge (period/signal-seed p)
+                                                   {:picker-from (or lens-from-iso picker-from)
+                                                    :picker-to (or lens-to-iso picker-to)
+                                                    :recon-from lens-from-iso :recon-to lens-to-iso})
                                             (:result model) qp)
                          (recon-signals close-model))}
         ;; :today is the page's one clock read (UTC — the same convention as month/current),
@@ -306,7 +325,7 @@
         (page-body {:period p :today (java.time.LocalDate/now java.time.ZoneOffset/UTC)
                     :stats (db-stats/entity-counts db-conn) :categories categories
                     :view-st view-st :model model :undo (undo-labels auth/user-id)
-                    :empty? (empty? txs)}))})))
+                    :empty? (empty? txs) :lens-from (:from lens) :lens-to (:to lens)}))})))
 
 (defn picker-months
   "GET /transactions/period-picker/months — re-render the period picker's month-grid pane

@@ -213,6 +213,19 @@
       (is (= "2025-01-01" (:_pickerFrom s)))
       (is (= "2025-01-31" (:_pickerTo s))))))
 
+(deftest vs->signals-recon-lens-seed-test
+  (testing "no :recon-from/:recon-to in the period-signals seed -> blank (no active lens, the
+            ordinary case — vs->signals stays a pure codec, so the caller decides whether a
+            lens is active and supplies its span; this ns never reaches into web.period itself)"
+    (let [s (vs/vs->signals (vs/query->view-state {}) month-seed {:page 0 :page-size 25})]
+      (is (= "" (:reconFrom s)))
+      (is (= "" (:reconTo s)))))
+  (testing "a seed carrying the active lens's own span lands in :reconFrom/:reconTo verbatim"
+    (let [seed (assoc month-seed :recon-from "2025-01-05" :recon-to "2025-01-06")
+          s (vs/vs->signals (vs/query->view-state {}) seed {:page 0 :page-size 25})]
+      (is (= "2025-01-05" (:reconFrom s)))
+      (is (= "2025-01-06" (:reconTo s))))))
+
 (deftest vs-basis-signals-round-trip
   (testing "the posted default signals back BLANK (clean-URL convention, like sortCol)"
     (is (= "" (:basis (vs/vs->signals (vs/query->view-state {}) month-seed {:page 0 :page-size 25})))))

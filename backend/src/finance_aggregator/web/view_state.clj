@@ -196,14 +196,18 @@
    URL the url island reflects them into) stay clean.
 
    `period-signals` is the page's period seed (web.period/signal-seed merged with
-   web.period/picker-seed — this ns stays a pure codec and never requires web.period itself,
-   so the caller supplies the seed map): :month is ALWAYS the containing month (so month-bound
-   handlers keep working even in range view); :from/:to are blank in month view, the ISO
-   bounds of the range in range view — the client's own cue for which lens is currently
-   active. :picker-from/:picker-to (the viewed span's own bounds, never blank) seed the
-   ephemeral :_pickerFrom/:_pickerTo signals — client-side couriers for the period picker's
-   custom-range Apply button, underscore-prefixed so they never ride a backend request."
-  [vs {:keys [month from to picker-from picker-to]} result]
+   web.period/picker-seed, plus :recon-from/:recon-to when a statement lens is active on load —
+   this ns stays a pure codec and never requires web.period itself, so the caller supplies the
+   seed map): :month is ALWAYS the containing month (so month-bound handlers keep working even
+   in range view); :from/:to are blank in month view, the ISO bounds of the range in range view
+   — the client's own cue for which lens is currently active. :picker-from/:picker-to (the
+   viewed span's own bounds, never blank) seed the ephemeral :_pickerFrom/:_pickerTo signals —
+   client-side couriers for the period picker's custom-range Apply button, underscore-prefixed
+   so they never ride a backend request. :recon-from/:recon-to (ISO strings, defaulting blank
+   when absent from the seed map) restore the STATEMENT LENS narrowing the table on a fresh
+   page load — the `page` handler computes them the same way `rows`/`period-change-response`
+   do (reconcile-range), so a reload lands on the exact narrowed view it left."
+  [vs {:keys [month from to picker-from picker-to recon-from recon-to]} result]
   {:search        (:search vs)
    :scope         (if (= :to-reconcile (:scope vs)) "to-reconcile" "all")
    :hideTransfers (:hide-transfers vs)
@@ -231,14 +235,15 @@
    :reconClose    ""
    ;; Statement-period reconciliation: the add/edit-statement modal couriers ($stId blank =
    ;; create) and the $reconFrom/$reconTo span that narrows the table to a statement (may
-   ;; cross a month boundary; blank = the whole month).
+   ;; cross a month boundary; blank = the whole month) — seeded from `recon-from`/`recon-to`
+   ;; when the caller supplies an active lens (a page reload restoring it), else blank.
    :stId          ""
    :stStart       ""
    :stStartBal    ""
    :stEnd         ""
    :stEndBal      ""
-   :reconFrom     ""
-   :reconTo       ""
+   :reconFrom     (or recon-from "")
+   :reconTo       (or recon-to "")
    ;; Add-transaction modal (feature: manual transactions) couriers.
    :txAccount     ""
    :txDir         "out"

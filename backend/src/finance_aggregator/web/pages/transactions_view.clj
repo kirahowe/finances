@@ -734,23 +734,30 @@
     "data-class" (str "{'is-active': $" signal "}")}
    label [:span.filter-count {:id span-id} count]])
 
-(defn toolbar [period today counts undo]
-  [:div.toolbar
-   [:div.toolbar-controls
-    (period-navigator period today)
-    [:span.toolbar-divider {:aria-hidden "true"}]
-    (search-box)
-    (scope-toggle counts)
-    (count-chip "Uncategorized" "uncat" "count-uncategorized" (:uncategorized counts))
-    (count-chip "Hide transfers" "hideTransfers" "count-transfers" (:transfers-hidden counts))]
-   [:div.toolbar-actions
-    [:button.button.button-secondary.add-transaction-button
-     {:type "button" :aria-haspopup "dialog" "data-on:click" "@get('/transactions/manual/new')"}
-     "Add transaction"]
-    [:button.button.button-secondary.filter-button
-     {:type "button" :aria-haspopup "dialog" "data-on:click" "@get('/transactions/review-transfers')"}
-     "Review transfers"]
-    (undo-redo-controls undo) (column-picker)]])
+(defn toolbar
+  "The dateline/steppers + search/scope/count-chip row, plus the add-transaction/review/undo/
+   column-picker actions. `lens-from`/`lens-to` (Dates, optional — the 4-arity passes nil/nil)
+   thread straight through to `period-navigator`'s own 4-arity: a full page load restoring an
+   active statement lens from the URL (see the `page` handler) shows the narrowed span in the
+   dateline immediately, same as an in-place statement step already does."
+  ([period today counts undo] (toolbar period today counts undo nil nil))
+  ([period today counts undo lens-from lens-to]
+   [:div.toolbar
+    [:div.toolbar-controls
+     (period-navigator period today lens-from lens-to)
+     [:span.toolbar-divider {:aria-hidden "true"}]
+     (search-box)
+     (scope-toggle counts)
+     (count-chip "Uncategorized" "uncat" "count-uncategorized" (:uncategorized counts))
+     (count-chip "Hide transfers" "hideTransfers" "count-transfers" (:transfers-hidden counts))]
+    [:div.toolbar-actions
+     [:button.button.button-secondary.add-transaction-button
+      {:type "button" :aria-haspopup "dialog" "data-on:click" "@get('/transactions/manual/new')"}
+      "Add transaction"]
+     [:button.button.button-secondary.filter-button
+      {:type "button" :aria-haspopup "dialog" "data-on:click" "@get('/transactions/review-transfers')"}
+      "Review transfers"]
+     (undo-redo-controls undo) (column-picker)]]))
 
 ;; ---------------------------------------------------------------------------
 ;; Pagination (fully server-rendered each response → disabled states stay correct)
@@ -900,18 +907,23 @@
 (defn url-sync
   "Reflect the persistent view-state into the URL on change (the url island owns the
    serialization). Scoped by the signal-patch filter to the persistent signals so it ignores
-   edit + ephemeral-UI signals. The READ side is server-side (query->view-state on load)."
+   edit + ephemeral-UI signals. Includes the viewed PERIOD (month/from/to) and the statement
+   LENS (reconFrom/reconTo) — a period change or a lens step (period-change-response) patches
+   these signals just like any other persistent one, so \"refreshing the page never changes
+   what you're looking at\" holds for both. The READ side is server-side (query->view-state +
+   the period/lens parsing in the `page` handler)."
   []
   [:div {:hidden true
          "data-on-signal-patch-filter"
-         "{include: /^(search|scope|hideTransfers|uncat|showPosted|instLogo|basis|sortCol|sortDir|sortCol2|sortDir2|page|pageSize)$|^(cols|filter)\\./}"
+         "{include: /^(search|scope|hideTransfers|uncat|showPosted|instLogo|basis|sortCol|sortDir|sortCol2|sortDir2|page|pageSize|month|from|to|reconFrom|reconTo)$|^(cols|filter)\\./}"
          "data-on-signal-patch"
          (str "window.__syncUrl && window.__syncUrl({q: $search, scope: $scope,"
               " ht: $hideTransfers, uncat: $uncat, sortCol: $sortCol, sortDir: $sortDir,"
               " sortCol2: $sortCol2, sortDir2: $sortDir2,"
               " page: $page, pageSize: $pageSize, cols: $cols, showPosted: $showPosted,"
               " instLogo: $instLogo, basis: $basis,"
-              " fa: $filter.account, fi: $filter.institution, fc: $filter.category})")}])
+              " fa: $filter.account, fi: $filter.institution, fc: $filter.category,"
+              " month: $month, from: $from, to: $to, reconFrom: $reconFrom, reconTo: $reconTo})")}])
 
 (defn funnel-list
   "A header funnel's option list. Its own #funnel-list-<col> id is the morph target so a view
@@ -1863,9 +1875,12 @@
    supplies the `period` (a month, or a from/to analysis range — see web.period), `today` (the
    handler's one clock read, a UTC LocalDate — feeds the period picker's quick links and
    current-month ring; see period-picker), masthead `stats`, `categories` (for the combobox
-   model), `view-st` (funnel selections), the presented `model`, the `undo` labels, and
-   whether the period is `empty?` of transactions."
-  [{:keys [period today stats categories view-st model undo empty?]}]
+   model), `view-st` (funnel selections), the presented `model`, the `undo` labels, whether the
+   period is `empty?` of transactions, and `lens-from`/`lens-to` (Dates, optional — nil/nil when
+   no statement lens is active on load) naming the active lens restored from the URL
+   (reconFrom/reconTo — see the `page` handler), threaded into the toolbar's dateline exactly
+   like an in-place statement step already does."
+  [{:keys [period today stats categories view-st model undo empty? lens-from lens-to]}]
   ;; `cat-opts` is the model's category *funnel* option list — kept distinct from the
   ;; `category-options` view fn (the hidden combobox source list) it would otherwise shadow.
   (let [{:keys [result counts account-options institution-options rollup]
@@ -1876,11 +1891,12 @@
      (sr-status)
      [:div.transactions-layout
       [:div.card
-       (toolbar period today counts undo)
+       (toolbar period today counts undo lens-from lens-to)
        (active-filters account-options institution-options cat-opts cat-labels view-st
-                       ;; A fresh full-page load never has the statement lens active (its
-                       ;; $reconFrom/$reconTo couriers aren't URL-persisted — see url.ts).
-                       (vs/clear-all-active? view-st false))
+                       ;; A fresh full-page load CAN have the statement lens active now — it's
+                       ;; URL-persisted (reconFrom/reconTo — see url.ts + the `page` handler) —
+                       ;; so Clear-all must see it too, same as every in-place lens change.
+                       (vs/clear-all-active? view-st (boolean lens-from)))
        (if empty?
          (empty-state period)
          (list (table (:rows result)) (pagination-bar result)))]
