@@ -44,6 +44,30 @@
       (statements/delete! setup/*test-conn* id)
       (is (nil? (statements/by-id setup/*test-conn* id))))))
 
+(deftest list-for-account-test
+  (testing "every statement for the account, earliest start first; other accounts excluded"
+    (put-account! "visa" "Visa")
+    (put-account! "mc" "Mastercard")
+    (let [visa (account-eid "visa")
+          mc (account-eid "mc")]
+      (statements/create! setup/*test-conn*
+                          {:account-eid visa :start-date (date 2026 5 16) :start-balance "0"
+                           :end-date (date 2026 6 16) :end-balance "0"})
+      (statements/create! setup/*test-conn*
+                          {:account-eid visa :start-date (date 2026 4 16) :start-balance "0"
+                           :end-date (date 2026 5 16) :end-balance "0"})
+      (statements/create! setup/*test-conn*
+                          {:account-eid mc :start-date (date 2026 3 1) :start-balance "0"
+                           :end-date (date 2026 4 1) :end-balance "0"})
+      (is (= [(date 2026 4 16) (date 2026 5 16)]
+             (map :start-date (statements/list-for-account setup/*test-conn* visa)))
+          "Visa's two statements, earliest first, Mastercard's excluded")
+      (is (= [(date 2026 3 1)]
+             (map :start-date (statements/list-for-account setup/*test-conn* mc))))))
+  (testing "an account with no statements"
+    (put-account! "empty" "Empty")
+    (is (= [] (statements/list-for-account setup/*test-conn* (account-eid "empty"))))))
+
 (deftest list-overlapping-scopes-to-the-span
   (testing "overlap is start < to AND end > from — a statement counts for every month it spans"
     (put-account! "visa" "Visa")

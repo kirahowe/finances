@@ -83,18 +83,28 @@
   (let [s (d/pull (d/db conn) pull-pattern eid)]
     (when (:statement/start-date s) (->display s))))
 
-(defn list-overlapping
-  "The statements for `account-eid` that overlap the span [from, to] (java.util.Dates) —
-   start-date < to AND end-date > from — earliest start first, as display maps. The periods
-   relevant to reconciling/covering a month (pass the month bounds)."
-  [conn account-eid ^Date from ^Date to]
+(defn list-for-account
+  "ALL statements for `account-eid`, earliest start first, as display maps — the account's
+   full statement history. `list-overlapping` builds on this (pulls everything, then filters
+   to a span); the statement-lens stepper (web.statement-lens/adjacent-span, driven from
+   web.pages.transactions/statement-step) needs the same full list to search for the real
+   adjacent statement in either direction, unbounded by any one month."
+  [conn account-eid]
   (->> (d/q '[:find [(pull ?s pattern) ...]
               :in $ pattern ?acct
               :where [?s :statement/account ?acct]]
             (d/db conn) pull-pattern account-eid)
        (map ->display)
+       (sort-by :start-date)
+       vec))
+
+(defn list-overlapping
+  "The statements for `account-eid` that overlap the span [from, to] (java.util.Dates) —
+   start-date < to AND end-date > from — earliest start first, as display maps. The periods
+   relevant to reconciling/covering a month (pass the month bounds)."
+  [conn account-eid ^Date from ^Date to]
+  (->> (list-for-account conn account-eid)
        (filter (fn [{:keys [start-date end-date]}]
                  (and (.before ^Date start-date to)
                       (.after ^Date end-date from))))
-       (sort-by :start-date)
        vec))
