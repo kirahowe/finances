@@ -143,7 +143,10 @@
 
 (defn- statement-models
   "The account's statements overlapping `month`, each annotated with its period-delta verdict
-   (over the account's transactions in the statement's span). The statement half of the focused
+   (over the account's transactions in the statement's span, compared against the account's
+   effective polarity — data.ledger/effective-statement-polarity, resolved here from the raw
+   :account/type / :account/statement-polarity fields db.statements/->display carries through,
+   and threaded into view/reconcile-statement explicitly). The statement half of the focused
    card's period list."
   [db-conn account-eid month]
   (let [{:keys [start-date end-date]} (u/month-date-range month)]
@@ -151,7 +154,8 @@
             (-> (view/reconcile-statement
                  s (db-transactions/list-for-account-range
                     db-conn account-eid
-                    (ledger/statement-opening-boundary (:start-date s)) (:end-date s)))
+                    (ledger/statement-opening-boundary (:start-date s)) (:end-date s))
+                 (ledger/effective-statement-polarity s))
                 (assoc :start-iso (str (u/date->local-date (:start-date s)))
                        :end-iso   (str (u/date->local-date (:end-date s))))))
           (db-statements/list-overlapping db-conn account-eid start-date end-date))))

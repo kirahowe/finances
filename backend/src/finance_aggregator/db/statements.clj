@@ -24,14 +24,21 @@
 (def ^:private pull-pattern
   [:db/id :statement/start-date :statement/start-balance
    :statement/end-date :statement/end-balance
-   {:statement/account [:db/id :account/external-name :account/display-name]}])
+   {:statement/account [:db/id :account/external-name :account/display-name
+                        :account/type :account/statement-polarity]}])
 
 (defn- ->display
   "A pulled statement as the display/reconcile map the panel + ledger consume.
    :account-name prefers the user's rename overlay (:account/display-name) over the
    provider's :account/external-name — a data-layer-local `(or …)`, the same
    preference web.accounts/account-label applies in the view layer, since this
-   namespace can't reach up to it."
+   namespace can't reach up to it. Carries the account's RAW :account/type and
+   :account/statement-polarity through too (NOT a resolved :polarity) — deciding which
+   polarity applies is data.ledger/effective-statement-polarity's job (pure, Transformation
+   layer); this Data-layer namespace mustn't reach up to call it, the same reason
+   :account-name's own fallback is inlined above rather than calling web.accounts/
+   account-label. Callers (web.view/reconcile-statement, via its caller
+   web.pages.transactions/statement-models) resolve + thread the effective polarity."
   [s]
   {:id            (:db/id s)
    :account-eid   (get-in s [:statement/account :db/id])
@@ -41,7 +48,9 @@
    :start-date    (:statement/start-date s)
    :start-balance (:statement/start-balance s)
    :end-date      (:statement/end-date s)
-   :end-balance   (:statement/end-balance s)})
+   :end-balance   (:statement/end-balance s)
+   :account/type               (get-in s [:statement/account :account/type])
+   :account/statement-polarity (get-in s [:statement/account :account/statement-polarity])})
 
 (defn create!
   "Create a statement for `account-eid` spanning [start-date, end-date] (java.util.Dates)

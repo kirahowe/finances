@@ -50,6 +50,12 @@
                  :account/provider :plaid :account/institution [:institution/id "inst-test"]}
                 {:account/external-id "acct-visa" :account/external-name "Visa"
                  :account/currency "CAD" :account/type :credit :account/mask "3333"
+                 ;; Explicit :as-signed override: without it, :credit defaults to :inverted
+                 ;; (data.ledger/effective-statement-polarity) and every statement v2-reconcile/
+                 ;; v2-statement-step create live against Visa (0 -> -85 etc., matching a -85
+                 ;; txn under end - start) would flip from "matches" to "off by" — those specs'
+                 ;; hardcoded balances are as-signed-shaped even though Visa is a credit card.
+                 :account/statement-polarity :as-signed
                  :account/provider :plaid :account/institution [:institution/id "inst-test"]}
                 {:account/external-id "acct-mortgage" :account/external-name "Mortgage"
                  :account/currency "CAD" :account/type :loan :account/mask "4444"

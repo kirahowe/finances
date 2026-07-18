@@ -56,6 +56,21 @@
                                [{:db/id eid :account/display-name trimmed}]
                                [[:db/retract eid :account/display-name]]))))))
 
+(defn set-statement-polarity!
+  "Set an account's EXPLICIT :account/statement-polarity override — the /setup accounts-table's
+   per-account Statements toggle (web.pages.setup/set-account-polarity). Unlike
+   set-display-name!, there's no 'blank clears the override' state: the control is a fixed
+   two-option toggle (:as-signed / :inverted), so any change always writes an explicit value
+   (see data.ledger/effective-statement-polarity for the account-type default this overrides).
+   Anything other than those two keywords is ignored (defensive against a malformed courier
+   value). Looked up by :account/external-id; a no-op when the id doesn't resolve to an
+   account."
+  [db-conn external-id polarity]
+  (when (contains? #{:as-signed :inverted} polarity)
+    (let [eid (:db/id (d/pull (d/db db-conn) '[:db/id] [:account/external-id external-id]))]
+      (when eid
+        (d/transact! db-conn [{:db/id eid :account/statement-polarity polarity}])))))
+
 (defn external-ids-for-provider
   "Set of :account/external-id for accounts of `provider` already imported - the
    'remembered selection' for selectable providers (the setup link UI pre-checks

@@ -5,6 +5,7 @@
    buried in hiccup."
   (:require
    [clojure.string :as str]
+   [finance-aggregator.data.ledger :as ledger]
    [finance-aggregator.web.format :as fmt]))
 
 (defn provider-label
@@ -75,11 +76,19 @@
   [external-id]
   (str "/setup/account/" (java.net.URLEncoder/encode (str external-id) "UTF-8") "/name"))
 
+(defn- account-polarity-url
+  "PUT URL for the Statements column's polarity-toggle commit — same external-id-as-path-segment
+   shape as account-name-url."
+  [external-id]
+  (str "/setup/account/" (java.net.URLEncoder/encode (str external-id) "UTF-8") "/statement-polarity"))
+
 (defn account-display
   "Flatten an account entity into the structural map the dumb setup view lays out: the
    shown label, the current rename override (blank when none) + the provider's own name
    (the fallback shown once the override is cleared, and the muted caption alongside an
    active override) + the rename cell's @put url, the provider-native type/mask/currency,
+   the account's EFFECTIVE statement polarity (data.ledger/effective-statement-polarity —
+   an explicit override, else defaulted by account type) + the polarity toggle's @put url,
    and — for a Lunchflow account only — the per-row Sync button's target url and whether
    its connection is mid-sync (`syncing?`, supplied by the caller, which owns the
    connection-level status). Public (not just an internal connection-groups step) — the
@@ -94,6 +103,8 @@
    :type          (display-type acct)
    :mask          (if mask (str "••••" mask) "—")
    :currency      (or currency "—")
+   :polarity      (ledger/effective-statement-polarity acct)
+   :polarity-url  (account-polarity-url external-id)
    :lunchflow?    (= :lunchflow provider)
    :sync-url      (accounts-sync-url [external-id])
    :syncing?      syncing?})

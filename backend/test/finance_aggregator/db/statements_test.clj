@@ -44,6 +44,33 @@
       (statements/delete! setup/*test-conn* id)
       (is (nil? (statements/by-id setup/*test-conn* id))))))
 
+(deftest by-id-carries-the-raw-account-type-and-polarity
+  ;; Not a resolved :polarity — the raw fields, so a caller (web.view/reconcile-statement via
+  ;; web.pages.transactions/statement-models) can resolve the effective polarity itself
+  ;; (data.ledger/effective-statement-polarity) without this Data-layer namespace reaching up.
+  (testing "an account with an explicit override carries both raw fields through"
+    (d/transact! setup/*test-conn* [{:account/external-id "visa" :account/provider :plaid
+                                     :account/external-name "Visa" :account/type :credit
+                                     :account/statement-polarity :as-signed}])
+    (let [acct (account-eid "visa")
+          id (statements/create! setup/*test-conn*
+                                 {:account-eid acct :start-date (date 2026 4 16) :start-balance "0"
+                                  :end-date (date 2026 5 16) :end-balance "0"})
+          s (statements/by-id setup/*test-conn* id)]
+      (is (= :credit (:account/type s)))
+      (is (= :as-signed (:account/statement-polarity s)))))
+  (testing "an account with no override carries a nil :account/statement-polarity (the type
+            alone doesn't decide anything here — resolving the default is the caller's job)"
+    (d/transact! setup/*test-conn* [{:account/external-id "cheq" :account/provider :plaid
+                                     :account/external-name "Chequing" :account/type :chequing}])
+    (let [acct (account-eid "cheq")
+          id (statements/create! setup/*test-conn*
+                                 {:account-eid acct :start-date (date 2026 4 16) :start-balance "0"
+                                  :end-date (date 2026 5 16) :end-balance "0"})
+          s (statements/by-id setup/*test-conn* id)]
+      (is (= :chequing (:account/type s)))
+      (is (nil? (:account/statement-polarity s))))))
+
 (deftest list-for-account-test
   (testing "every statement for the account, earliest start first; other accounts excluded"
     (put-account! "visa" "Visa")

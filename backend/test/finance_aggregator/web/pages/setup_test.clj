@@ -217,6 +217,42 @@
   (let [resp (put-account-name! setup/*test-conn* "does-not-exist" "X")]
     (is (= [] @(:body resp)))))
 
+;; --- Statement polarity toggle (SSE) ----------------------------------------
+;; setup-page/set-account-polarity mirrors set-account-name end to end (same fake-adapter
+;; seam above).
+
+(defn- put-account-polarity! [conn external-id polarity-value]
+  (with-redefs [hk/->sse-response sse-test/->sse-response]
+    ((setup-page/set-account-polarity {:db-conn conn})
+     {:path-params {:external-id external-id} :body-params {:polarityValue polarity-value}})))
+
+(defn- polarity-of [conn external-id]
+  (:account/statement-polarity (d/pull (d/db conn) '[:account/statement-polarity]
+                                       [:account/external-id external-id])))
+
+(deftest set-account-polarity-sets-and-patches-the-cell
+  (let [conn setup/*test-conn*]
+    (d/transact! conn [{:account/external-id "acc-1" :account/external-name "Visa"
+                        :account/type :credit :account/provider :plaid}])
+    (let [resp (put-account-polarity! conn "acc-1" "as-signed")
+          events (apply str @(:body resp))]
+      (testing "sets the explicit override (beating the :credit default of :inverted)"
+        (is (= :as-signed (polarity-of conn "acc-1"))))
+      (testing "SSE-patches just the polarity cell, with the transient saved check"
+        (is (str/includes? events "account-polarity-acc-1"))
+        (is (str/includes? events "name-saved-check"))))))
+
+(deftest set-account-polarity-ignores-a-malformed-value
+  (let [conn setup/*test-conn*]
+    (d/transact! conn [{:account/external-id "acc-1" :account/external-name "Visa"
+                        :account/provider :plaid}])
+    (put-account-polarity! conn "acc-1" "sideways")
+    (is (nil? (polarity-of conn "acc-1")) "an unknown value never writes")))
+
+(deftest set-account-polarity-unknown-external-id-patches-nothing
+  (let [resp (put-account-polarity! setup/*test-conn* "does-not-exist" "inverted")]
+    (is (= [] @(:body resp)))))
+
 ;; --- setup-view/account-name-cell (pure — the new cell's own render checks) -----------
 
 (def ^:private plain-account
@@ -246,6 +282,39 @@
   (is (str/includes? (str (r/render (view/account-name-cell plain-account :saved? true)))
                       "name-saved-check"))
   (is (not (str/includes? (str (r/render (view/account-name-cell plain-account :saved? false)))
+                           "name-saved-check"))))
+
+;; --- setup-view/account-polarity-cell (pure — the Statements toggle's own render checks) ---
+
+(def ^:private as-signed-account
+  {:external-id "acc-1" :polarity :as-signed :polarity-url "/setup/account/acc-1/statement-polarity"})
+
+(def ^:private inverted-account
+  (assoc as-signed-account :polarity :inverted))
+
+(deftest account-polarity-cell-shows-the-effective-value-selected
+  (let [h (str (r/render (view/account-polarity-cell as-signed-account)))]
+    (is (str/includes? h "account-polarity-select"))
+    (is (str/includes? h "<option selected=\"selected\" value=\"as-signed\">As signed</option>"))
+    (is (str/includes? h "<option value=\"inverted\">Inverted</option>")
+        "the other option renders with no selected attr")
+    (is (not (str/includes? h "name-saved-check")) "saved? defaults to false")))
+
+(deftest account-polarity-cell-inverted-selects-the-other-option
+  (let [h (str (r/render (view/account-polarity-cell inverted-account)))]
+    (is (str/includes? h "<option selected=\"selected\" value=\"inverted\">Inverted</option>"))
+    (is (str/includes? h "<option value=\"as-signed\">As signed</option>"))))
+
+(deftest account-polarity-cell-change-commits-the-courier-and-puts
+  (let [h (str (r/render (view/account-polarity-cell as-signed-account)))]
+    (is (str/includes? h "$polarityValue = el.value")
+        "the change handler sets the courier before @put — no shared data-bind across rows")
+    (is (str/includes? h "@put(&apos;/setup/account/acc-1/statement-polarity&apos;)"))))
+
+(deftest account-polarity-cell-saved-flag-renders-check-only-when-set
+  (is (str/includes? (str (r/render (view/account-polarity-cell as-signed-account :saved? true)))
+                      "name-saved-check"))
+  (is (not (str/includes? (str (r/render (view/account-polarity-cell as-signed-account :saved? false)))
                            "name-saved-check"))))
 
 (deftest plaid-link-token-returns-json-token

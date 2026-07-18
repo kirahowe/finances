@@ -482,18 +482,25 @@
     (is (= :reconciled (:status cov)) "the Jan 5 start day is counted, so the statement covers every Visa txn")
     (is (zero? (:uncovered cov)))))
 
-(deftest reconcile-statement-uses-statement-balance-polarity
-  (let [statement {:id 7 :start-balance 44.02M :end-balance -90.15M}
-        span [{:transaction/amount 44.02M}
+(deftest reconcile-statement-threads-the-given-polarity
+  (let [span [{:transaction/amount 44.02M}
               {:transaction/amount -31.92M}
               {:transaction/amount -4.56M}
               {:transaction/amount 36.48M}
-              {:transaction/amount 90.15M}]
-        r (view/reconcile-statement statement span)]
-    (is (= :reconciled (:status r)))
-    (is (= 134.17M (:computed r)))
-    (is (= 134.17M (:reported r)))
-    (is (= 0.00M (:difference r)))))
+              {:transaction/amount 90.15M}]]  ; Σ = 134.17
+    (testing ":inverted (start − end) ties out for this statement's printed balances"
+      (let [statement {:id 7 :start-balance 44.02M :end-balance -90.15M}
+            r (view/reconcile-statement statement span :inverted)]
+        (is (= :reconciled (:status r)))
+        (is (= 134.17M (:computed r)))
+        (is (= 134.17M (:reported r)))
+        (is (= 0.00M (:difference r)))))
+    (testing "the same balances read as :drift under :as-signed — polarity isn't guessed,
+              it's whatever the caller resolved and passed in"
+      (let [statement {:id 7 :start-balance 44.02M :end-balance -90.15M}
+            r (view/reconcile-statement statement span :as-signed)]
+        (is (= :drift (:status r)))
+        (is (= -134.17M (:reported r)))))))
 
 ;; --- Lingering --------------------------------------------------------------
 ;; A row edited out of the active filter should stay visible *in its original position*

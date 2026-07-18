@@ -80,20 +80,36 @@
         reported (when (and (some? start-balance) (some? end-balance)) (- end-balance start-balance))]
     (verdict reported computed tolerance)))
 
+(defn effective-statement-polarity
+  "The polarity to compare an account's statements against: an explicit
+   :account/statement-polarity always wins; when absent, it defaults by account type —
+   :credit accounts default :inverted (typical credit-card paperwork, printed opposite the
+   app's signed-amount convention), everything else defaults :as-signed. Pure — `account` is
+   any map carrying :account/type / :account/statement-polarity (a pulled account entity, or
+   db.statements/->display's statement map, which carries those two fields through
+   flattened-but-namespaced for exactly this call)."
+  [{:account/keys [statement-polarity type]}]
+  (or statement-polarity
+      (if (= type :credit) :inverted :as-signed)))
+
 (defn reconcile-statement-period
-  "Reconcile a user-entered statement against transactions in its span. Unlike synced
-   month-boundary snapshots, statement balances are typed from institution statements whose
-   sign convention can be opposite the app's signed transaction convention. Compare both
-   possible balance deltas and keep the one closest to the tracked activity, so either
-   `end − start` or `start − end` statement polarity can tie out without false drift."
-  [start-balance end-balance span-txns & {:keys [tolerance] :or {tolerance default-tolerance}}]
-  (let [computed (computed-total span-txns)]
-    (if (and (some? start-balance) (some? end-balance))
-      (let [forward  (- end-balance start-balance)
-            reversed (- start-balance end-balance)
-            reported (min-key #(abs (- % computed)) forward reversed)]
-        (verdict reported computed tolerance))
-      (verdict nil computed tolerance))))
+  "Reconcile a user-entered statement against transactions in its span, using the account's
+   DECLARED (or type-defaulted — effective-statement-polarity) `polarity` rather than
+   guessing: :as-signed statements run WITH the app's signed-amount convention (reported =
+   end − start, same direction as reconcile-period); :inverted statements run AGAINST it
+   (reported = start − end — typical credit-card paperwork, where a lower printed balance
+   after a payment reads as a POSITIVE change on the statement even though the tracked
+   activity is negative). Strict: no more comparing both directions and keeping whichever
+   lands closer to tracked activity — that heuristic could MASK real drift on the correct
+   polarity by preferring an accidentally-closer wrong one."
+  [start-balance end-balance span-txns & {:keys [tolerance polarity]
+                                          :or {tolerance default-tolerance polarity :as-signed}}]
+  (let [computed (computed-total span-txns)
+        reported (when (and (some? start-balance) (some? end-balance))
+                   (if (= polarity :inverted)
+                     (- start-balance end-balance)
+                     (- end-balance start-balance)))]
+    (verdict reported computed tolerance)))
 
 (defn reconcile-row
   "Combine one account's computed delta with its reported delta (nil when a

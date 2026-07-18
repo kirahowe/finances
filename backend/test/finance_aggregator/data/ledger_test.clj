@@ -26,21 +26,78 @@
       (is (= :drift (:status (ledger/reconcile-period 500M 510M [])))))))
 
 (deftest reconcile-statement-period-verdict
-  (testing "accepts statement balances whose polarity is opposite tracked activity"
+  (testing "defaults to :as-signed (reported = end − start) when polarity isn't given"
+    (let [r (ledger/reconcile-statement-period 0M -85M [{:transaction/amount -85M}])]
+      (is (= :reconciled (:status r)))
+      (is (= -85M (:reported r)))))
+  (testing ":as-signed explicitly — reported = end − start"
     (let [span [{:transaction/amount 44.02M}
                 {:transaction/amount -31.92M}
                 {:transaction/amount -4.56M}
                 {:transaction/amount 36.48M}
-                {:transaction/amount 90.15M}]
-          r (ledger/reconcile-statement-period 44.02M -90.15M span)]
+                {:transaction/amount 90.15M}]  ; Σ = 134.17
+          r (ledger/reconcile-statement-period -90.15M 44.02M span :polarity :as-signed)]
       (is (= :reconciled (:status r)))
       (is (= 134.17M (:computed r)))
       (is (= 134.17M (:reported r)))
       (is (= 0.00M (:difference r)))))
-  (testing "keeps the synced-balance direction when that is the matching polarity"
-    (let [r (ledger/reconcile-statement-period 0M -85M [{:transaction/amount -85M}])]
+  (testing ":inverted — reported = start − end, typical credit-card paperwork"
+    (let [r (ledger/reconcile-statement-period 44.02M -90.15M
+                                               [{:transaction/amount 44.02M}
+                                                {:transaction/amount -31.92M}
+                                                {:transaction/amount -4.56M}
+                                                {:transaction/amount 36.48M}
+                                                {:transaction/amount 90.15M}]
+                                               :polarity :inverted)]
       (is (= :reconciled (:status r)))
-      (is (= -85M (:reported r))))))
+      (is (= 134.17M (:computed r)))
+      (is (= 134.17M (:reported r)))))
+  (testing "no-snapshot when either balance is missing, regardless of polarity"
+    (is (= :no-snapshot (:status (ledger/reconcile-statement-period nil -85M [] :polarity :inverted))))
+    (is (= :no-snapshot (:status (ledger/reconcile-statement-period 0M nil [] :polarity :as-signed))))))
+
+(deftest reconcile-statement-period-is-strict-not-closest-match
+  ;; The retired heuristic compared BOTH directions and kept whichever landed closer to tracked
+  ;; activity — so a genuine drift on the DECLARED polarity could get silently masked whenever
+  ;; the WRONG (mirrored) direction happened to tie out instead. Explicit declaration must not
+  ;; do that: only the declared polarity's own direction counts, even when the mirrored one
+  ;; would have read as an exact match.
+  (testing ":as-signed declared, but the MIRRORED (inverted) delta is the one that ties out
+            exactly — must still read :drift, not be masked as :reconciled"
+    (let [r (ledger/reconcile-statement-period 0M 50M [{:transaction/amount -50M}] :polarity :as-signed)]
+      ;; as-signed reported = end − start = 50; computed = −50; the OLD heuristic would have
+      ;; picked the inverted delta (start − end = −50, an exact match) and called this reconciled.
+      (is (= :drift (:status r)) "declared :as-signed must use end−start, not the closer mirrored delta")
+      (is (= 50M (:reported r)))
+      (is (= -50M (:computed r)))
+      (is (= 100M (:difference r)))))
+  (testing ":inverted declared, but the MIRRORED (as-signed) delta is the one that ties out
+            exactly — must still read :drift, symmetric proof the polarity kwarg is honored
+            in both directions, not just defaulted to :as-signed"
+    (let [r (ledger/reconcile-statement-period 0M 50M [{:transaction/amount 50M}] :polarity :inverted)]
+      ;; inverted reported = start − end = −50; computed = 50; the OLD heuristic would have
+      ;; picked the as-signed delta (end − start = 50, an exact match) and called this reconciled.
+      (is (= :drift (:status r)) "declared :inverted must use start−end, not the closer mirrored delta")
+      (is (= -50M (:reported r)))
+      (is (= 50M (:computed r)))
+      (is (= -100M (:difference r))))))
+
+(deftest effective-statement-polarity-test
+  (testing "an explicit override always wins, regardless of account type"
+    (is (= :as-signed (ledger/effective-statement-polarity
+                       {:account/type :credit :account/statement-polarity :as-signed}))
+        "override beats the :credit default")
+    (is (= :inverted (ledger/effective-statement-polarity
+                      {:account/type :chequing :account/statement-polarity :inverted}))
+        "override beats the non-credit default"))
+  (testing "undeclared :credit accounts default to :inverted (typical credit-card paperwork)"
+    (is (= :inverted (ledger/effective-statement-polarity {:account/type :credit})))
+    (is (= :inverted (ledger/effective-statement-polarity {:account/type :credit :account/statement-polarity nil}))))
+  (testing "undeclared non-credit accounts default to :as-signed"
+    (is (= :as-signed (ledger/effective-statement-polarity {:account/type :chequing})))
+    (is (= :as-signed (ledger/effective-statement-polarity {:account/type :savings})))
+    (is (= :as-signed (ledger/effective-statement-polarity {:account/type :loan})))
+    (is (= :as-signed (ledger/effective-statement-polarity {})) "no type at all -> as-signed")))
 
 (deftest account-computed-deltas-sums-signed-amounts-per-account
   (testing "groups by account and sums signed amounts (inflows +, outflows -)"

@@ -22,6 +22,16 @@
    :account/institution   {:db/valueType :db.type/ref}      ; ref to institution entity
    :account/currency      {:db/valueType :db.type/string}
    :account/type          {:db/valueType :db.type/keyword}  ; :chequing, :credit, :savings, etc.
+   :account/statement-polarity {:db/valueType :db.type/keyword}  ; :as-signed | :inverted — how this
+                                                                  ; account's PRINTED statements run
+                                                                  ; relative to the app's signed-amount
+                                                                  ; convention (:as-signed = end − start;
+                                                                  ; :inverted = start − end, typical
+                                                                  ; credit-card paperwork). Explicit
+                                                                  ; override of the account-type default
+                                                                  ; (see data.ledger/effective-statement-
+                                                                  ; polarity). Absent = defaulted by
+                                                                  ; account type at READ time; no migration.
    :account/provider-type {:db/valueType :db.type/string}  ; provider-native account type (e.g. Plaid depository/credit, Lunchflow upstream connector)
    :account/provider-subtype {:db/valueType :db.type/string}  ; provider-native subtype (e.g. Plaid checking/savings)
    :account/mask          {:db/valueType :db.type/string}  ; Last 4 digits of account number

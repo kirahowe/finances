@@ -65,6 +65,28 @@
   (testing "an external-id that doesn't resolve to an account is a silent no-op"
     (is (nil? (accounts/set-display-name! setup/*test-conn* "does-not-exist" "X")))))
 
+(defn- polarity-of [ext-id]
+  (:account/statement-polarity (d/pull (d/db setup/*test-conn*) '[:account/statement-polarity]
+                                       [:account/external-id ext-id])))
+
+(deftest set-statement-polarity-sets-an-explicit-override
+  (put-account! "a" nil)
+  (testing "sets the override"
+    (accounts/set-statement-polarity! setup/*test-conn* "a" :inverted)
+    (is (= :inverted (polarity-of "a"))))
+  (testing "re-setting overwrites the prior override"
+    (accounts/set-statement-polarity! setup/*test-conn* "a" :as-signed)
+    (is (= :as-signed (polarity-of "a")))))
+
+(deftest set-statement-polarity-ignores-unknown-values
+  (put-account! "a" nil)
+  (accounts/set-statement-polarity! setup/*test-conn* "a" :sideways)
+  (is (nil? (polarity-of "a")) "a malformed value never writes"))
+
+(deftest set-statement-polarity-no-op-for-unknown-external-id
+  (testing "an external-id that doesn't resolve to an account is a silent no-op"
+    (is (nil? (accounts/set-statement-polarity! setup/*test-conn* "does-not-exist" :inverted)))))
+
 (deftest by-external-id-fetches-one-account-or-nil
   (put-account! "a" nil)
   (testing "a known external-id pulls that account"

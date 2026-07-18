@@ -85,10 +85,42 @@
        syncing? (assoc :disabled true))
      "Sync"]))
 
+;; --- Statement polarity toggle (server-confirmed) ---------------------------
+;; A compact two-option select showing the account's EFFECTIVE polarity (web.accounts/
+;; account-display already resolved it via data.ledger/effective-statement-polarity — an
+;; explicit override, else defaulted by account type). No click-to-edit grammar needed (this
+;; isn't free text): the select just @put's on change, mirroring the reconciled-checkbox's
+;; "change fires the write immediately" shape rather than account-name-cell's commit/Escape
+;; dance. No `data-bind` — every row would otherwise fight over one shared signal on load (the
+;; problem inline-edit's cells avoid the same way); instead the change handler sets the
+;; courier signal and @put's in one expression, like inline-edit/commit-js.
+
+(defn account-polarity-cell
+  "The Statements cell's content: the polarity select (see ns note above) plus a transient
+   saved-confirmation ✓ when `saved?` (true ONLY on the setup.clj SSE response right after a
+   successful save, never on a full page render — mirrors account-name-cell)."
+  [{:keys [polarity polarity-url]} & {:keys [saved?]}]
+  (list
+   [:select.account-polarity-select
+    {:aria-label "Statement polarity"
+     "data-on:change" (str "$polarityValue = el.value, @put('" polarity-url "')")}
+    [:option (cond-> {:value "as-signed"} (= polarity :as-signed) (assoc :selected true)) "As signed"]
+    [:option (cond-> {:value "inverted"} (= polarity :inverted) (assoc :selected true)) "Inverted"]]
+   (when saved? [:span.name-saved-check {:aria-hidden "true"} "✓"])))
+
+(defn account-polarity-td
+  "The `<td>` wrapping one account's Statements cell: a stable id (`account-polarity-
+   <external-id>`) that's the setup.clj polarity handler's SSE morph target — the smallest
+   fragment a save needs to re-render. `saved?` forwards to account-polarity-cell (see there)."
+  [{:keys [external-id] :as account} & {:keys [saved?]}]
+  [:td.account-polarity-cell {:id (str "account-polarity-" external-id)}
+   (account-polarity-cell account :saved? saved?)])
+
 (defn- accounts-table [accounts]
   [:table.table
    [:thead
-    [:tr [:th "Name"] [:th "Type"] [:th "Mask"] [:th "Currency"] [:th.actions-th {:aria-hidden "true"}]]]
+    [:tr [:th "Name"] [:th "Type"] [:th "Mask"] [:th "Currency"] [:th "Statements"]
+     [:th.actions-th {:aria-hidden "true"}]]]
    [:tbody
     (for [{:keys [type mask currency] :as account} accounts]
       [:tr
@@ -96,6 +128,7 @@
        [:td type]
        [:td [:span.numeric mask]]
        [:td currency]
+       (account-polarity-td account)
        [:td.account-sync-cell (account-sync-button account)]])]])
 
 (defn- connection-card

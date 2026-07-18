@@ -139,9 +139,10 @@
        :headers {"Content-Type" "text/html"}
        :body (layout/document {:title "Setup · Finance Aggregator" :islands ["plaid-link"]
                                ;; The account-rename cell's courier signal (web.inline-edit,
-                               ;; via setup-view/account-name-cell) — Datastar needs it seeded
-                               ;; before the first $nameValue = ... assignment.
-                               :signals {:nameValue ""}}
+                               ;; via setup-view/account-name-cell) and the Statements column's
+                               ;; polarity-toggle courier (setup-view/account-polarity-cell) —
+                               ;; Datastar needs both seeded before their first assignment.
+                               :signals {:nameValue "" :polarityValue ""}}
                               (view/body model))})))
 
 (defn plaid-link-token
@@ -225,4 +226,25 @@
                (d*/patch-elements!
                 sse-chan
                 (r/render (view/account-name-td
+                           (accounts/account-display false account) :saved? true)))))))))
+
+(defn set-account-polarity
+  "Factory: PUT /setup/account/:external-id/statement-polarity — the Statements column's
+   polarity-toggle commit (setup-view/account-polarity-cell): read the new value off the
+   $polarityValue courier, write it as an explicit :account/statement-polarity override
+   (db.accounts/set-statement-polarity! — ignores anything other than :as-signed/:inverted),
+   then SSE-patch just that account's Statements cell back in with a transient
+   saved-confirmation, mirroring set-account-name end to end. An external-id that doesn't
+   resolve to an account patches nothing."
+  [{:keys [db-conn]}]
+  (fn [req]
+    (let [external-id (get-in req [:path-params :external-id])
+          polarity (some-> (:polarityValue (r/read-signals req)) not-empty keyword)]
+      (db-accounts/set-statement-polarity! db-conn external-id polarity)
+      (sse req
+           (fn [sse-chan]
+             (when-let [account (db-accounts/by-external-id db-conn external-id)]
+               (d*/patch-elements!
+                sse-chan
+                (r/render (view/account-polarity-td
                            (accounts/account-display false account) :saved? true)))))))))

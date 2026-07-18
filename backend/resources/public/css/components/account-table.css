@@ -115,3 +115,29 @@
   white-space: nowrap;
   text-align: right;
 }
+
+/* Statements column: a compact polarity select, sized to the row rather than the full-width
+   .form-select (that's for form-modal fields) — same border/radius/focus tokens, tighter
+   padding so it sits comfortably in the dense account-table rhythm. */
+.account-polarity-select {
+  width: auto;
+  padding: var(--control-pad-y-sm) var(--control-pad-x-sm);
+  border: 1px solid var(--color-border-strong);
+  border-radius: var(--radius-sm);
+  font-family: inherit;
+  font-size: var(--text-sm);
+  color: var(--color-ink);
+  background-color: var(--color-surface);
+  transition: border-color var(--duration-fast) var(--ease-out),
+    box-shadow var(--duration-fast) var(--ease-out);
+}
+
+.account-polarity-select:focus {
+  outline: none;
+  border-color: var(--color-primary);
+  box-shadow: var(--focus-ring);
+}
+
+.connection-card .account-polarity-cell {
+  white-space: nowrap;
+}

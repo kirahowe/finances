@@ -55,11 +55,13 @@
 
 (defn- acct
   ([name conn-id] (acct name conn-id {}))
-  ([name conn-id {:keys [provider display-name external-id]}]
+  ([name conn-id {:keys [provider display-name external-id type polarity]}]
    (cond-> {:account/external-name name :account/provider (or provider :plaid)
             :account/external-id (or external-id name)}
      conn-id (assoc :account/connection {:connection/id conn-id})
-     display-name (assoc :account/display-name display-name))))
+     display-name (assoc :account/display-name display-name)
+     type (assoc :account/type type)
+     polarity (assoc :account/statement-polarity polarity))))
 
 (deftest connection-groups-buckets-accounts-by-connection
   (let [connections [{:connection/id "plaid:b" :connection/provider :plaid
@@ -114,6 +116,24 @@
       (is (= "" (:display-name plaid-row)))
       (is (false? (:lunchflow? plaid-row)))
       (is (false? (:syncing? plaid-row)) "its OWN connection (plaid:a) isn't :syncing"))))
+
+(deftest connection-groups-account-rows-carry-the-effective-statement-polarity
+  (let [connections [{:connection/id "plaid:a" :connection/provider :plaid
+                      :connection/institution-name "Alpha" :connection/status :synced}]
+        accounts [(acct "Visa" "plaid:a" {:external-id "visa-1" :type :credit})
+                  (acct "Chequing" "plaid:a" {:external-id "cheq-1" :type :chequing})
+                  (acct "Loan" "plaid:a" {:external-id "loan-1" :type :credit :polarity :as-signed})]
+        {:keys [groups]} (accounts/connection-groups connections accounts fixed-now)
+        rows (:accounts (first groups))
+        by-name (fn [n] (first (filter #(= n (:name %)) rows)))]
+    (testing "an undeclared :credit account defaults to :inverted"
+      (is (= :inverted (:polarity (by-name "Visa")))))
+    (testing "an undeclared non-credit account defaults to :as-signed"
+      (is (= :as-signed (:polarity (by-name "Chequing")))))
+    (testing "an explicit override on a :credit account beats the :credit default"
+      (is (= :as-signed (:polarity (by-name "Loan")))))
+    (testing "the polarity toggle's @put url is the statement-polarity endpoint"
+      (is (= "/setup/account/visa-1/statement-polarity" (:polarity-url (by-name "Visa")))))))
 
 (defn- with-inst [account inst-name logo]
   (assoc account :account/institution
