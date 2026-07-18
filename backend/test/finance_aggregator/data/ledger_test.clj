@@ -236,6 +236,45 @@
   (is (= {:status :reconciled :uncovered 0 :first-uncovered nil}
          (ledger/month-coverage [] [{:start #inst "2025-04-30" :end #inst "2025-05-31"}] true))))
 
+;; --- quiet-account-status -----------------------------------------------------
+
+(defn- stmt [status] {:status status})
+
+(deftest quiet-account-status-boundary-only
+  (testing "within tolerance -> :reconciled (the bank reports no movement, matching zero activity)"
+    (is (= :reconciled (ledger/quiet-account-status 0M []))))
+  (testing "a small residual within default-tolerance still reconciles"
+    (is (= :reconciled (ledger/quiet-account-status 0.004M []))))
+  (testing "any real movement -> :partial (nothing tracked explains it)"
+    (is (= :partial (ledger/quiet-account-status 25M []))))
+  (testing "a negative movement is judged on magnitude, not sign"
+    (is (= :partial (ledger/quiet-account-status -25M [])))))
+
+(deftest quiet-account-status-statements-only
+  (testing "every statement reconciled -> :reconciled"
+    (is (= :reconciled (ledger/quiet-account-status nil [(stmt :reconciled) (stmt :reconciled)]))))
+  (testing "one drifting statement among several -> :partial, even though others tie out"
+    (is (= :partial (ledger/quiet-account-status nil [(stmt :reconciled) (stmt :drift)]))))
+  (testing "a single drifting statement -> :partial"
+    (is (= :partial (ledger/quiet-account-status nil [(stmt :drift)])))))
+
+(deftest quiet-account-status-boundary-and-statements-combined
+  (testing "boundary reconciles AND every statement reconciles -> :reconciled"
+    (is (= :reconciled (ledger/quiet-account-status 0M [(stmt :reconciled)]))))
+  (testing "boundary reconciles but a statement drifts -> :partial (EVERY period must tie out)"
+    (is (= :partial (ledger/quiet-account-status 0M [(stmt :drift)]))))
+  (testing "boundary drifts even though every statement reconciles -> :partial"
+    (is (= :partial (ledger/quiet-account-status 50M [(stmt :reconciled)])))))
+
+(deftest quiet-account-status-nil-reported-delta-with-statements
+  (testing "boundary pair not entered (nil) doesn't count against or for it — statements decide alone"
+    (is (= :reconciled (ledger/quiet-account-status nil [(stmt :reconciled)])))
+    (is (= :partial (ledger/quiet-account-status nil [(stmt :drift)])))))
+
+(deftest quiet-account-status-respects-tolerance-kwarg
+  (is (= :reconciled (ledger/quiet-account-status 5M [] :tolerance 10M)))
+  (is (= :partial (ledger/quiet-account-status 5M [] :tolerance 1M))))
+
 ;; --- effective-posted-date ---------------------------------------------------
 
 (deftest effective-posted-date-chain

@@ -171,23 +171,61 @@
                  :when (seq ss)]
              [eid ss])))
 
+(defn- period-account-eids
+  "Account entity-ids with a PERIOD overlapping `month-span` — a complete month-boundary pair
+   (a non-nil entry in `reported`, db.snapshots/reported-deltas over every account, whose
+   entries are already omitted when the pair isn't fully entered) and/or a statement
+   (db.statements/account-eids-overlapping). These are the accounts that must gate the close
+   even with zero transactions this month — see close-model-for's quiet set."
+  [db-conn reported month-span]
+  (into (set (keys reported))
+        (db-statements/account-eids-overlapping db-conn (:start month-span) (:end month-span))))
+
+(defn- quiet-account-models
+  "reconcile-month's :quiet-accounts input: for each account-eid in `quiet-eids` (a period on
+   file, but no transactions this month), its shown name (web-accounts/account-label — the same
+   display-name-over-external-name preference every other account read in the app uses),
+   institution ({:name :logo}, the same shape account-computed-deltas already produces for the
+   reconcile row's avatar), its reported-delta (from `reported`, already computed over every
+   account), and its statements overlapping `month` — annotated with their own verdict via the
+   existing statement-models path (phase 2's strict polarity), so a quiet account's statement
+   span crossing into an adjacent month with real activity there still reconciles correctly."
+  [db-conn accounts-by-eid quiet-eids reported month]
+  (for [eid quiet-eids
+        :let [acct (get accounts-by-eid eid)
+              inst (:account/institution acct)]]
+    {:account-id eid
+     :name (web-accounts/account-label acct)
+     :institution (when inst {:name (:institution/name inst) :logo (:institution/logo inst)})
+     :reported-delta (get reported eid)
+     :statements (statement-models db-conn eid month)}))
+
 (defn- close-model-for
   "Rebuild the monthly-close panel model for `month` from current db state (the month's txs,
    reported deltas, rollup net, and the persisted close event). Coverage-strict: an account's
    overview status folds in BOTH its month-boundary balance and its statements, so a credit
-   card whose statements all tie out reconciles even without month-end balances entered. When
-   the table is filtered to a single account (`view-st`), attach the :focus card — that
-   account's month-boundary opening/closing card (period-delta verdict from the snapshot
-   history) plus its statements overlapping the month (each with its own verdict), and the
-   same coverage headline as the overview, scoped to the one account."
+   card whose statements all tie out reconciles even without month-end balances entered. ALSO
+   folds in 'quiet' accounts — no transactions this month, but a period (boundary pair and/or
+   statement) overlaps it anyway (data.ledger/quiet-account-status via view/reconcile-month's
+   :quiet-accounts) — a drifting period there is evidence of missing transactions, so it gates
+   the close too. When the table is filtered to a single account (`view-st`), attach the :focus
+   card — that account's month-boundary opening/closing card (period-delta verdict from the
+   snapshot history) plus its statements overlapping the month (each with its own verdict), and
+   the same coverage headline as the overview, scoped to the one account; :name-fallback names a
+   quiet focused account (focus-close has no activity row to read a name off)."
   [db-conn month view-st]
   (let [txs (db-transactions/list-for-month db-conn month)
         categories (db-categories/list-all db-conn)
-        account-eids (distinct (keep #(get-in % [:transaction/account :db/id]) txs))
-        reported (db-snapshots/reported-deltas db-conn account-eids month)
+        activity-eids (distinct (keep #(get-in % [:transaction/account :db/id]) txs))
         month-span {:start (db-snapshots/opening-date month) :end (db-snapshots/month-end-date month)}
-        stmts (statements-by-account db-conn account-eids month)
-        base (view/month-close txs {:reconciliation (view/reconcile-month txs reported month-span stmts)
+        all-accounts (db-accounts/list-with-institution db-conn)
+        accounts-by-eid (into {} (map (juxt :db/id identity)) all-accounts)
+        reported (db-snapshots/reported-deltas db-conn (keys accounts-by-eid) month)
+        quiet-eids (remove (set activity-eids) (period-account-eids db-conn reported month-span))
+        stmts (statements-by-account db-conn (concat activity-eids quiet-eids) month)
+        quiet-accounts (quiet-account-models db-conn accounts-by-eid quiet-eids reported month)
+        base (view/month-close txs {:reconciliation (view/reconcile-month txs reported month-span stmts
+                                                                          :quiet-accounts quiet-accounts)
                                     :close (db-reconciliations/get-close db-conn month)
                                     :net-now (:grand-total (view/category-rollup txs categories))})
         focus-eid (focus-account-eid view-st)]
@@ -195,12 +233,14 @@
       focus-eid
       (assoc :focus
              (let [{:keys [opening closing]} (db-snapshots/boundary-balances db-conn focus-eid month)]
-               (view/focus-close txs {:account-eid  focus-eid
-                                      :opening      opening
-                                      :closing      closing
-                                      :opening-date (db-snapshots/opening-date month)
-                                      :closing-date (db-snapshots/month-end-date month)
-                                      :statements   (get stmts focus-eid [])}))))))
+               (view/focus-close txs {:account-eid   focus-eid
+                                      :name-fallback (some-> (get accounts-by-eid focus-eid)
+                                                             web-accounts/account-label)
+                                      :opening       opening
+                                      :closing       closing
+                                      :opening-date  (db-snapshots/opening-date month)
+                                      :closing-date  (db-snapshots/month-end-date month)
+                                      :statements    (get stmts focus-eid [])}))))))
 
 (defn- recon-signals
   "The focused card's opening/closing prefill signals for a panel `model` (blank in overview

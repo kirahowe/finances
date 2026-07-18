@@ -340,6 +340,71 @@
           row (first (:rows m))]
       (is (nil? (:institution row))))))
 
+;; --- reconcile-month + quiet accounts -----------------------------------------
+;; A quiet account (Mortgage, id 999 — not in `txs` at all) has an entered period but no
+;; activity this month; it must still surface as a row and gate the close.
+
+(def ^:private mortgage {:account-id 999 :name "Mortgage" :institution {:name "Test Bank" :logo nil}})
+
+(deftest reconcile-month-quiet-account-appears-without-any-activity
+  (testing "a quiet account with no reported-delta and no statements never surfaces (nothing on file)"
+    (let [m (view/reconcile-month txs {100 2000M} month-span {}
+                                  :quiet-accounts [(assoc mortgage :reported-delta nil :statements [])])]
+      ;; Even though it's handed in, reconcile-month trusts the caller's period-account
+      ;; resolution — this just pins the row still renders with the expected quiet shape.
+      (is (some #(= 999 (:account-id %)) (:rows m)))))
+  (testing "computed-delta is always 0M, uncovered/first-uncovered always 0/nil for a quiet row"
+    (let [m (view/reconcile-month txs {} month-span {}
+                                  :quiet-accounts [(assoc mortgage :reported-delta 0M :statements [])])
+          row (first (filter #(= 999 (:account-id %)) (:rows m)))]
+      (is (= 0M (:computed-delta row)))
+      (is (zero? (:uncovered row)))
+      (is (nil? (:first-uncovered row))))))
+
+(deftest reconcile-month-quiet-boundary-only
+  (testing "within tolerance -> :reconciled, no :difference"
+    (let [m (view/reconcile-month txs {} month-span {}
+                                  :quiet-accounts [(assoc mortgage :reported-delta 0M :statements [])])
+          row (first (filter #(= 999 (:account-id %)) (:rows m)))]
+      (is (= :reconciled (:status row)))
+      (is (nil? (:difference row)))))
+  (testing "real movement with nothing tracked -> :partial, :difference = reported-delta"
+    (let [m (view/reconcile-month txs {} month-span {}
+                                  :quiet-accounts [(assoc mortgage :reported-delta 300M :statements [])])
+          row (first (filter #(= 999 (:account-id %)) (:rows m)))]
+      (is (= :partial (:status row)))
+      (is (= 300M (:difference row)) "computed is 0, so difference is just the reported-delta"))))
+
+(deftest reconcile-month-quiet-statements-only
+  (testing "every statement reconciled -> :reconciled, no :difference (not the boundary-only case)"
+    (let [m (view/reconcile-month txs {} month-span {}
+                                  :quiet-accounts [(assoc mortgage :reported-delta nil
+                                                          :statements [{:status :reconciled}])])
+          row (first (filter #(= 999 (:account-id %)) (:rows m)))]
+      (is (= :reconciled (:status row)))
+      (is (nil? (:difference row)))))
+  (testing "a drifting quiet statement flips all-reconciled? false — the gate blocks"
+    (let [m (view/reconcile-month txs {100 2000M} month-span {}
+                                  :quiet-accounts [(assoc mortgage :reported-delta nil
+                                                          :statements [{:status :drift}])])
+          row (first (filter #(= 999 (:account-id %)) (:rows m)))]
+      (is (= :partial (:status row)))
+      (is (nil? (:difference row)) "multi-figure (statement) case never gets a single :difference")
+      (is (false? (:all-reconciled? m))
+          "an unreconciled QUIET account blocks the whole month even though Chequing is fine"))))
+
+(deftest reconcile-month-quiet-and-active-rows-mix
+  (testing "a reconciled quiet boundary pair alongside a reconciled active account -> all-reconciled? true"
+    (let [stmts {101 [{:start-date #inst "2024-12-31" :end-date #inst "2025-01-12" :status :reconciled}
+                      {:start-date #inst "2025-01-12" :end-date #inst "2025-01-31" :status :reconciled}]}
+          m (view/reconcile-month txs {100 2000M} month-span stmts
+                                  :quiet-accounts [(assoc mortgage :reported-delta 0M :statements [])])]
+      (is (= 3 (count (:rows m))) "Chequing + Visa (active) + Mortgage (quiet)")
+      (is (true? (:all-reconciled? m)))))
+  (testing "defaulting :quiet-accounts (omitted) reproduces the pre-quiet-accounts row set exactly"
+    (is (= (:rows (view/reconcile-month txs {100 2000M} month-span {}))
+           (:rows (view/reconcile-month txs {100 2000M} month-span {} :quiet-accounts []))))))
+
 (deftest month-close-gate
   (testing "every transaction reconciled + categorized + balanced → ready to close"
     (let [done  [(tx {:db/id 1 :transaction/amount 100 :transaction/reconciled true

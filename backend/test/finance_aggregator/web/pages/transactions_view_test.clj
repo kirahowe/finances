@@ -47,6 +47,36 @@
       (is (re-find #"disabled" h))
       (is (not (re-find #"Reopen" h))))))
 
+(deftest close-panel-renders-a-quiet-account-row-through-the-existing-markup
+  ;; A "quiet" row (web.view/reconcile-month's :quiet-accounts — no transactions this month, but
+  ;; an entered period overlaps it; data.ledger/quiet-account-status decides its :status) carries
+  ;; :computed-delta 0M and :uncovered 0/:first-uncovered nil (see reconcile-month's docstring) —
+  ;; NEITHER of which reconcile-row/reconcile-status-span ever reads, so it needs no new markup.
+  (let [quiet-reconciled {:account-id 9 :name "Mortgage" :status :reconciled :difference nil
+                          :computed-delta 0M :reported-delta 0M :uncovered 0 :first-uncovered nil
+                          :institution {:name "Test Bank" :logo nil}}
+        quiet-drifting {:account-id 10 :name "Line of Credit" :status :partial
+                        :difference (bigdec "300.00") :computed-delta 0M :reported-delta (bigdec "300.00")
+                        :uncovered 0 :first-uncovered nil :institution nil}
+        h (html (tv/close-panel
+                 {:rows [quiet-reconciled quiet-drifting]
+                  :gate {:unreconciled 0 :uncategorized 0 :all-reconciled? false
+                         :all-categorized? true :balanced? false :ready? false}
+                  :closed? false :closed-at nil :drift nil}))]
+    (testing "a reconciled quiet account reads 'matches', same as any active row"
+      (is (re-find #"Mortgage" h))
+      (is (re-find #"matches" h)))
+    (testing "a drifting quiet account reads 'off by $X' — the single-number convention applies
+              to a quiet row exactly like an active one"
+      (is (re-find #"Line of Credit" h))
+      (is (re-find #"off by \$300\.00" h)))
+    (testing "the row is a normal drill button (same class, same eid-setting click handler)"
+      (is (re-find #"reconcile-drill" h))
+      (is (re-find #"&apos;9&apos;" h))
+      (is (re-find #"&apos;10&apos;" h)))
+    (testing "close stays blocked (the drifting quiet account gates same as an active one)"
+      (is (re-find #"disabled" h)))))
+
 (deftest close-panel-renders-institution-avatars
   (testing "an overview row with a logo renders the institution-avatar <img>, one with a
             logo-less institution falls back to a letter circle"

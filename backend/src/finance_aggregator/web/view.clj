@@ -435,44 +435,74 @@
    every account); `statements-by-account` = {account-eid [statement…]}, each statement already
    annotated with its own period-delta verdict (reconcile-statement).
 
+   Optional `:quiet-accounts` — accounts with NO transactions in `txs` this month but an entered
+   period (a complete month-boundary pair, and/or a statement) overlapping it anyway: a
+   drifting period on a quiet account is evidence of MISSING transactions (the bank saw the
+   balance move with nothing tracked to explain it), so it must gate the close same as any other
+   row. Each is {:account-id :name :institution :reported-delta :statements} — the caller
+   (web.pages.transactions/close-model-for) resolves the quiet set (a period-account, per
+   db.snapshots/reported-deltas and/or db.statements/account-eids-overlapping, minus the active
+   set) and pulls each one's name/institution/statements (the last via the same statement-models
+   annotation path active accounts use). Defaults to `[]` (unchanged behavior with no quiet
+   accounts on file). A quiet row's :status comes from data.ledger/quiet-account-status —
+   STRICTER than month-coverage's txn-coverage check, since there's no tracked activity to fall
+   back on: EVERY entered period must itself tie out, not just 'no transaction fell outside one'.
+
    Returns {:rows [row…] :all-reconciled? bool} where a row is
    {:account-id :name :institution :computed-delta :reported-delta :status :uncovered
     :first-uncovered :difference} — the per-account confidence readout the close panel
-   renders. :institution is `{:name :logo}` (or nil), lifted from account-computed-deltas
-   for the reconcile row's avatar. :status is :reconciled/:partial/:no-snapshot
-   (coverage-strict — reconciled needs EVERY month txn covered, not just the
-   month-boundary check). :difference (the overview's 'off by $X' wording) is populated
-   ONLY for the single-number case — a :partial account whose month-boundary balance is
-   entered and which has no statements at all — since a statement-covered or
-   multi-period account has no one figure to blame. Pure."
-  [txs reported month-span statements-by-account]
+   renders (quiet rows use this exact same shape, so the panel's existing row markup needs no
+   changes — see web.pages.transactions-view/reconcile-row). :institution is `{:name :logo}`
+   (or nil), lifted from account-computed-deltas for the reconcile row's avatar (or supplied
+   directly for a quiet row). :status is :reconciled/:partial/:no-snapshot (coverage-strict —
+   reconciled needs EVERY month txn covered, not just the month-boundary check; :no-snapshot
+   never applies to a quiet row, which only exists because some period IS on file).
+   :computed-delta is always 0M for a quiet row (no activity to sum); :uncovered/:first-uncovered
+   are always 0/nil (nothing to be uncovered). :difference (the overview's 'off by $X' wording)
+   is populated ONLY for the single-number case — a :partial account (active or quiet) whose
+   month-boundary balance is entered and which has no statements at all — since a
+   statement-covered or multi-period account has no one figure to blame. Pure."
+  [txs reported month-span statements-by-account & {:keys [quiet-accounts] :or {quiet-accounts []}}]
   (let [deltas (ledger/account-computed-deltas txs)
         txs-by-account (group-by #(get-in % [:transaction/account :db/id]) txs)
-        rows (for [[account-id {:keys [name institution computed-delta]}] deltas
-                   :let [rdelta (get reported account-id)
-                         acct-txs (get txs-by-account account-id [])
-                         statements (get statements-by-account account-id [])
-                         boundary-reconciled? (and (some? rdelta)
-                                                    (<= (abs (- rdelta computed-delta)) ledger/default-tolerance))
-                         statement-spans (->> statements
-                                              (filter #(= :reconciled (:status %)))
-                                              (map (fn [s] {:start (ledger/statement-opening-boundary (:start-date s))
-                                                            :end (:end-date s)})))
-                         spans (cond-> statement-spans boundary-reconciled? (conj month-span))
-                         any-periods? (or (some? rdelta) (seq statements))
-                         cov (ledger/month-coverage acct-txs spans any-periods?)
-                         difference (when (and (= :partial (:status cov)) (some? rdelta) (empty? statements))
-                                      (- rdelta computed-delta))]]
-               {:account-id      account-id
-                :name            name
-                :institution     institution
-                :computed-delta  computed-delta
-                :reported-delta  rdelta
-                :status          (:status cov)
-                :uncovered       (:uncovered cov)
-                :first-uncovered (:first-uncovered cov)
-                :difference      difference})
-        rows (vec (sort-by :name rows))]
+        active-rows (for [[account-id {:keys [name institution computed-delta]}] deltas
+                          :let [rdelta (get reported account-id)
+                                acct-txs (get txs-by-account account-id [])
+                                statements (get statements-by-account account-id [])
+                                boundary-reconciled? (and (some? rdelta)
+                                                          (<= (abs (- rdelta computed-delta)) ledger/default-tolerance))
+                                statement-spans (->> statements
+                                                     (filter #(= :reconciled (:status %)))
+                                                     (map (fn [s] {:start (ledger/statement-opening-boundary (:start-date s))
+                                                                   :end (:end-date s)})))
+                                spans (cond-> statement-spans boundary-reconciled? (conj month-span))
+                                any-periods? (or (some? rdelta) (seq statements))
+                                cov (ledger/month-coverage acct-txs spans any-periods?)
+                                difference (when (and (= :partial (:status cov)) (some? rdelta) (empty? statements))
+                                             (- rdelta computed-delta))]]
+                      {:account-id      account-id
+                       :name            name
+                       :institution     institution
+                       :computed-delta  computed-delta
+                       :reported-delta  rdelta
+                       :status          (:status cov)
+                       :uncovered       (:uncovered cov)
+                       :first-uncovered (:first-uncovered cov)
+                       :difference      difference})
+        quiet-rows (for [{:keys [account-id name institution reported-delta statements]} quiet-accounts
+                        :let [status (ledger/quiet-account-status reported-delta statements)
+                              difference (when (and (= :partial status) (some? reported-delta) (empty? statements))
+                                           reported-delta)]]
+                     {:account-id      account-id
+                      :name            name
+                      :institution     institution
+                      :computed-delta  0M
+                      :reported-delta  reported-delta
+                      :status          status
+                      :uncovered       0
+                      :first-uncovered nil
+                      :difference      difference})
+        rows (vec (sort-by :name (concat active-rows quiet-rows)))]
     {:rows rows :all-reconciled? (ledger/all-reconciled? rows)}))
 
 (defn month-close

@@ -113,3 +113,29 @@
                (map :start-date (statements/list-overlapping setup/*test-conn* acct (date 2026 6 1) (date 2026 7 1))))))
       (testing "neither overlaps a far month"
         (is (= [] (statements/list-overlapping setup/*test-conn* acct (date 2026 9 1) (date 2026 10 1))))))))
+
+(deftest account-eids-overlapping-finds-accounts-across-the-whole-db
+  (testing "the reverse direction of list-overlapping: which accounts have ANY statement here"
+    (put-account! "visa" "Visa")
+    (put-account! "mc" "Mastercard")
+    (put-account! "empty" "Empty")
+    (let [visa (account-eid "visa")
+          mc (account-eid "mc")]
+      (statements/create! setup/*test-conn*
+                          {:account-eid visa :start-date (date 2026 4 16) :start-balance "0"
+                           :end-date (date 2026 5 16) :end-balance "0"})
+      (statements/create! setup/*test-conn*
+                          {:account-eid mc :start-date (date 2026 8 1) :start-balance "0"
+                           :end-date (date 2026 9 1) :end-balance "0"})
+      (testing "May overlap picks up Visa only"
+        (is (= #{visa} (statements/account-eids-overlapping setup/*test-conn* (date 2026 5 1) (date 2026 6 1)))))
+      (testing "a span both overlap"
+        (is (= #{visa mc}
+               (statements/account-eids-overlapping setup/*test-conn*
+                                                    (date 2026 4 20) (date 2026 8 15)))))
+      (testing "no statements anywhere near this span"
+        (is (= #{} (statements/account-eids-overlapping setup/*test-conn* (date 2026 12 1) (date 2027 1 1)))))
+      (testing "an account with no statements at all is never returned"
+        (is (not (contains? (statements/account-eids-overlapping setup/*test-conn*
+                                                                  (date 2020 1 1) (date 2030 1 1))
+                            (account-eid "empty"))))))))

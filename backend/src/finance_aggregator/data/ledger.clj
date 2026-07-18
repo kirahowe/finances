@@ -237,3 +237,34 @@
                :else                                    :partial)
      :uncovered n
      :first-uncovered (some->> (seq uncovered) (map effective-posted-date) (sort compare) first)}))
+
+;; --- Quiet accounts ----------------------------------------------------------
+;; An account can have an entered period (a complete month-boundary pair, and/or a statement)
+;; overlapping the month while having NO transactions in it at all — "quiet". month-coverage
+;; above answers "is every TRANSACTION covered", which is vacuously true with zero
+;; transactions; a quiet account needs a different, STRICTER question, since there's no tracked
+;; activity to reassure against: did every period ON FILE tie out on its own?
+
+(defn quiet-account-status
+  "Coverage-strict verdict for a QUIET account (no transactions this month, but at least one
+   entered period overlaps it — reconcile-month only calls this for such accounts). Stricter
+   than month-coverage: with nothing tracked, coverage can't fall back on 'no transactions fell
+   outside a period' — every period ON FILE must itself tie out, or the whole account reads
+   :partial (the bank saw the balance move somewhere none of the entered periods explain).
+
+   `reported-delta` is the month-boundary delta (bigdec from db.snapshots/reported-delta) or nil
+   when the pair isn't fully entered (db.snapshots/reported-deltas already omits an
+   incomplete/out-of-window pair) — nil means the boundary period doesn't participate at all
+   (neither for nor against), not that it fails. When present, the boundary period reconciles
+   iff |reported-delta| <= tolerance: with no tracked activity, the bank must report NO movement.
+   `statements` are the account's statements overlapping the month, each already annotated with
+   its own verdict (:status — web.view/reconcile-statement, phase 2's strict polarity); every one
+   must read :reconciled.
+
+   :no-snapshot never applies here — a quiet row only exists because SOME period is on file (see
+   reconcile-month's quiet-accounts input); an account with neither is simply never surfaced.
+   Pure."
+  [reported-delta statements & {:keys [tolerance] :or {tolerance default-tolerance}}]
+  (let [oks (cond-> (mapv #(= :reconciled (:status %)) statements)
+              (some? reported-delta) (conj (<= (abs reported-delta) tolerance)))]
+    (if (every? true? oks) :reconciled :partial)))

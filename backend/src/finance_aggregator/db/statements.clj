@@ -117,3 +117,22 @@
                  (and (.before ^Date start-date to)
                       (.after ^Date end-date from))))
        vec))
+
+(defn account-eids-overlapping
+  "Account entity-ids with ANY statement overlapping [from, to] (java.util.Dates) — same
+   start-date < to AND end-date > from predicate as list-overlapping, but the reverse
+   direction: which accounts have a period here, not one account's own periods. Used to find
+   'quiet' accounts — no transactions this month, but a statement overlaps it anyway (see
+   web.pages.transactions/close-model-for) — so a drifting statement on them still gates the
+   close even with nothing tracked to explain it."
+  [conn ^Date from ^Date to]
+  (->> (d/q '[:find ?acct ?start ?end
+              :where
+              [?s :statement/account ?acct]
+              [?s :statement/start-date ?start]
+              [?s :statement/end-date ?end]]
+            (d/db conn))
+       (filter (fn [[_ ^Date start ^Date end]]
+                 (and (.before start to) (.after end from))))
+       (map first)
+       set))
