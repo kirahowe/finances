@@ -40,9 +40,10 @@ external entity Account {
     -- The sign convention of this account's printed statements relative to the
     -- app's signed-amount convention, declared ONCE per account (decided
     -- 2026-07-17: explicit polarity replaces the closest-delta guessing
-    -- heuristic). How/where it gets declared is an open question below.
-    -- DIVERGENCE (2026-07-17): the implementation still guesses per statement
-    -- by picking whichever delta direction lands closer to tracked activity.
+    -- heuristic). Declared on the account's setup card, alongside the other
+    -- per-account admin settings. When never declared, it defaults by account
+    -- type: credit-type accounts are inverted, everything else as_signed —
+    -- the actual reason the heuristic existed (credit-card paperwork).
     statement_polarity: StatementPolarity
     statements: Statement with account = this
     snapshots: BalanceSnapshot with account = this
@@ -456,6 +457,5 @@ surface AccountReconcileFocus {
 --     closest-delta heuristic is retired (divergence noted).
 
 open question "AddStatement/EditStatement require start_date <= end_date, but the implementation only checks field PRESENCE (save-statement) — a backwards span is accepted today. Spec bug or code bug?"
-open question "Where is Account.statement_polarity declared — account settings on /setup, or prompted on first statement entry? And how do existing statements migrate off the heuristic?"
 open question "A drifting period on an ACTIVE account whose transactions are all covered by OTHER reconciled periods does not block the close (coverage wins over the contradiction). Intended, or should any drifting entered period block, as it now does for quiet accounts?"
 open question "Adjustment-on-drift escape hatch (close with accepted drift, emitting a visible adjustment transaction) is designed but unbuilt — when does it land, and does the gate stay hard until then?"
