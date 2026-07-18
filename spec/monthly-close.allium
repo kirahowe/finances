@@ -1,0 +1,418 @@
+-- allium: 3
+-- monthly-close.allium
+--
+-- Scope: The monthly-close workflow of the finance aggregator — for a given
+-- calendar month, verify that the tracked transactions fully explain the bank's
+-- balance change (the period-delta confidence check), require the month complete
+-- (reviewed + categorized + every account covered), then lock it in with frozen
+-- totals. Reopening is unlocking; drift on a closed month is surfaced, never
+-- silently corrected.
+--
+-- Includes: BalanceSnapshot, Statement, MonthlyClose; the period-delta verdict;
+--   coverage-strict per-account month status; the close gate; close/reopen;
+--   drift detection on closed months.
+-- Excludes:
+--   - Transaction import, provider sync and connections (separate spec; this
+--     spec consumes transactions and reported balances as external facts)
+--   - The transactions workspace: editing, splits, transfers, categorization,
+--     manual transaction entry (separate spec; the gate only reads the results)
+--   - Statement-lens table navigation (UI navigation, not close behaviour)
+--   - The cross-month tracking view (planned Phase 3, not yet built; it will
+--     read MonthlyClose's frozen totals)
+--
+-- Conventions carried from the wider system:
+--   - Transaction amounts are SIGNED: inflows positive, outflows negative.
+--   - Imported transactions are immutable; user edits are additive overlays.
+--   - Dates are day-granularity (a balance is an end-of-day reading).
+--   - Single-user: `facing owner: User` means the sole owner of the ledger.
+
+------------------------------------------------------------
+-- External Entities
+------------------------------------------------------------
+
+external entity User {
+    email: String
+}
+
+-- A bank account (synced or manual). Governed by the setup/sync spec.
+external entity Account {
+    name: String
+    statements: Statement with account = this
+    snapshots: BalanceSnapshot with account = this
+}
+
+external entity Category {
+    name: String
+}
+
+-- An imported (or manually entered) transaction. Split parents are excluded
+-- from every transaction list this spec consumes; split parts are first-class
+-- transactions that sum exactly to their parent, so summing rows as given is
+-- correct with no split awareness here.
+external entity Transaction {
+    account: Account
+    amount: Decimal                  -- signed: inflows +, outflows −
+    date: Timestamp                  -- when the purchase happened
+    posted_date: Timestamp?          -- provider's posted date (a copied guess for non-Plaid)
+    user_posted_date: Timestamp?     -- user correction overlay; the import is never mutated
+    reviewed: Boolean                -- per-row review flag (labelled "reconciled" in the UI)
+    category: Category?
+
+    -- THE date reconciliation and coverage go by: the user's correction when
+    -- present, else the provider's posted date, else the transaction date.
+    effective_posted_date: user_posted_date ?? posted_date ?? date
+}
+
+------------------------------------------------------------
+-- Value Types
+------------------------------------------------------------
+
+value CalendarMonth {
+    year: Integer
+    month: Integer                   -- 1..12
+}
+
+------------------------------------------------------------
+-- Enumerations
+------------------------------------------------------------
+
+-- Where a balance reading came from. Only reported and manual represent the
+-- institution's own truth and may anchor a reconciliation boundary; calculated
+-- readings are our own figures and must never be read back as "what the bank
+-- reported".
+enum SnapshotSource { reported | manual | calculated }
+
+-- Coverage-strict account status for a month (see the coverage notes at Rules).
+enum CoverageStatus { no_snapshot | partial | reconciled }
+
+------------------------------------------------------------
+-- Entities and Variants
+------------------------------------------------------------
+
+-- A dated balance reading for an account: the bank-reported figure captured at
+-- sync time, or a user-entered figure at a month boundary. One reading per
+-- account per day per source (re-entry overwrites). On the same day, a manual
+-- reading outranks the reported one: a figure the user typed from a statement
+-- is more authoritative than the sync capture.
+entity BalanceSnapshot {
+    account: Account
+    date: Timestamp
+    balance: Decimal
+    source: SnapshotSource
+}
+
+-- A user-entered statement: a self-contained reconciliation period between two
+-- ARBITRARY dates — for accounts whose balance can't be read on a chosen day
+-- (credit cards). The change between its two balances must be explained by the
+-- account's tracked activity in the printed period.
+entity Statement {
+    account: Account
+    start_date: Timestamp            -- first day of the printed period, INCLUSIVE:
+                                     -- start_balance is the balance carried in BEFORE
+                                     -- this day, so activity ON start_date belongs
+                                     -- to the period
+    start_balance: Decimal
+    end_date: Timestamp              -- last day of the printed period, inclusive
+    end_balance: Decimal
+
+    -- The tracked activity the statement must explain: Σ signed amounts of the
+    -- account's transactions whose effective posted date falls in
+    -- [start_date, end_date] inclusive.
+    computed: total_amount(transactions_in_span(account, start_date, end_date))
+
+    -- Statement balances are typed from institution paperwork whose sign
+    -- convention can be opposite the app's signed-amount convention. Both
+    -- balance-delta polarities are compared and the one closest to the tracked
+    -- activity is kept, so either printed polarity can tie out without false
+    -- drift.
+    forward_delta: end_balance - start_balance
+    reversed_delta: start_balance - end_balance
+    reported: if abs(forward_delta - computed) <= abs(reversed_delta - computed): forward_delta else: reversed_delta
+
+    difference: reported - computed
+    reconciled: abs(difference) <= config.tolerance
+}
+
+-- The month lock — the "lock it in" record of the close ritual. One per user
+-- per calendar month. Being closed is a MONTH-level fact: whether a transaction
+-- is reconciled is DERIVED from its month having a close event (never a per-row
+-- flag), so a transaction later imported or edited into a closed month surfaces
+-- as drift, and reopening is just removing this one record.
+entity MonthlyClose {
+    user: User
+    month: CalendarMonth
+    closed_at: Timestamp
+
+    -- The month's category-rollup totals FROZEN at close, so higher-level
+    -- tracking reads immutable figures even when a closed month is later
+    -- touched. Drift = current net no longer equals the frozen net.
+    income: Decimal
+    expenses: Decimal
+    transfers: Decimal
+    net: Decimal
+}
+
+------------------------------------------------------------
+-- Config
+------------------------------------------------------------
+
+config {
+    -- Half a cent of slack on the computed-vs-reported comparison, absorbing
+    -- rounding noise without masking a real discrepancy.
+    tolerance: Decimal = 0.005
+}
+
+------------------------------------------------------------
+-- Rules
+------------------------------------------------------------
+
+-- Black box functions (pure, deterministic):
+--
+--   total_amount(txns)               Σ signed transaction amounts
+--   abs(x)                           absolute value
+--   transactions_in(month)           every Transaction whose effective_posted_date
+--                                    falls inside the calendar month
+--   transactions_in_span(a, s, e)    account a's transactions with effective posted
+--                                    date in [s, e] inclusive
+--   month_rollup(txns)               the category-rollup totals for a month's
+--                                    transactions: {income, expenses, transfers, net}
+--   opening_boundary_date(month)     the last calendar day of the PRIOR month —
+--                                    a month's opening balance is the prior month's
+--                                    end-of-day closing balance
+--   month_end_date(month)            the last calendar day of the month
+--
+--   opening_reading(account, month)  the balance anchoring the month's START: the
+--                                    most recent reported-or-manual snapshot dated
+--                                    within the PRIOR calendar month (manual outranks
+--                                    reported on the same day); null when none. A
+--                                    reading outside that window would smear the
+--                                    delta across several months and read as
+--                                    spurious drift, so it never anchors.
+--   closing_reading(account, month)  the same, dated within the month itself.
+--
+--   covered_by_reconciled_period(t)  true when t's effective posted date lies inside
+--                                    at least one RECONCILED period of t's account:
+--                                      * the month-boundary period — the calendar
+--                                        month span; reconciled when both readings
+--                                        exist and |(closing − opening) − Σ month
+--                                        txns| <= tolerance
+--                                      * a statement — its printed period, inclusive
+--                                        of start_date; reconciled per
+--                                        Statement.reconciled
+--                                    A drifting, incomplete or absent period
+--                                    contributes NO coverage.
+--
+-- Coverage-strict closing: a month-boundary balance pair reconciling is only ONE
+-- way an account's activity can be fully explained — a credit card whose
+-- statements each tie out never gets a month-boundary balance at all, and two
+-- adjacent statements can jointly cover a month even though neither alone spans
+-- it. An account is done for the month when EVERY one of its month transactions
+-- falls inside SOME reconciled period. Its displayed CoverageStatus:
+--   reconciled  — every month transaction covered (needs at least one reconciled period)
+--   no_snapshot — nothing on file to check against (no readings, no statements)
+--   partial     — periods exist but coverage is incomplete: uncovered transactions,
+--                 or an entered period that doesn't tie out
+-- Only accounts WITH activity in the month participate in the readout and the gate.
+
+-- The sync engine captures the institution-reported balance at sync time
+-- (emitted by the sync spec, not modelled here). One reading per account-day;
+-- a same-day capture overwrites.
+rule RecordReportedBalance {
+    when: BalanceReported(account, date, balance)
+    ensures:
+        let existing = BalanceSnapshot{account: account, date: date, source: reported}
+        if exists existing:
+            existing.balance = balance
+        else:
+            BalanceSnapshot.created(account: account, date: date, balance: balance, source: reported)
+}
+
+-- The user enters the focused account's opening and/or closing balance for the
+-- month. The app OWNS the boundary dates (end-of-day semantics: opening = last
+-- day of the prior month, closing = last day of this month) — the user only
+-- ever types figures, never dates.
+rule SetMonthBoundaryBalances {
+    when: SetMonthBoundaryBalances(owner, account, month, opening?, closing?)
+    requires: opening != null or closing != null
+    ensures:
+        if opening != null:
+            ManualBalanceEntered(account: account, date: opening_boundary_date(month), balance: opening)
+        if closing != null:
+            ManualBalanceEntered(account: account, date: month_end_date(month), balance: closing)
+}
+
+-- A user-entered balance reading lands as a manual snapshot. Idempotent per
+-- account-day: re-entering the same day overwrites; distinct dates accumulate
+-- a history.
+rule RecordManualBalance {
+    when: ManualBalanceEntered(account, date, balance)
+    ensures:
+        let existing = BalanceSnapshot{account: account, date: date, source: manual}
+        if exists existing:
+            existing.balance = balance
+        else:
+            BalanceSnapshot.created(account: account, date: date, balance: balance, source: manual)
+}
+
+rule AddStatement {
+    when: AddStatement(owner, account, start_date, start_balance, end_date, end_balance)
+    requires: start_date <= end_date
+    ensures: Statement.created(
+        account: account,
+        start_date: start_date,
+        start_balance: start_balance,
+        end_date: end_date,
+        end_balance: end_balance
+    )
+}
+
+-- A statement is edited as a unit (all four figures re-submitted together).
+rule EditStatement {
+    when: EditStatement(owner, statement, start_date, start_balance, end_date, end_balance)
+    requires: start_date <= end_date
+    ensures:
+        statement.start_date = start_date
+        statement.start_balance = start_balance
+        statement.end_date = end_date
+        statement.end_balance = end_balance
+}
+
+rule DeleteStatement {
+    when: DeleteStatement(owner, statement)
+    ensures: not exists statement
+}
+
+-- Lock the month. The gate is enforced HERE, on the close itself — a stray
+-- request cannot close an unready month regardless of what the interface
+-- disables. Closing an already-closed month re-freezes (the escape from drift:
+-- resolve, then close again).
+rule CloseMonth {
+    when: CloseMonth(owner, month)
+    let txns = transactions_in(month)
+    requires: txns.all(t => t.reviewed)
+    requires: txns.all(t => t.category != null)
+    requires: txns.all(t => covered_by_reconciled_period(t))
+    let totals = month_rollup(txns)
+    ensures:
+        let existing = MonthlyClose{user: owner, month: month}
+        if exists existing:
+            not exists existing
+        MonthlyClose.created(
+            user: owner,
+            month: month,
+            closed_at: now,
+            income: totals.income,
+            expenses: totals.expenses,
+            transfers: totals.transfers,
+            net: totals.net
+        )
+}
+
+rule ReopenMonth {
+    when: ReopenMonth(owner, month)
+    let close = MonthlyClose{user: owner, month: month}
+    requires: exists close
+    ensures: not exists close
+}
+
+------------------------------------------------------------
+-- Invariants
+------------------------------------------------------------
+
+invariant OneClosePerUserMonth {
+    for a in MonthlyCloses:
+        for b in MonthlyCloses:
+            a != b implies not (a.user = b.user and a.month = b.month)
+}
+
+invariant OneSnapshotPerAccountDayPerSource {
+    for a in BalanceSnapshots:
+        for b in BalanceSnapshots:
+            a != b implies not (a.account = b.account and a.date = b.date and a.source = b.source)
+}
+
+invariant StatementSpansForward {
+    for s in Statements:
+        s.start_date <= s.end_date
+}
+
+------------------------------------------------------------
+-- Surfaces
+------------------------------------------------------------
+
+-- The close panel beside the category rollup: the per-account overview, the
+-- completeness gate, and Close/Reopen. Scoped to the calendar month the
+-- workspace is viewing (view state, not an entity).
+surface MonthlyClosePanel {
+    facing owner: User
+
+    provides:
+        CloseMonth(owner, month)
+        ReopenMonth(owner, month)
+
+    @guarantee CoverageLedReadout
+        -- One row per account WITH ACTIVITY in the viewed month, showing its
+        -- CoverageStatus, its uncovered-transaction count and first uncovered
+        -- date when partial, and — only when the account has a single entered
+        -- period (month-boundary balances, no statements) — the one "off by $X"
+        -- difference. A statement-covered account has no single figure to blame.
+
+    @guarantee GateReadout
+        -- The gate shows what blocks the close: unreviewed count, uncategorized
+        -- count, and whether every account's coverage is reconciled. Ready
+        -- means all three pass.
+
+    @guarantee DriftSurfacedNeverCorrected
+        -- A closed month whose current net no longer matches the frozen net is
+        -- flagged as drift (frozen vs current, side by side). The system never
+        -- silently adjusts either figure; the user resolves and may re-close.
+}
+
+-- Drilling into one account opens the focused reconcile card: the
+-- month-boundary balance pair (app-owned dates, prefilled from the readings on
+-- file) and the account's statements overlapping the month, each with its own
+-- verdict.
+surface AccountReconcileFocus {
+    facing owner: User
+    context account: Account
+
+    exposes:
+        account.name
+        for s in account.statements:
+            s.start_date
+            s.start_balance
+            s.end_date
+            s.end_balance
+            s.reconciled
+            s.difference
+
+    provides:
+        SetMonthBoundaryBalances(owner, account, month, opening?, closing?)
+        AddStatement(owner, account, start_date, start_balance, end_date, end_balance)
+        EditStatement(owner, statement, start_date, start_balance, end_date, end_balance)
+            when statement in account.statements
+        DeleteStatement(owner, statement)
+            when statement in account.statements
+
+    @guarantee CoverageHeadline
+        -- The card's headline is the account-level coverage verdict. It also
+        -- distinguishes "no period spans this activity" (add a period) from "a
+        -- period spans it but doesn't tie out" (fix that period, don't add
+        -- another), by additionally computing the gap against every period ON
+        -- FILE regardless of verdict.
+
+    @guarantee BoundaryDatesAppOwned
+        -- The user types two figures; the opening/closing dates are supplied by
+        -- the app (end-of-day, last day of prior month / last day of month).
+}
+
+------------------------------------------------------------
+-- Open Questions
+------------------------------------------------------------
+
+open question "Terminology: the per-transaction review flag is stored and shown as 'reconciled', colliding with account-level balance reconciliation — this spec says 'reviewed'; which term is canonical?"
+open question "AddStatement/EditStatement require start_date <= end_date, but the implementation only checks field PRESENCE (save-statement) — a backwards span is accepted today. Spec bug or code bug?"
+open question "Statement polarity: picking the balance-delta direction closest to tracked activity lets either sign convention tie out — can it mask a genuine drift whose magnitude lands closer to the mirrored delta?"
+open question "An account with NO activity in the month never participates in the gate — should a month be closeable when such an account has entered periods that don't tie out?"
+open question "Re-closing an already-closed month silently overwrites the frozen totals — should re-close require an explicit reopen first?"
+open question "Adjustment-on-drift escape hatch (close with accepted drift, emitting a visible adjustment transaction) is designed but unbuilt — when does it land, and does the gate stay hard until then?"
