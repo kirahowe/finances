@@ -37,6 +37,13 @@ external entity User {
 -- A bank account (synced or manual). Governed by the setup/sync spec.
 external entity Account {
     name: String
+    -- The sign convention of this account's printed statements relative to the
+    -- app's signed-amount convention, declared ONCE per account (decided
+    -- 2026-07-17: explicit polarity replaces the closest-delta guessing
+    -- heuristic). How/where it gets declared is an open question below.
+    -- DIVERGENCE (2026-07-17): the implementation still guesses per statement
+    -- by picking whichever delta direction lands closer to tracked activity.
+    statement_polarity: StatementPolarity
     statements: Statement with account = this
     snapshots: BalanceSnapshot with account = this
 }
@@ -55,7 +62,11 @@ external entity Transaction {
     date: Timestamp                  -- when the purchase happened
     posted_date: Timestamp?          -- provider's posted date (a copied guess for non-Plaid)
     user_posted_date: Timestamp?     -- user correction overlay; the import is never mutated
-    reviewed: Boolean                -- per-row review flag (labelled "reconciled" in the UI)
+    -- The user's row-level reconciliation tick. Decided 2026-07-17: this is the
+    -- SAME concept as period- and account-level reconciliation, at row
+    -- granularity — ticking a row is reconciling it — so the one word is
+    -- deliberate, not a collision.
+    reconciled: Boolean
     category: Category?
 
     -- THE date reconciliation and coverage go by: the user's correction when
@@ -84,6 +95,12 @@ enum SnapshotSource { reported | manual | calculated }
 
 -- Coverage-strict account status for a month (see the coverage notes at Rules).
 enum CoverageStatus { no_snapshot | partial | reconciled }
+
+-- How an account's printed statement balances run relative to the app's
+-- signed-amount convention (inflows +, outflows −). as_signed: the statement's
+-- end − start IS the tracked-activity delta; inverted: the statement runs the
+-- opposite way (typical of credit-card paperwork), so start − end is compared.
+enum StatementPolarity { as_signed | inverted }
 
 ------------------------------------------------------------
 -- Entities and Variants
@@ -121,13 +138,12 @@ entity Statement {
     computed: total_amount(transactions_in_span(account, start_date, end_date))
 
     -- Statement balances are typed from institution paperwork whose sign
-    -- convention can be opposite the app's signed-amount convention. Both
-    -- balance-delta polarities are compared and the one closest to the tracked
-    -- activity is kept, so either printed polarity can tie out without false
-    -- drift.
-    forward_delta: end_balance - start_balance
-    reversed_delta: start_balance - end_balance
-    reported: if abs(forward_delta - computed) <= abs(reversed_delta - computed): forward_delta else: reversed_delta
+    -- convention can be opposite the app's signed-amount convention. The
+    -- account DECLARES its convention once (Account.statement_polarity) and the
+    -- comparison is strict — no guessing, no masking window. (Decided
+    -- 2026-07-17, replacing the closest-delta heuristic; implementation lags,
+    -- see the DIVERGENCE note on Account.)
+    reported: if account.statement_polarity = inverted: start_balance - end_balance else: end_balance - start_balance
 
     difference: reported - computed
     reconciled: abs(difference) <= config.tolerance
@@ -190,6 +206,16 @@ config {
 --                                    spurious drift, so it never anchors.
 --   closing_reading(account, month)  the same, dated within the month itself.
 --
+--   quiet_period_accounts(month)     accounts with NO transactions in the month but
+--                                    with a period on file overlapping it (a boundary
+--                                    reading pair for the month, or a statement)
+--   quiet_periods_reconcile(a, mo)   every period such an account has on file
+--                                    overlapping the month ties out: each overlapping
+--                                    statement reconciles, and when the month-boundary
+--                                    reading pair is complete its delta is within
+--                                    tolerance of ZERO — nothing is tracked, so the
+--                                    bank must report no movement
+--
 --   covered_by_reconciled_period(t)  true when t's effective posted date lies inside
 --                                    at least one RECONCILED period of t's account:
 --                                      * the month-boundary period — the calendar
@@ -212,7 +238,14 @@ config {
 --   no_snapshot — nothing on file to check against (no readings, no statements)
 --   partial     — periods exist but coverage is incomplete: uncovered transactions,
 --                 or an entered period that doesn't tie out
--- Only accounts WITH activity in the month participate in the readout and the gate.
+--
+-- Participation (decided 2026-07-17): the readout and the gate cover accounts
+-- with activity in the month AND quiet accounts with entered periods
+-- overlapping it. A drifting period on a quiet account means the bank saw its
+-- balance move with nothing tracked to explain it — evidence of missing
+-- transactions, exactly what the close exists to catch.
+-- DIVERGENCE (2026-07-17): the implementation's readout and gate are driven
+-- solely by accounts with transactions; quiet accounts are invisible today.
 
 -- The sync engine captures the institution-reported balance at sync time
 -- (emitted by the sync spec, not modelled here). One reading per account-day;
@@ -284,14 +317,17 @@ rule DeleteStatement {
 
 -- Lock the month. The gate is enforced HERE, on the close itself — a stray
 -- request cannot close an unready month regardless of what the interface
--- disables. Closing an already-closed month re-freezes (the escape from drift:
--- resolve, then close again).
+-- disables. Closing an already-closed month re-freezes without an explicit
+-- reopen (decided 2026-07-17): drift is surfaced side-by-side before the user
+-- would re-close, so the overwrite is informed — resolve, then close again.
 rule CloseMonth {
     when: CloseMonth(owner, month)
     let txns = transactions_in(month)
-    requires: txns.all(t => t.reviewed)
+    requires: txns.all(t => t.reconciled)
     requires: txns.all(t => t.category != null)
     requires: txns.all(t => covered_by_reconciled_period(t))
+    -- Quiet accounts with entered periods gate too (see Participation above).
+    requires: quiet_period_accounts(month).all(a => quiet_periods_reconcile(a, month))
     let totals = month_rollup(txns)
     ensures:
         let existing = MonthlyClose{user: owner, month: month}
@@ -351,16 +387,17 @@ surface MonthlyClosePanel {
         ReopenMonth(owner, month)
 
     @guarantee CoverageLedReadout
-        -- One row per account WITH ACTIVITY in the viewed month, showing its
+        -- One row per participating account (activity in the viewed month, or
+        -- a quiet account with entered periods overlapping it), showing its
         -- CoverageStatus, its uncovered-transaction count and first uncovered
         -- date when partial, and — only when the account has a single entered
         -- period (month-boundary balances, no statements) — the one "off by $X"
         -- difference. A statement-covered account has no single figure to blame.
 
     @guarantee GateReadout
-        -- The gate shows what blocks the close: unreviewed count, uncategorized
-        -- count, and whether every account's coverage is reconciled. Ready
-        -- means all three pass.
+        -- The gate shows what blocks the close: unreconciled-row count,
+        -- uncategorized count, and whether every participating account's
+        -- coverage is reconciled. Ready means all three pass.
 
     @guarantee DriftSurfacedNeverCorrected
         -- A closed month whose current net no longer matches the frozen net is
@@ -410,9 +447,15 @@ surface AccountReconcileFocus {
 -- Open Questions
 ------------------------------------------------------------
 
-open question "Terminology: the per-transaction review flag is stored and shown as 'reconciled', colliding with account-level balance reconciliation — this spec says 'reviewed'; which term is canonical?"
+-- Resolved 2026-07-17 (elicitation with the owner):
+--   * The row flag and balance reconciliation are ONE concept ("reconciled") at
+--     different granularities — no rename; the spec merges them.
+--   * Quiet accounts with entered periods DO gate the close (divergence noted).
+--   * Re-close keeps silent-overwrite semantics; no reopen required first.
+--   * Statement polarity becomes an explicit per-account declaration; the
+--     closest-delta heuristic is retired (divergence noted).
+
 open question "AddStatement/EditStatement require start_date <= end_date, but the implementation only checks field PRESENCE (save-statement) — a backwards span is accepted today. Spec bug or code bug?"
-open question "Statement polarity: picking the balance-delta direction closest to tracked activity lets either sign convention tie out — can it mask a genuine drift whose magnitude lands closer to the mirrored delta?"
-open question "An account with NO activity in the month never participates in the gate — should a month be closeable when such an account has entered periods that don't tie out?"
-open question "Re-closing an already-closed month silently overwrites the frozen totals — should re-close require an explicit reopen first?"
+open question "Where is Account.statement_polarity declared — account settings on /setup, or prompted on first statement entry? And how do existing statements migrate off the heuristic?"
+open question "A drifting period on an ACTIVE account whose transactions are all covered by OTHER reconciled periods does not block the close (coverage wins over the contradiction). Intended, or should any drifting entered period block, as it now does for quiet accounts?"
 open question "Adjustment-on-drift escape hatch (close with accepted drift, emitting a visible adjustment transaction) is designed but unbuilt — when does it land, and does the gate stay hard until then?"
