@@ -914,7 +914,9 @@
 (defn save-statement
   "POST /transactions/statement — create or update a statement for the focused account from the
    $stStart/$stStartBal/$stEnd/$stEndBal couriers ($stId set = update, blank = create). Re-patches
-   the panel + closes the modal. Errors on a missing field or no focused account (create)."
+   the panel + closes the modal. Errors (writes nothing) on a missing field, no focused account
+   (create), or a start-date after the end-date — checked before the create/update dispatch, so
+   both branches share the guard."
   [{:keys [db-conn]}]
   (fn [req]
     (handle-edit req
@@ -928,15 +930,21 @@
              end-date   (courier-date (:stEnd signals))
              start-bal  (parse-money (:stStartBal signals))
              end-bal    (parse-money (:stEndBal signals))]
-         (if (and start-date end-date start-bal end-bal (or eid account))
+         (cond
+           (not (and start-date end-date start-bal end-bal (or eid account)))
+           (error-response req "Enter the statement's dates and balances.")
+
+           (.after ^java.util.Date start-date ^java.util.Date end-date)
+           (error-response req "Statement start must be on or before its end.")
+
+           :else
            (do
              (if eid
                (db-statements/update! db-conn eid {:start-date start-date :start-balance start-bal
                                                    :end-date end-date :end-balance end-bal})
                (db-statements/create! db-conn {:account-eid account :start-date start-date :start-balance start-bal
                                                :end-date end-date :end-balance end-bal}))
-             (patch-panel+close-modal! db-conn req month view-st))
-           (error-response req "Enter the statement's dates and balances.")))))))
+             (patch-panel+close-modal! db-conn req month view-st))))))))
 
 (defn delete-statement
   "POST /transactions/statement/delete — delete the statement whose id rides in $stId, re-patch
@@ -976,7 +984,9 @@
              (patch-close-panel! db-conn req month view-st))))))))
 
 (defn reopen-month
-  "POST /transactions/reopen — unlock the current month, then re-patch the panel."
+  "POST /transactions/reopen — unlock the current month, then re-patch the panel. Errors
+   (writes nothing) when the month isn't currently closed, rather than silently no-op'ing
+   through db-reconciliations/reopen-month!."
   [{:keys [db-conn]}]
   (fn [req]
     (handle-edit req
@@ -984,8 +994,11 @@
        (let [signals (r/read-signals req)
              month (signals-month signals)
              view-st (vs/signals->view-state signals)]
-         (db-reconciliations/reopen-month! db-conn month)
-         (patch-close-panel! db-conn req month view-st))))))
+         (if (db-reconciliations/closed? db-conn month)
+           (do
+             (db-reconciliations/reopen-month! db-conn month)
+             (patch-close-panel! db-conn req month view-st))
+           (error-response req "This month isn't closed.")))))))
 
 ;; --- Manual transactions ---------------------------------------------------
 ;; Add a transaction the bank feed didn't import (cash, a missed charge). A modal
