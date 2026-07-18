@@ -7,6 +7,14 @@ ritual*, not generic statement reconciliation. The sync engine's own handoff is
 [`sync-reconciliation-handoff.md`](sync-reconciliation-handoff.md); the design/why for balances is in
 [`sync-reconciliation.md`](sync-reconciliation.md). Cross-session memory key: `project_monthly_close_goal`.
 
+> **2026-07-17 update:** the close workflow now has a behavioural spec —
+> [`../../spec/monthly-close.allium`](../../spec/monthly-close.allium) — and an Allium weed pass
+> changed gate semantics beyond what this doc describes: quiet accounts (entered periods, no month
+> transactions) now gate the close; statement polarity is an explicit per-account /setup setting
+> (the closest-delta heuristic is gone); backwards statement spans and reopen-of-unclosed are
+> rejected. See [`allium-handoff.md`](allium-handoff.md) — where the two disagree, the spec and
+> that handoff win.
+
 **Branch:** `main` (working directly on it). **Do not push.** Commit in logical chunks with `gitp`
 (the `git commit` wrapper) + brief messages; test-drive before each commit
 (`cd backend && clojure -M:test -m kaocha.runner`, `bb lint` from the repo root; `bb e2e` for UI).
