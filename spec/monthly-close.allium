@@ -40,10 +40,11 @@ external entity Account {
     -- The sign convention of this account's printed statements relative to the
     -- app's signed-amount convention, declared ONCE per account (decided
     -- 2026-07-17: explicit polarity replaces the closest-delta guessing
-    -- heuristic). Declared on the account's setup card, alongside the other
-    -- per-account admin settings. When never declared, it defaults by account
-    -- type: credit-type accounts are inverted, everything else as_signed —
-    -- the actual reason the heuristic existed (credit-card paperwork).
+    -- heuristic; implemented same day). Declared on the account's setup card,
+    -- alongside the other per-account admin settings. When never declared, it
+    -- defaults by account type: credit-type accounts are inverted, everything
+    -- else as_signed — the actual reason the heuristic existed (credit-card
+    -- paperwork).
     statement_polarity: StatementPolarity
     statements: Statement with account = this
     snapshots: BalanceSnapshot with account = this
@@ -240,13 +241,14 @@ config {
 --   partial     — periods exist but coverage is incomplete: uncovered transactions,
 --                 or an entered period that doesn't tie out
 --
--- Participation (decided 2026-07-17): the readout and the gate cover accounts
--- with activity in the month AND quiet accounts with entered periods
--- overlapping it. A drifting period on a quiet account means the bank saw its
--- balance move with nothing tracked to explain it — evidence of missing
--- transactions, exactly what the close exists to catch.
--- DIVERGENCE (2026-07-17): the implementation's readout and gate are driven
--- solely by accounts with transactions; quiet accounts are invisible today.
+-- Participation (decided 2026-07-17, implemented same day): the readout and
+-- the gate cover accounts with activity in the month AND quiet accounts with
+-- entered periods overlapping it. A drifting period on a quiet account means
+-- the bank saw its balance move with nothing tracked to explain it — evidence
+-- of missing transactions, exactly what the close exists to catch. For a quiet
+-- account the check is STRICTER than transaction coverage (which is vacuous
+-- with zero transactions): every entered period must itself tie out, and a
+-- complete boundary pair must report no movement.
 
 -- The sync engine captures the institution-reported balance at sync time
 -- (emitted by the sync spec, not modelled here). One reading per account-day;
@@ -457,5 +459,5 @@ surface AccountReconcileFocus {
 --     closest-delta heuristic is retired (divergence noted).
 
 open question "AddStatement/EditStatement require start_date <= end_date, but the implementation only checks field PRESENCE (save-statement) — a backwards span is accepted today. Spec bug or code bug?"
-open question "A drifting period on an ACTIVE account whose transactions are all covered by OTHER reconciled periods does not block the close (coverage wins over the contradiction). Intended, or should any drifting entered period block, as it now does for quiet accounts?"
+open question "A drifting period on an ACTIVE account whose transactions are all covered by OTHER reconciled periods does not block the close (coverage wins over the contradiction). Intended, or should any drifting entered period block, as it now does for quiet accounts? Same tension inside the focused card: its coverage headline reads reconciled for a quiet account with one reconciled and one drifting statement, while the overview row correctly reads partial."
 open question "Adjustment-on-drift escape hatch (close with accepted drift, emitting a visible adjustment transaction) is designed but unbuilt — when does it land, and does the gate stay hard until then?"
