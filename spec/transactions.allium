@@ -1,0 +1,608 @@
+-- allium: 3
+-- transactions.allium
+--
+-- Scope: The transactions-overlay model of the finance aggregator — the ledger's
+-- row grain. Imported transactions are an append-only source of truth; every
+-- user edit is an additive overlay beside the imported facts, never a mutation
+-- of them. Splits promote user-drawn parts to first-class transactions that
+-- replace their parent at the row grain; transfer links pair two rows as one
+-- movement of money; the effective-posted-date chain decides which date every
+-- bucketing read goes by. This spec OWNS the guarantees the monthly-close
+-- spec's external Transaction entity takes on faith (spec/monthly-close.allium
+-- consumes reconciled, category, amount, effective_posted_date and the
+-- split-parent exclusion from here).
+--
+-- Includes: Transaction — import upsert + provider removal, user overlays,
+--   splits as first-class rows, transfer links + rejections, manual entry,
+--   effective description / posted date; the transfer-review boundary.
+-- Excludes:
+--   - The provider sync engine (connections, paging, backoff, re-auth) — a
+--     future sibling spec. This spec receives TransactionImported /
+--     TransactionRemoved as external facts, amounts already normalized to the
+--     signed convention (the per-account inversion is applied at the import
+--     seam, before these triggers fire).
+--   - CSV parsing / column mapping and the import-time duplicate review.
+--   - Category management (Category is external here).
+--   - Reconciliation and monthly close (spec/monthly-close.allium).
+--   - View state: filters, sorting, column layout, pagination, and the
+--     date-basis analysis lens (it re-buckets the table by the plain
+--     transaction date, deliberately ignoring the posted-date override;
+--     reconciliation, coverage and transfer matching never use it).
+--   - The undo/redo command log — generic machinery riding every edit here;
+--     its unreject-on-undo write is the one transfer write not modelled.
+--
+-- Conventions carried from the wider system:
+--   - Transaction amounts are SIGNED: inflows positive, outflows negative.
+--   - Dates are day-granularity.
+--   - Single-user: `facing owner: User` means the sole owner of the ledger.
+
+------------------------------------------------------------
+-- External Entities
+------------------------------------------------------------
+
+external entity User {
+    email: String
+}
+
+-- A bank account (synced or manual). Governed by the setup/sync spec; its
+-- statement and balance structure is declared where it is consumed
+-- (spec/monthly-close.allium).
+external entity Account {
+    name: String
+}
+
+-- A user-defined category. Its type is what transfer de-noising keys on.
+external entity Category {
+    name: String
+    type: CategoryType
+}
+
+------------------------------------------------------------
+-- Value Types
+------------------------------------------------------------
+
+-- One row of the split editor's submitted set. A row whose `part` names a live
+-- part of the transaction being split updates that part in place; any other
+-- row (no part, or a part that no longer exists — e.g. re-submitted after an
+-- undo recreated the family) creates a fresh part.
+value SplitRow {
+    part: Transaction?
+    amount: Decimal              -- signed, same convention as Transaction.amount
+    category: Category?          -- a part may be uncategorized
+    memo: String?
+}
+
+------------------------------------------------------------
+-- Enumerations
+------------------------------------------------------------
+
+enum CategoryType { expense | income | transfer }
+
+------------------------------------------------------------
+-- Entities and Variants
+------------------------------------------------------------
+
+entity Transaction {
+    -- The provider's stable identity for an imported row — the upsert anchor
+    -- that makes a re-import an update, never a duplicate. Absent on
+    -- user-authored rows (manual entries and split parts have no provider
+    -- identity; each is a distinct row, with deliberately no dedup).
+    external_id: String?
+    origin: imported | manual | split_part
+    account: Account
+
+    -- Imported facts (or their user-entered equivalents on manual rows). A
+    -- re-import may update any of these to the provider's current view; no
+    -- user action ever does. posted_date is the provider's posted date — a
+    -- copied guess for providers that supply only one date; only Plaid
+    -- reports a genuinely independent posted date today.
+    amount: Decimal              -- signed: inflows +, outflows −
+    date: Timestamp              -- when the purchase happened
+    posted_date: Timestamp?
+    payee: String?
+    description: String?
+
+    -- User overlays: additive, user-owned, never written by import — so every
+    -- one of them survives every re-import unchanged.
+    user_description: String?    -- shown in place of description when present
+    user_posted_date: Timestamp? -- posted-date correction (family-uniform on splits)
+    reconciled: Boolean          -- the row-level reconciliation tick (consumed by monthly-close)
+    category: Category?
+    split_parent: Transaction?   -- presence marks this row as a split part
+    transfer_pair: Transaction?  -- the other leg, when matched (symmetric)
+    rejected_pairings: Set<Transaction>  -- pairings the user rejected (symmetric);
+                                         -- auto-suggestion never re-proposes them
+
+    parts: Transaction with split_parent = this
+
+    -- A transaction with live parts is excluded from EVERY list and sum — the
+    -- parts replace it at the row grain. Because they sum exactly to it and
+    -- carry its dates, every account/month/statement-span total is unchanged
+    -- to the cent, which is why monthly-close needs no split awareness.
+    is_split_parent: parts.count > 0
+
+    -- THE date every bucketing read goes by (calendar month, statement span,
+    -- coverage, transfer day-matching): the user's correction when present,
+    -- else the provider's posted date, else the transaction date. The imported
+    -- posted_date is never mutated; clearing the override falls back down this
+    -- chain. Declared identically in spec/monthly-close.allium.
+    effective_posted_date: user_posted_date ?? posted_date ?? date
+
+    -- What the Description column shows: the user's override, else the import.
+    effective_description: user_description ?? description
+
+    -- Real spending or income, as opposed to a transfer leg or uncategorized.
+    real_activity: category != null and category.type in {expense, income}
+
+    -- The Hide-transfers toggle removes ONLY matched pairs where neither leg
+    -- is real activity — a mortgage payment matched to its bank-side leg stays
+    -- visible, because hiding it would hide real expense.
+    hidden_transfer: transfer_pair != null and not real_activity and not transfer_pair.real_activity
+
+    -- Surfaced when a re-import changed a split parent's amount after the
+    -- split was drawn: the family no longer sums to the parent. Shown on every
+    -- part row and in the editor; never silently corrected (see the
+    -- non-invariant note in Invariants).
+    split_drift: split_parent != null and total_amount(split_parent.parts) != split_parent.amount
+}
+
+------------------------------------------------------------
+-- Config
+------------------------------------------------------------
+
+config {
+    -- Auto-suggestion pairs legs whose effective posted days are at most this
+    -- far apart — banks post the two legs of one movement within a few days.
+    auto_match_window: Duration = 3.days
+    -- The per-row manual counterpart search casts a much wider net; the user
+    -- is looking at a specific row and judges the candidates personally.
+    manual_candidate_window: Duration = 30.days
+}
+
+------------------------------------------------------------
+-- Rules
+------------------------------------------------------------
+
+-- Black box functions (pure, deterministic):
+--
+--   total_amount(rows)   Σ signed amounts of the given rows — the same summing
+--                        spec/monthly-close.allium uses over transactions.
+--                        Exact decimal arithmetic: split conservation is
+--                        checked to the cent, with NO tolerance (contrast the
+--                        monthly-close reconciliation tolerance).
+
+-- === Import lifecycle =======================================================
+-- TransactionImported / TransactionRemoved are emitted by the sync engine
+-- (future sibling spec) for every provider's rows alike — Plaid
+-- added/modified/removed, Lunchflow pages, CSV imports.
+
+rule ImportTransaction {
+    when: TransactionImported(external_id, account, amount, date, posted_date?, payee?, description?)
+    ensures:
+        let existing = Transaction{external_id}
+        if exists existing:
+            -- Re-import (e.g. a Plaid `modified`): the provider's view of the
+            -- imported facts wins, field by field — but only for fields the
+            -- provider sent; an omitted optional field keeps its stored value
+            -- (append-only: omission is never erasure). The user overlays are
+            -- untouched by construction — this rule cannot name them.
+            existing.account = account
+            existing.amount = amount
+            existing.date = date
+            if posted_date != null:
+                existing.posted_date = posted_date
+            if payee != null:
+                existing.payee = payee
+            if description != null:
+                existing.description = description
+            -- Parts carry COPIES of the parent's identity fields; a re-import
+            -- that moved them re-converges every live part, so no part buckets
+            -- into the wrong month or statement span. The root's posted-date
+            -- override rides along (a part born out of step catches up).
+            -- Amount is deliberately NOT propagated — a changed parent amount
+            -- surfaces as split_drift instead.
+            for part in existing.parts:
+                part.account = account
+                part.date = date
+                if posted_date != null:
+                    part.posted_date = posted_date
+                if payee != null:
+                    part.payee = payee
+                part.user_posted_date = existing.user_posted_date
+        else:
+            Transaction.created(
+                external_id: external_id,
+                origin: imported,
+                account: account,
+                amount: amount,
+                date: date,
+                posted_date: posted_date,
+                payee: payee,
+                description: description,
+                reconciled: false
+            )
+}
+
+-- The provider says the money never happened (e.g. a Plaid `removed`). The row
+-- and everything hanging off it go: parts cascade (each part's transfer pair
+-- unlinked first), and a matched row's partner is unlinked rather than left
+-- pointing at a removed row.
+--
+-- DIVERGENCE (2026-07-17, found while distilling): the implementation
+-- cascades the parts' unlink but does NOT unlink the removed row's OWN
+-- partner — provider.sync/retract-removed! leaves the partner's transfer_pair
+-- dangling, while the twin cascade in delete-manual! unlinks it. The spec
+-- states the intended behaviour; see the open question.
+rule ProviderRemovesTransaction {
+    when: TransactionRemoved(external_id)
+    let t = Transaction{external_id}
+    requires: exists t
+    ensures:
+        for part in t.parts:
+            if part.transfer_pair != null:
+                part.transfer_pair.transfer_pair = null
+            not exists part
+        if t.transfer_pair != null:
+            t.transfer_pair.transfer_pair = null
+        not exists t
+}
+
+-- === Overlay edits ==========================================================
+-- Each writes ONLY its user-owned overlay; the imported facts beside it are
+-- never touched. Any row can be edited — a split part carries its own
+-- overlays exactly like an imported row.
+
+rule SetCategory {
+    when: SetCategory(owner, transaction, category?)
+    ensures: transaction.category = category       -- null clears (back to uncategorized)
+}
+
+rule SetReconciled {
+    when: SetReconciled(owner, transaction, state)
+    ensures: transaction.reconciled = state
+}
+
+-- `text` absent (or blank) clears the override — the row falls back to the
+-- imported description.
+rule SetDescription {
+    when: SetDescription(owner, transaction, text?)
+    ensures: transaction.user_description = text
+}
+
+-- The posted-date correction is FAMILY-UNIFORM: parts carry copies of their
+-- parent's dates, so a divergent override would tear one family across two
+-- statement spans. Setting it on ANY family member converges the whole
+-- family: the write resolves to the family root, then lands on the root and
+-- every live part alike. `date` absent clears the override — every family
+-- member falls back down the effective chain together.
+rule SetPostedDate {
+    when: SetPostedDate(owner, transaction, date?)
+    let root = if transaction.split_parent != null: transaction.split_parent else: transaction
+    ensures:
+        root.user_posted_date = date
+        for part in root.parts:
+            part.user_posted_date = date
+}
+
+-- === Splits =================================================================
+
+-- The split editor is the ONE place amounts change by user hand — conservation
+-- is enforced here and nowhere else re-checks it. `rows` is the editor's full
+-- submitted set (List<SplitRow>, in display order); [] un-splits: every part
+-- is removed and the parent returns to the lists, its kept category overlay
+-- restored with it.
+rule EditSplits {
+    when: EditSplits(owner, transaction, rows)
+    -- Depth is 1: a part is never itself split — a part's "edit split" opens
+    -- the editor on the family root instead.
+    requires: transaction.split_parent = null
+    -- Splitting a matched leg would hide a matched transfer from every list:
+    -- unmatch first, then re-match the relevant part.
+    requires: rows.count > 0 implies transaction.transfer_pair = null
+    requires: rows.count = 0 or rows.count >= 2
+    requires: rows.all(r => r.amount != 0)
+    -- Conservation, exact to the cent: the rows must sum to the parent's live
+    -- imported amount. No tolerance.
+    requires: rows.count > 0 implies total_amount(rows) = transaction.amount
+    let live_parts = transaction.parts
+    ensures:
+        -- The parent has no reconcile tick of its own once split (each part
+        -- owns one); cleared unconditionally so a stale tick can't resurface
+        -- on a later un-split — the user re-reconciles. The parent's CATEGORY
+        -- overlay is deliberately kept, so un-splitting restores it.
+        transaction.reconciled = false
+        for r in rows:
+            if r.part != null and r.part in live_parts:
+                -- Update in place: amount, category, memo. The part's
+                -- reconcile tick, transfer link and identity are NOT mentioned
+                -- here — an editor edit cannot clobber per-part state set
+                -- elsewhere. (Editing a part's amount deliberately does not
+                -- clear its tick: the editor is explicit and the user is
+                -- looking right at it.)
+                r.part.amount = r.amount
+                r.part.category = r.category
+                r.part.description = r.memo
+            else:
+                Transaction.created(
+                    origin: split_part,
+                    split_parent: transaction,
+                    account: transaction.account,
+                    date: transaction.date,
+                    posted_date: transaction.posted_date,
+                    payee: transaction.payee,
+                    user_posted_date: transaction.user_posted_date,
+                    amount: r.amount,
+                    category: r.category,
+                    description: r.memo,
+                    reconciled: false
+                )
+        -- A live part not named by any row is removed — its transfer pair
+        -- unlinked first, so the partner isn't left pointing at a removed row.
+        for part in live_parts:
+            if not rows.any(r => r.part = part):
+                if part.transfer_pair != null:
+                    part.transfer_pair.transfer_pair = null
+                not exists part
+    @guidance
+        -- Sibling parts keep the editor's row order as a stable display order.
+}
+
+-- === Manual entry ===========================================================
+
+-- A user-entered transaction is a first-class row: once created it
+-- categorizes, reconciles, splits and matches exactly like an imported one —
+-- only its provenance and its direct create/delete lifecycle differ. Each
+-- creation is a distinct row (no dedup): entering the same figures twice
+-- deliberately makes two rows. The amount is entered in the app's signed
+-- convention and stored exactly as given — the per-account import inversion
+-- is for provider data and is never applied here.
+rule AddManualTransaction {
+    when: AddManualTransaction(owner, account, amount, date, payee?, description?, category?)
+    ensures: Transaction.created(
+        origin: manual,
+        account: account,
+        amount: amount,
+        date: date,
+        posted_date: date,       -- the single entered date doubles as the posted guess
+        payee: payee,
+        description: description,
+        category: category,
+        reconciled: false
+    )
+}
+
+-- Only a MANUAL row can be user-deleted: an imported row's lifecycle belongs
+-- to its provider (removal arrives via TransactionRemoved), and a part's to
+-- its parent's split editor. Deleting a split manual parent cascades its
+-- parts the same way provider removal does.
+rule DeleteManualTransaction {
+    when: DeleteManualTransaction(owner, transaction)
+    requires: transaction.origin = manual
+    ensures:
+        for part in transaction.parts:
+            if part.transfer_pair != null:
+                part.transfer_pair.transfer_pair = null
+            not exists part
+        if transaction.transfer_pair != null:
+            transaction.transfer_pair.transfer_pair = null
+        not exists transaction
+}
+
+-- === Transfer links =========================================================
+-- A transfer link pairs two rows that are the same money moving between two
+-- of the user's accounts. Linking is purely de-noising: it never changes
+-- either leg's category. Confirming and rejecting validate the same way (a
+-- rejection can only describe a real candidate): two distinct rows, different
+-- accounts, equal-and-opposite non-zero amounts, and neither row a split
+-- parent — a parent is hidden from every list, so it can never be a leg;
+-- match one of its parts instead (part-to-part matches across accounts work
+-- like any other legs).
+
+rule ConfirmTransferMatch {
+    when: ConfirmTransferMatch(owner, a, b)
+    requires: a != b
+    requires: a.account != b.account
+    requires: a.amount != 0 and a.amount + b.amount = 0
+    requires: not a.is_split_parent and not b.is_split_parent
+    requires: a.transfer_pair = null and b.transfer_pair = null
+    ensures:
+        a.transfer_pair = b
+        b.transfer_pair = a
+        -- An explicit link wins over a prior rejection.
+        a.rejected_pairings.remove(b)
+        b.rejected_pairings.remove(a)
+}
+
+rule UnmatchTransfer {
+    when: UnmatchTransfer(owner, transaction)
+    let partner = transaction.transfer_pair
+    requires: partner != null
+    ensures:
+        transaction.transfer_pair = null
+        partner.transfer_pair = null
+}
+
+-- Recorded symmetrically so auto-suggestion never re-proposes the pair. If
+-- the two are currently linked the link is removed — a pair can't be
+-- confirmed and rejected at once. (Recovery from a mistaken rejection is the
+-- manual counterpart search, which ignores rejections, followed by Confirm —
+-- which clears it.)
+rule RejectTransferMatch {
+    when: RejectTransferMatch(owner, a, b)
+    requires: a != b
+    requires: a.account != b.account
+    requires: a.amount != 0 and a.amount + b.amount = 0
+    requires: not a.is_split_parent and not b.is_split_parent
+    let were_linked = (a.transfer_pair = b)
+    ensures:
+        a.rejected_pairings.add(b)
+        b.rejected_pairings.add(a)
+        if were_linked:
+            a.transfer_pair = null
+            b.transfer_pair = null
+}
+
+------------------------------------------------------------
+-- Invariants
+------------------------------------------------------------
+
+-- Deliberate NON-invariant: "a split's parts sum to their parent" is enforced
+-- at edit time (EditSplits) but NOT preserved by the system — a re-import may
+-- change the parent's amount afterwards. The contradiction is SURFACED
+-- (split_drift on every part row and in the editor) and never silently
+-- corrected, in either direction.
+
+invariant UniqueImportIdentity {
+    for a in Transactions:
+        for b in Transactions:
+            (a != b and a.external_id != null and b.external_id != null)
+                implies a.external_id != b.external_id
+}
+
+invariant ImportedRowsCarryProviderIdentity {
+    for t in Transactions:
+        t.origin = imported implies t.external_id != null
+}
+
+invariant SplitDepthIsOne {
+    for t in Transactions:
+        t.split_parent != null implies t.split_parent.split_parent = null
+}
+
+invariant PartProvenanceMatchesParentRef {
+    for t in Transactions:
+        (t.origin = split_part implies t.split_parent != null)
+        and (t.split_parent != null implies t.origin = split_part)
+}
+
+-- Parts carry COPIES of the parent's identity fields, kept convergent by
+-- EditSplits (at creation), SetPostedDate (family-uniform override) and
+-- ImportTransaction (re-propagation after a re-import moves the parent).
+-- Stated over the always-present fields; the same convergence holds for
+-- posted_date, payee and user_posted_date.
+invariant SplitPartsShareParentIdentity {
+    for t in Transactions:
+        t.split_parent != null implies
+            t.account = t.split_parent.account and t.date = t.split_parent.date
+}
+
+invariant SplitParentNeverATransferLeg {
+    for t in Transactions:
+        t.is_split_parent implies t.transfer_pair = null
+}
+
+invariant TransferLinkSymmetric {
+    for t in Transactions:
+        t.transfer_pair != null implies t.transfer_pair.transfer_pair = t
+}
+
+invariant TransferRejectionSymmetric {
+    for a in Transactions:
+        for b in a.rejected_pairings:
+            a in b.rejected_pairings
+}
+
+invariant NeverBothLinkedAndRejected {
+    for t in Transactions:
+        t.transfer_pair != null implies t.transfer_pair not in t.rejected_pairings
+}
+
+------------------------------------------------------------
+-- Surfaces
+------------------------------------------------------------
+
+-- The transactions workspace (`/`): the dense ledger table. One row per
+-- transaction EXCEPT split parents — a family's parts are ordinary rows
+-- (they filter, sort, count and paginate independently; sharing a date, they
+-- cluster naturally), and the parent they replace appears nowhere. Every
+-- count, rollup and total in the workspace therefore ties out with the rows
+-- on screen.
+surface TransactionsWorkspace {
+    facing owner: User
+    context row: Transaction where not is_split_parent
+
+    exposes:
+        SplitRow                  -- the shape the split editor round-trips
+        row.date
+        row.amount
+        row.account.name
+        row.payee
+        row.effective_description
+        row.effective_posted_date
+        row.category
+        row.reconciled
+        row.origin
+        row.split_parent          -- the split marker on a part; opens the parent's editor
+        row.split_drift
+        row.transfer_pair         -- the badge + partner display on a matched leg
+        row.hidden_transfer       -- server-computed; the Hide-transfers toggle only reads it
+        row.description           -- the imported original, beside the override
+        row.posted_date           -- ditto (the "Imported: <date>" hint)
+
+    provides:
+        SetCategory(owner, row, category?)
+        SetReconciled(owner, row, state)
+        SetDescription(owner, row, text?)
+        SetPostedDate(owner, row, date?)
+        EditSplits(owner, row, rows)
+            when row.split_parent = null
+        UnmatchTransfer(owner, row)
+            when row.transfer_pair != null
+        AddManualTransaction(owner, account, amount, date, payee?, description?, category?)
+        DeleteManualTransaction(owner, row)
+            when row.origin = manual
+
+    @guarantee ImportedFactsRemainVisible
+        -- An override never hides what was imported: the imported description
+        -- and posted date stay retrievable beside their overrides, and a
+        -- manually-set posted date is marked as manual.
+
+    @guarantee AmountsChangeOnlyByImportOrSplitEditor
+        -- No workspace action edits a stored amount. Imported amounts change
+        -- only when the provider re-imports; part amounts only through
+        -- EditSplits (conservation is checked in exactly one place); a manual
+        -- row's amount is fixed at creation — delete and re-add to correct it.
+
+    @guarantee DriftSurfacedNeverCorrected
+        -- split_drift is flagged on every affected part row and in the split
+        -- editor; the system never adjusts either side to make a family
+        -- re-balance.
+
+    @guidance
+        -- A part's "edit split" action opens the split editor on its PARENT
+        -- (the family root) — the depth-1 rule made visible.
+}
+
+-- The transfer-review boundary: suggestions are COMPUTED, reviewed and only
+-- then written — nothing about a suggestion persists until the user confirms
+-- or rejects it, and there is no blind auto-linking.
+surface TransferMatchReview {
+    facing owner: User
+
+    provides:
+        ConfirmTransferMatch(owner, a, b)
+        RejectTransferMatch(owner, a, b)
+
+    @guarantee ConservativeSuggestions
+        -- Auto-suggested pairs: equal-and-opposite non-zero amounts, different
+        -- accounts, effective posted days at most config.auto_match_window
+        -- apart, neither leg already matched, neither leg real activity
+        -- (expense/income is never auto-suggested), pair not previously
+        -- rejected — and each row appears in at most one suggestion (closest
+        -- day gap wins). Split parents are never in the pool; parts are.
+
+    @guarantee ManualSearchIsWider
+        -- The per-row counterpart search relaxes what auto-suggestion won't:
+        -- window config.manual_candidate_window, real-activity legs INCLUDED
+        -- (a mortgage payment is matched explicitly), previously rejected
+        -- pairs INCLUDED — explicit search is how a mistaken rejection is
+        -- recovered. Still requires equal-and-opposite amounts, different
+        -- accounts and an unmatched counterpart.
+}
+
+------------------------------------------------------------
+-- Open Questions
+------------------------------------------------------------
+
+open question "Provider removal of a transfer-matched row leaves the partner's transfer_pair pointing at the removed row (provider.sync/retract-removed! has no partner unlink), while the twin cascade in delete-manual! unlinks it. The spec says unlink — code bug to fix, or is the dangling link somehow intended?"
+open question "A re-import can change a CONFIRMED transfer leg's amount or account, silently breaking the equal-and-opposite / different-accounts properties the match was validated against. Split families surface the analogous contradiction as split_drift — should a matched pair drift visibly the same way, instead of staying invisibly wrong?"
